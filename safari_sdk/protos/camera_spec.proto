@@ -1,0 +1,98 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos;
+
+// Intrinsic properties of an optical sensor with a 2D image result.
+message PinholeCamera {
+  // Camera matrix:
+  //    |  fx   0   cx |
+  //    |   0  fy   cy |
+  //    |   0   0    1 |
+  // Transforms points from the image plane into pixels.
+  optional double fx = 1;  // Focal length in x.
+  optional double fy = 2;  // Focal length in y.
+  optional double cx = 3;  // Center of projection in x.
+  optional double cy = 4;  // Center of projection in y.
+
+  // Dimensions of the image array in pixels.
+  optional int32 image_width = 9;    // Number of image columns.
+  optional int32 image_height = 10;  // Number of image rows.
+
+  // Field of view angle, measured radially in the canonical (distorted) image
+  // plane.
+  //
+  // The FOV angle is a radial limit (from the camera’s principal ray) where the
+  // distortion function starts failing to describe the optics present.
+  optional double fov_radial_radians = 6;
+
+  // https://en.wikipedia.org/wiki/Distortion_(optics)
+  //
+  // Each distortion model maps a ray (or point in the normalized image plane)
+  // to a pixel in the canonical (distorted) image plane.
+  //
+  // (x,y) are the intersection of the ray with the z=1 plane.
+  // (u,v) are the distorted coordinates in the canonical image plane.
+  //
+  // The field of view must be less than 180 degrees in this type of model.
+
+  // Parameters for Brown-Conrady distortion.
+  //
+  // r = |(x,y)|
+  // f(r) = (1 + k1 r^2 + k2 r^4 + k3 r^6) / (1 + k4 r^2 + k5 r^4 + k6 r^6)
+  // u = x * f
+  // v = y * f
+  // u += 2 p1 xy + p2(r^2 + 2 x^2)
+  // v += 2 p2 xy + p1(r^2 + 2 y^2)
+  message BrownConradyDistortion {
+    // Radial coefficients.
+    optional double k1 = 1;
+    optional double k2 = 2;
+    optional double k3 = 3;
+    optional double k4 = 4;
+    optional double k5 = 5;
+    optional double k6 = 6;
+
+    // Decentering coefficients.
+    optional double p1 = 7;
+    optional double p2 = 8;
+  }
+
+  // Kannala-Brandt is the distortion model used in OpenCV for a fisheye camera.
+  //
+  // It models only radial distortion.  It operates on the angle, θ, between the
+  // ray and the view direction.
+  //
+  // r = |(x,y)|
+  // θ = atan(r)
+  // f(θ) = θ(1 + k1 θ^2 + k2 θ^4 + k3 θ^6 + k4 θ^8)
+  // u = (f/r) x
+  // v = (f/r) y
+  message KannalaBrandtDistortion {
+    optional double k1 = 1;
+    optional double k2 = 2;
+    optional double k3 = 3;
+    optional double k4 = 4;
+  }
+
+  oneof distortion_model {
+    BrownConradyDistortion brown_conrady = 7;
+    KannalaBrandtDistortion kannala_brandt = 8;
+  }
+
+  reserved 5, 13;
+  reserved "image_size";
+}

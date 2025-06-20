@@ -1,0 +1,55 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos.logging;
+
+enum AudioFormat {
+  AUDIO_FORMAT_UNKNOWN = 0;
+  AUDIO_FORMAT_WEBM = 1;
+  AUDIO_FORMAT_MP3 = 2;
+  // Waveform audio file format. The audio data contains the bytes of a WAV
+  // file. The actual encoding is stored within the header bytes; typically this
+  // will be LPCM for storing uncompressed audio.
+  AUDIO_FORMAT_WAV = 3;
+}
+
+message AudioMetadata {
+  // required for audio transcription with SAS.
+  optional float sample_rate_hz = 1;
+  optional int32 channel_count = 2;
+  optional AudioFormat format = 3;
+}
+
+message Duration {
+  // Signed seconds of the span of time. Must be from -315,576,000,000
+  // to +315,576,000,000 inclusive. Note: these bounds are computed from:
+  // 60 sec/min * 60 min/hr * 24 hr/day * 365.25 days/year * 10000 years
+  optional int64 seconds = 1;
+
+  // Signed fractions of a second at nanosecond resolution of the span
+  // of time. Durations less than one second are represented with a 0
+  // `seconds` field and a positive or negative `nanos` field. For durations
+  // of one second or more, a non-zero value for the `nanos` field must be
+  // of the same sign as the `seconds` field. Must be from -999,999,999
+  // to +999,999,999 inclusive.
+  optional int32 nanos = 2;
+}
+
+message Audio {
+  optional AudioMetadata metadata = 1;
+  optional Duration duration = 2;
+  optional bytes data = 3;
+}

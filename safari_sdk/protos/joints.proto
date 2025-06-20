@@ -1,0 +1,102 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos;
+
+import "safari_sdk/protos/label.proto";
+
+// Joints abstracts information about any kinematics chain or multiple
+// kinematics chains. Each repeated field covers an aspect of the joints. For a
+// single repeated field, the number of elements is either zero, which denotes
+// no information, or the number of simple joint (1d revolute or prismatic).
+//
+// When used as logging payload, it is recommended to have consistency on the
+// availability of fields in the same log stream, i.e. a single log stream would
+// always has some fields (e.g. position and velocity) but not others.
+//
+// This type can be used as both commands to and states from robot.
+
+// Although named Joints, this message can also represent Actuators.
+message Joints {
+  // Position of joints. Depending on joint type, unit is meters or radians.
+  repeated double positions = 1 [packed = true];
+
+  // Velocity of joints. Depending on joint type, unit is m/s or rad/s.
+  repeated double velocities = 2 [packed = true];
+
+  // Acceleration of joints. Depending on joint type, unit is m/s^2 or rad/s^2.
+  repeated double accelerations = 3 [packed = true];
+
+  // Jerk of joints. Depending on joint type, unit is m/s^3 or rad/s^3.
+  repeated double jerks = 4 [packed = true];
+
+  // Force or torques at the joints (applied or measured). Unit is N or N.m.
+  repeated double force_torques = 5 [packed = true];
+
+  // Current to joint accuators. Unit is ampere.
+  repeated double currents = 6 [packed = true];
+
+  // Temperature of joint actuators. Unit in Celsius degree (C).
+  repeated double temperature = 7 [packed = true];
+
+  // Proportional gain which determines the joint stiffness.
+  // High kp could cause instability from overshotting and oscillation.
+  // Sometimes referred to as position_gain or stiffness.
+  repeated double kps = 8 [packed = true];
+
+  // Derivative gain which is the damping effects on the joint.
+  // Increasing kd reduces oscillation.
+  // Sometimes referred to as velocity_gain or damping.
+  repeated double kds = 9 [packed = true];
+
+  // Input voltage (bus voltage) to each joint. Unit is Volt.
+  repeated double bus_voltages = 11 [packed = true];
+
+  // The names of the joints.
+  // For platforms that publish joint names with other joint data.
+  // Otherwise, consider using `joint_names` in JointsTrajectory below.
+  repeated string names = 12;
+
+  reserved 10;
+}
+
+// A list of Joints messages which represent a temporal sequence of states.
+message JointsTrajectory {
+  // The sequence of joint states which represent the trajectory.
+  repeated Joints points = 1;
+
+  // The time in nanosecond from the point in the trajectory. The length of this
+  // field should be the same as the length of points. The first element can be
+  // a placeholder value if not applicable.
+  repeated int64 time_from_previous_nsec = 2 [packed = true];
+
+  // Optional. The name of the trajectory to distinguish different trajectories
+  // in the same topic stream.
+  optional string trajectory_name = 3;
+
+  // Start time is when the first point in the trajectory should take effect.
+  optional int64 start_time_nsec = 4;
+
+  // Optional. The names of the joints, assuming identical for all points in the
+  // trajectory.
+  repeated string joint_names = 5;
+
+  // Optional additional metadata.
+  message Metadata {
+    optional DomainTimestamp domain_timestamp = 1;
+  }
+  optional Metadata metadata = 6;
+}

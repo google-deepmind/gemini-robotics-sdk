@@ -1,0 +1,43 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos;
+
+// A transform describes the relationship between two frames or coordinate
+// systems. It provides the instructions on how to transform a point or vector
+// from one frame to another. It is considered as an operation, describing how
+// to move between coordinate systems.
+message Transform {
+  // The translation, len(translation_meters_xyz) == 3, in meters.
+  repeated double translation_meters_xyz = 1 [packed = true];
+
+  // The rotation as a quaternion len(rotation_xyzw) == 4.
+  repeated double rotation_xyzw = 2 [packed = true];
+
+  // translation_meters_xyz and rotation_xyzw forms the dst_transform_src
+  // matrix. It represents a transform between two coordinate frames in free
+  // space.
+  // A point in the source frame: point_src
+  // The corresponding point in the destination frame: point_dst
+  // point_dst = dst_transform_src * point_src
+  optional string source_frame_id = 3;
+  optional string destination_frame_id = 4;
+}
+
+// Wrapper message for a list of poses.
+message Transforms {
+  repeated Transform transforms = 1;
+}

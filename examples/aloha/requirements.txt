@@ -1,0 +1,4 @@
+grpcio
+tensorflow
+opencv-python
+gymnasium

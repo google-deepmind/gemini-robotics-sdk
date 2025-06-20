@@ -1,0 +1,71 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos;
+
+// A descriptive proto for image storage.  This proto explicitly splits out the
+// pixel description for its primitive type, number of channels, and channel
+// order, where the latter two are described jointly.  The image producer
+// configures the metadata for the user interpretability. Moreover, this proto
+// can describe a raw image and, if/when a compression type enum is added, an
+// encoded image.
+message Image {
+  message PixelType {
+    enum PixelPrimitive {  // Per channel.
+      UNSPECIFIED_PIXEL_PRIMITIVE = 0;
+      UCHAR8 = 1;
+      UINT16 = 2;
+    }
+    enum ChannelType1 {
+      UNSPECIFIED_CHANNEL_TYPE_1 = 0;
+      MONO = 1;
+      DEPTH = 2;
+    }
+    enum ChannelType3 {
+      UNSPECIFIED_CHANNEL_TYPE_3 = 0;
+      RGB = 1;
+    }
+    enum ChannelType4 {
+      UNSPECIFIED_CHANNEL_TYPE_4 = 0;
+      RGBA = 1;
+    }
+
+    // Image compression type.
+    enum Compression {
+      NO_COMPRESSION = 0;
+      JPEG = 1;
+      PNG = 2;
+    }
+
+    optional PixelPrimitive pixel_primitive = 1;
+
+    oneof channel_oneof {
+      ChannelType1 channel_type_1 = 2;
+      ChannelType3 channel_type_3 = 3;
+      ChannelType4 channel_type_4 = 4;
+    }
+
+    optional Compression compression = 5;
+  }
+
+  // The cols (width) and rows (height) of the image.
+  optional int32 cols = 1;
+  optional int32 rows = 2;
+
+  optional PixelType pixel_type = 3;
+
+  optional bytes data = 4;
+}

@@ -1,0 +1,36 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos;
+
+// A pose describes the position and orientation of an object or frame in 3D
+// space relative to a reference frame. It's considered as a state, describing
+// where something is in the reference frame.
+message Pose {
+  // The position, len(position_meters_xyz) == 3, in meters.
+  repeated double position_meters_xyz = 1 [packed = true];
+
+  // The orientation as a quaternion len(orientation_xyzw) == 4.
+  repeated double orientation_xyzw = 2 [packed = true];
+
+  // source_frame_id is also known as the refernce frame.
+  optional string source_frame_id = 3;
+}
+
+// Wrapper message for a list of poses.
+message Poses {
+  repeated Pose poses = 1;
+}

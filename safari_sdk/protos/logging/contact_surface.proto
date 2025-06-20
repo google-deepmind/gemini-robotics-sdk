@@ -1,0 +1,54 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos.logging;
+
+// Observed sensor data from contact surface, which could be end-effector (ie.
+// finger surface in a dextrous hand), electronic skin, or other surfaces.
+message ContactSurface {
+  // The names of the site of the contact surface.
+  repeated string site_names = 1;
+
+  // Each of the following fields should have the same length as the number of
+  // sites.
+
+  // Force or torques; unit is N or N.m.
+  // If the sensor is 3D, then the coordinate frame is right-handed, where Z
+  // corresponds to the thumb and is perpendicular to the contact surface site.
+  // If the sensor is 1D, then only fz is populated representing the force /
+  // force torque perpendicular to the contact surface site.
+  message Force3D {
+    optional double fx = 1;
+    optional double fy = 2;
+    optional double fz = 3;
+  }
+
+  // Force or torques observed at the contact surface sites. This is different
+  // from the force torques (observed or commanded) at the underneath joint or
+  // actuator.
+  repeated Force3D force_torques = 2;
+
+  // Temperature observed at the contact surface sites. Unit in Celsius degree
+  // (C). This is different from the temperature of the underneath joint or
+  // actuator.
+  repeated double temperature = 3 [packed = true];
+
+  // With Force Sensing Resistor (FSR) based tactile sensor, the "raw" reading
+  // is individual digit per contact surface site from which the force data for
+  // each site is approximated. The approximation quality depends on
+  // calibration. Hence, prefers to also log the raw digits whenever available.
+  repeated double tactile_digits = 4 [packed = true];
+}

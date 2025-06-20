@@ -1,0 +1,210 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+
+syntax = "proto2";
+
+package safari_sdk.protos.logging;
+
+import "safari_sdk/protos/label.proto";
+
+message MachineInfo {
+  message CPUInfo {
+    optional uint32 physical_cores = 1;  // Number of physical cores
+    optional uint32 logical_cores = 2;   // Number of logical cores
+    optional string model_name = 3;      // CPU model name
+    // Total CPU usage percentage ([0, 100])
+    optional float utilization_percent = 5;
+    repeated float per_cpu_utilization_percent = 6 [packed = true];
+
+    message CPUTimes {  // Time spent by a CPU in seconds
+      optional float user = 1;
+      optional float system = 2;
+      optional float idle = 3;
+      optional float nice = 4;
+      optional float iowait = 5;
+      optional float irq = 6;
+      optional float softirq = 7;
+      optional float steal = 8;
+      optional float guest = 9;
+      optional float guest_nice = 10;
+    }
+
+    optional CPUTimes cpu_times = 7;
+    repeated CPUTimes per_cpu_times = 8;
+
+    message CPUStats {
+      optional uint64 ctx_switches = 1;
+      optional uint64 interrupts = 2;
+      optional uint64 soft_interrupts = 3;
+      optional uint64 syscalls = 4;
+    }
+    optional CPUStats cpu_stats = 9;
+
+    message CPUFrequency {
+      optional float current = 1;  // Current CPU frequency in Hz
+      optional float min = 2;      // Minimum supported CPU frequency in Hz
+      optional float max = 3;      // Maximum supported CPU frequency in Hz
+    }
+
+    optional CPUFrequency cpu_frequency = 10;
+    repeated CPUFrequency per_cpu_frequency = 11;
+
+    message LoadStats {
+      optional float load_avg1_min = 1;
+      optional float load_avg5_min = 2;
+      optional float load_avg15_min = 3;
+    }
+    optional LoadStats load_avg = 12;  // Machine load statistics (like `top`)
+  }
+
+  message LinuxInfo {
+    optional string platform = 1;
+    optional string kernel = 2;
+    optional string linux_version = 3;
+    optional string hostname = 4;
+    optional string architecture = 5;
+    // Environment variables exposed to the process collecting the data.
+    map<string, string> env_variables = 6;
+  }
+
+  message VirtualMemoryInfo {
+    optional uint64 total = 1;      // Total physical memory (bytes)
+    optional uint64 available = 2;  // Available memory (bytes)
+    optional float percent = 3;     // Memory usage percentage
+    optional uint64 used = 4;       // Used memory (bytes)
+    optional uint64 free = 5;       // Free memory (bytes)
+    optional uint64 active = 6;     // Free memory (bytes)
+    optional uint64 inactive = 7;   // Free memory (bytes)
+    optional uint64 buffers = 8;    // Free memory (bytes)
+    optional uint64 cached = 9;     // Free memory (bytes)
+    optional uint64 shared = 10;    // Free memory (bytes)
+    optional uint64 slab = 11;      // Free memory (bytes)
+  }
+
+  message SwapMemoryInfo {
+    optional uint64 total = 1;   // Total physical memory (bytes)
+    optional float percent = 3;  // Memory usage percentage
+    optional uint64 used = 4;    // Used memory (bytes)
+    optional uint64 free = 5;    // Free memory (bytes)
+    optional uint64 sin = 6;     // Free memory (bytes)
+    optional uint64 sout = 7;    // Free memory (bytes)
+  }
+
+  message DiskInfo {
+    message Partition {
+      optional string device = 1;  // Device identifier
+      optional string mountpoint = 2;
+      optional string fstype = 3;  // File system type
+      optional string opts = 4;    // Mount options
+      optional uint32 maxfile = 5;
+      optional uint32 maxpath = 6;
+      optional uint64 total = 7;    // Total size (bytes)
+      optional uint64 used = 8;     // Used space (bytes)
+      optional uint64 free = 9;     // Free space (bytes)
+      optional float percent = 10;  // Usage percentage
+    }
+
+    repeated Partition partitions = 1;
+
+    message DiskIOStats {
+      optional uint64 read_count = 1;
+      optional uint64 write_count = 2;
+      optional uint64 read_bytes = 3;
+      optional uint64 write_bytes = 4;
+      optional uint64 read_time_milliseconds = 5;
+      optional uint64 write_time_milliseconds = 6;
+      optional uint64 busy_time_milliseconds = 7;
+      optional uint64 read_merged_count = 8;
+      optional uint64 write_merged_count = 9;
+    }
+    optional DiskIOStats io_stats = 2;
+  }
+
+  message UserInfo {
+    optional string name = 1;
+    optional string terminal = 2;
+    optional string host = 3;
+    optional DomainTimestamp started = 4;
+  }
+
+  message NetworkInfo {
+    message InterfaceInfo {
+      optional string name = 1;  // Interface name (e.g., "eth0", "Wi-Fi")
+      optional bool is_up = 2;   // True if interface is up
+      optional int32 mtu = 3;    // Maximum transmission unit
+      optional string mac_address = 4;  // Hardware MAC address (if available)
+
+      repeated string ip_addresses = 5;  // List of IP addresses
+      repeated string netmasks = 6;      // Corresponding netmasks
+
+      // Network statistics
+      optional uint64 bytes_sent = 7;
+      optional uint64 bytes_recv = 8;
+      optional uint64 packets_sent = 9;
+      optional uint64 packets_recv = 10;
+      optional uint64 errin = 11;
+      optional uint64 errout = 12;
+      optional uint64 dropin = 13;
+      optional uint64 dropout = 14;
+    }
+
+    repeated InterfaceInfo interfaces = 1;
+  }
+
+  message SensorInfo {
+    message TemperatureSensor {
+      optional string sensor_type = 1;
+      optional string sensor_name = 2;
+      optional float temperature = 3;           // C
+      optional float temperature_high = 4;      // C
+      optional float temperature_critical = 5;  // C
+    }
+    repeated TemperatureSensor temperature_sensors = 1;
+  }
+
+  message ProcessInfo {
+    optional string status = 1;
+    optional uint32 cpu_num = 2;
+    optional uint64 pid = 3;
+    optional string cmdline = 4;
+    optional DomainTimestamp create_time = 5;
+    optional float cpu_percent = 6;
+    optional string terminal = 7;
+    optional uint64 ppid = 8;
+    optional string cwd = 9;
+    optional int32 nice = 10;
+    optional string username = 11;
+    optional float cpu_time_user_seconds = 12;
+    optional float cpu_time_system_seconds = 13;
+    optional float cpu_time_children_user_seconds = 14;
+    optional float cpu_time_children_system_seconds = 15;
+    optional float cpu_time_iowait_seconds = 16;
+    optional uint64 num_ctx_switches_voluntary = 17;
+    optional uint64 num_ctx_switches_involuntary = 18;
+    optional string name = 19;
+    optional uint64 num_threads = 20;
+    optional float memory_percent = 21;
+  }
+
+  optional LinuxInfo linux = 1;
+  optional CPUInfo cpu = 2;
+  optional VirtualMemoryInfo virtual_memory = 3;
+  optional SwapMemoryInfo swap_memory = 4;
+  optional DiskInfo disk = 5;
+  optional DomainTimestamp boot_time = 6;
+  repeated UserInfo users = 7;
+  optional NetworkInfo network = 8;
+  optional SensorInfo sensors = 9;
+  repeated ProcessInfo processes = 10;
+}
