@@ -17,6 +17,14 @@
 import copy
 import datetime
 import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import textwrap
+import urllib
 
 from absl import app
 from absl import flags
@@ -55,6 +63,24 @@ _MODEL_CHECKPOINT_NUMBER = flags.DEFINE_integer(
     name="model_checkpoint_number",
     default=None,
     help="The model checkpoint number to use.",
+)
+
+_MODEL_CHECKPOINT_PATH = flags.DEFINE_string(
+    name="model_checkpoint_path",
+    default=None,
+    help="The local gemini_robotics_on_device model checkpoint path to use.",
+)
+
+_SERVE_PORT = flags.DEFINE_integer(
+    name="serve_port",
+    default=60061,
+    help="The port to use for serving.",
+)
+
+_GPU_MEM_FRACTION = flags.DEFINE_float(
+    name="gpu_mem_fraction",
+    default=0.8,
+    help="The GPU memory fraction to use for serving.",
 )
 
 _TRAINING_RECIPE = flags.DEFINE_enum(
@@ -116,7 +142,7 @@ Commands:
     --task_id: The task id to use.
     --start_date: The start date to use. Format: YYYYMMDD.
     --end_date: The end date to use. Format: YYYYMMDD.
-    --training_recipe: The training recipe to use, one of [{", ".join(_RECIPE_TO_TYPE_MAP.keys())}]
+    --training_recipe: The training recipe to use, one of [{', '.join(_RECIPE_TO_TYPE_MAP.keys())}]
 
   data_stats: Show data stats currently available for training.
 
@@ -124,14 +150,23 @@ Commands:
 
   list_serve: List available serving jobs.
 
-  serve: Serve a model, need flags:
-    --training_job_id: The training job id to use.
-    --model_checkpoint_number: The model checkpoint number to use.
+  serve: Serve a model.
+    For gemini_robotics_v1 recipe:
+      --training_job_id: The training job id to use.
+      --model_checkpoint_number: The model checkpoint number to use.
+    For gemini_robotics_on_device_v1 recipe (requires Docker):
+      --training_job_id: The training job id to use. (Optional, defaults to base model)
+      --model_checkpoint_path: The local gemini_robotics_on_device model
+        checkpoint path to use if you have downloaded the checkpoint and saved
+        it locally. (Optional)
 
-  download: Download artifacts from a training job, need flags:
-    --training_job_id: Download the artifacts from this training job.
-    or --artifact_id: Download the artifacts from this artifact.
-      This comes from the 'train' and 'list' commands.
+      This will download the model and start a serving docker container.
+
+  download: Download artifacts from a training job. This is an interactive command.
+    --training_job_id: Lists artifacts from this training job to download.
+    or --artifact_id: Download a specific artifact. If it is a docker image,
+      you will be prompted to load it.
+      Artifacts are saved to a temporary directory by default.
 
   upload_data: Upload data to the data ingestion service.
     --upload_data_robot_id: The robot id to use.
@@ -186,6 +221,7 @@ class FlywheelCli:
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
     elif response.get("taskDates"):
+      print("-" * 140)
       _print_row(
           "Robot id",
           "Task id",
@@ -193,6 +229,7 @@ class FlywheelCli:
           "Count",
           "Success count",
       )
+      print("-" * 140)
       for task_date in response.get("taskDates"):
         robot_id = task_date.get("robotId")
         task_id = task_date.get("taskId")
@@ -220,23 +257,21 @@ class FlywheelCli:
     body = copy.deepcopy(self._base_request_body)
     response = self._service.orchestrator().trainingJobs(body=body).execute()
 
-    def _print_row(col1, col2, col3, col4, col5, col6, col7):
-      print(
-          f"{col1:40s}{col2:40s}{col3:40s}{col4:30s}{col5:20s}{col6:20s}{col7:20s}"
-      )
-
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
     elif response.get("trainingJobs"):
-      _print_row(
+      headers = [
           "Training jobs id",
           "Status",
           "Training type",
           "Task id",
-          "robot id",
+          "Robot id",
           "Start date",
           "End date",
-      )
+      ]
+      # Relative weights for columns.
+      weights = [4, 2, 3, 4, 4, 2, 2]
+      rows = []
       for training_job in response.get("trainingJobs"):
         training_data_filters = training_job.get("trainingDataFilters")
         if training_data_filters:
@@ -246,7 +281,7 @@ class FlywheelCli:
           end_date = training_data_filters.get("endDate")
         else:
           robot_id = task_id = start_date = end_date = None
-        _print_row(
+        rows.append([
             str(training_job.get("trainingJobId")),
             str(training_job.get("stage")),
             str(training_job.get("trainingType")),
@@ -254,7 +289,8 @@ class FlywheelCli:
             str(robot_id),
             str(start_date),
             str(end_date),
-        )
+        ])
+      _print_responsive_table(headers, rows, weights)
     else:
       print("No training jobs found.")
 
@@ -266,24 +302,22 @@ class FlywheelCli:
     body = copy.deepcopy(self._base_request_body)
     response = self._service.orchestrator().servingJobs(body=body).execute()
 
-    def _print_row(col1, col2, col3, col4, col5, col6, col7, col8):
-      print(
-          f"{col1:40s}{col2:40s}{col3:40s}{col4:40s}{col5:30s}{col6:20s}{col7:20s}{col8:40s}"
-      )
-
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
     elif response.get("servingJobs"):
-      _print_row(
+      headers = [
           "Serving jobs id",
           "Training job id",
           "Model chkpt #",
           "Status",
           "Task id",
-          "robot id",
+          "Robot id",
           "Start date",
           "End date",
-      )
+      ]
+      # Relative weights for columns.
+      weights = [4, 4, 2, 2, 4, 4, 2, 2]
+      rows = []
       for serving_job in response.get("servingJobs"):
         training_job_id = serving_job.get("trainingJobId")
         training_data_filters = serving_job.get("trainingDataFilters")
@@ -294,24 +328,19 @@ class FlywheelCli:
           end_date = training_data_filters.get("endDate")
         else:
           robot_id = task_id = start_date = end_date = None
-        _print_row(
+        rows.append([
             str(serving_job.get("servingJobId")),
             str(training_job_id),
             str(serving_job.get("modelCheckpointNumber")),
             str(serving_job.get("stage")),
-            str(task_id),
-            str(robot_id),
-            str(start_date),
-            str(end_date),
-        )
+            str(task_id), str(robot_id), str(start_date), str(end_date)
+        ])
+      _print_responsive_table(headers, rows, weights)
     else:
       print("No serving jobs found.")
 
-  def handle_serve(self) -> None:
-    """Handles the serve commands.
-
-    Serve a model.
-    """
+  def _handle_serve_gemini_robotics_v1(self) -> None:
+    """Handles the serve commands for gemini_robotics_v1."""
     body = copy.deepcopy(self._base_request_body)
     body |= {
         "training_job_id": _TRAINING_JOB_ID.value,
@@ -321,6 +350,61 @@ class FlywheelCli:
 
     print(json.dumps(response, indent=4))
 
+  def _handle_serve_gemini_robotics_on_device_v1(self) -> None:
+    """Handles the serve commands for gemini_robotics_on_device_v1."""
+    if _MODEL_CHECKPOINT_PATH.value is None:
+      if _TRAINING_JOB_ID.value is None:
+        print("No training job id provided. Using the base model checkpoint...")
+        flags.FLAGS.set_default("training_job_id", "grod_chkpt_aloha_v1")
+
+      checkpoint_path = self.handle_download_training_artifacts()
+    else:
+      checkpoint_path = _MODEL_CHECKPOINT_PATH.value
+    file_dir = os.path.dirname(checkpoint_path)
+    file_name = os.path.basename(checkpoint_path)
+    try:
+      print(f"\nStarting serving docker with checkpoint: {checkpoint_path} ...")
+      commands = [
+          "docker",
+          "run",
+          "-it",
+          "--gpus",
+          "0",
+          "-p",
+          f"{_SERVE_PORT.value}:60061",
+          "-v",
+          f"{file_dir}:/checkpoint",
+          "-e",
+          f"XLA_PYTHON_CLIENT_MEM_FRACTION={_GPU_MEM_FRACTION.value}",
+          "google-deepmind/gemini_robotics_on_device",
+          f"/checkpoint/{file_name}",
+      ]
+      print(f"Running commands: {' '.join(commands)}")
+      subprocess.run(
+          commands,
+          check=True,
+          text=True,
+      )
+    except subprocess.CalledProcessError as e:
+      print(
+          f"\n[ERROR] Failed to run serving docker (exit code: {e.returncode})."
+      )
+      print(
+          "\nHint: Did you forget to load the docker image? Try `flywheel-cli"
+          " download --artifact_id=grod_model_server_docker`."
+      )
+
+  def handle_serve(self) -> None:
+    """Handles the serve commands.
+
+    Serve a model.
+    """
+    if _TRAINING_RECIPE.value == "gemini_robotics_v1":
+      self._handle_serve_gemini_robotics_v1()
+    elif _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+      self._handle_serve_gemini_robotics_on_device_v1()
+    # else conditions are checked in parse_flag() and should not be reached.
+
   def handle_upload_data(self) -> None:
     """Handles the upload data commands."""
     upload_data.upload_data_directory(
@@ -329,10 +413,13 @@ class FlywheelCli:
         robot_id=_UPLOAD_DATA_ROBOT_ID.value,
     )
 
-  def handle_download_training_artifacts(self) -> None:
+  def handle_download_training_artifacts(self) -> str | None:
     """Handles the download commands.
 
     Download artifacts from a training job.
+
+    Returns:
+      The name of the downloaded file or None if no file was downloaded.
     """
     body = copy.deepcopy(self._base_request_body)
     body |= {
@@ -342,15 +429,65 @@ class FlywheelCli:
         self._service.orchestrator().trainingArtifact(body=body).execute()
     )
 
-    def _print_row(col1, col2):
-      print(f"{col1:40s}{col2:20s}")
-
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
     else:
-      _print_row("#", "Artifact URL")
-      for i, uri in enumerate(response.get("uris")):
-        _print_row(str(i), uri)
+      uris = response.get("uris")
+      if not uris:
+        print("No artifacts found.")
+        return
+
+      print("\nAvailable artifacts to download:")
+      artifact_names = []
+      for uri in uris:
+        # Try to find a descriptive name like 'checkpoint_...'
+        match = re.search(r"(checkpoint_[\w.-]+)", uri)
+        if match:
+          name = match.group(1)
+        else:
+          # Fallback to the last part of the URL path
+          parsed_uri = urllib.parse.urlparse(uri)
+          name = os.path.basename(parsed_uri.path)
+        artifact_names.append(name)
+
+      for i, name in enumerate(artifact_names):
+        print(f"  [{i}] {name}")
+
+      try:
+        artifact_number_str = input(
+            "\n> Enter artifact # to download (or press Enter to skip): "
+        )
+        if not artifact_number_str:
+          return
+        artifact_number = int(artifact_number_str)
+        if not 0 <= artifact_number < len(uris):
+          print("Invalid artifact number.")
+          return
+
+        default_file_name = os.path.join(
+            tempfile.gettempdir(),
+            "grod",
+            f"{_TRAINING_JOB_ID.value}_{artifact_number}.chkpt",
+        )
+        file_name = input(
+            f"> Save artifact as (default: {default_file_name}): "
+        )
+        if not file_name:
+          file_name = default_file_name
+        if os.path.exists(file_name):
+          overwrite = input(f"> File '{file_name}' exists. Overwrite? (y/n): ")
+          if overwrite.lower() != "y":
+            print("Download cancelled.")
+            return file_name
+
+        _download_url_to_file(uris[artifact_number], file_name)
+        return file_name
+      except ValueError:
+        print("Invalid input. Please enter a number.")
+        return
+      except KeyboardInterrupt:
+        print("\nDownload cancelled.")
+        return
 
   def handle_download_artifact_id(self) -> None:
     """Handles the download commands."""
@@ -359,12 +496,37 @@ class FlywheelCli:
         "artifact_id": _ARTIFACT_ID.value,
     }
     response = self._service.orchestrator().loadArtifact(body=body).execute()
-    print(json.dumps(response, indent=4))
+    uri = response.get("uri")
+    if uri:
+      container_dir = os.path.join(tempfile.gettempdir(), "grod")
+      os.makedirs(container_dir, exist_ok=True)
+      default_filename = os.path.join(
+          container_dir, f"{_ARTIFACT_ID.value}.tar"
+      )
+      filename = input(f"\n> Save artifact as (default: {default_filename}): ")
+      if not filename:
+        filename = default_filename
+      _download_url_to_file(uri, filename)
+    else:
+      print("No artifact found.")
+      return
 
-  # TODO: Do not require an api key for version or help.
-  def handle_version(self) -> None:
-    """Handles the version commands."""
-    print(f"Version: {__version__}")
+    if "docker" in _ARTIFACT_ID.value:
+      load_docker_image = input(
+          "\n> This artifact appears to be a docker image. Load it? (y/n): "
+      )
+      if load_docker_image.lower() == "y":
+        try:
+          print("\nLoading docker image...")
+          result = subprocess.run(
+              ["docker", "load", "-i", filename],
+              capture_output=True,
+              check=True,
+              text=True,
+          )
+          print(result.stdout)
+        except subprocess.CalledProcessError as e:
+          print(f"\n[ERROR] Failed to load docker image: {e.stderr}")
 
   def parse_flag(self, command: str) -> None:
     """Parses command flags."""
@@ -398,15 +560,31 @@ class FlywheelCli:
           )
         self.handle_train()
       case "serve":
-        if not _TRAINING_JOB_ID.value:
-          raise ValueError("Training job id is required.")
-        if not _MODEL_CHECKPOINT_NUMBER.value:
-          raise ValueError("Model checkpoint number is required.")
-        if _MODEL_CHECKPOINT_NUMBER.value < 0:
+        support_training_recipes = [
+            "gemini_robotics_v1",
+            "gemini_robotics_on_device_v1",
+        ]
+        if _TRAINING_RECIPE.value not in support_training_recipes:
           raise ValueError(
-              "Model checkpoint number must be positive non-zero number. Got:"
-              f" {_MODEL_CHECKPOINT_NUMBER.value}"
+              "Serving is only supported for training recipe:"
+              f" {support_training_recipes}. Got: {_TRAINING_RECIPE.value}"
           )
+        if _TRAINING_RECIPE.value == "gemini_robotics_v1":
+          if not _TRAINING_JOB_ID.value:
+            raise ValueError("Training job id is required.")
+          if not _MODEL_CHECKPOINT_NUMBER.value:
+            raise ValueError("Model checkpoint number is required.")
+          if _MODEL_CHECKPOINT_NUMBER.value < 0:
+            raise ValueError(
+                "Model checkpoint number must be positive non-zero number. Got:"
+                f" {_MODEL_CHECKPOINT_NUMBER.value}"
+            )
+        elif _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+          if _MODEL_CHECKPOINT_NUMBER.value:
+            raise ValueError(
+                "Model checkpoint number is not supported for training recipe:"
+                f" {_TRAINING_RECIPE.value}"
+            )
         self.handle_serve()
       case "list":
         self.handle_list_training_jobs()
@@ -429,10 +607,90 @@ class FlywheelCli:
         if not _UPLOAD_DATA_DIRECTORY.value:
           raise ValueError("Upload data directory is required.")
         self.handle_upload_data()
-      case "version":
-        self.handle_version()
       case _:
         show_help()
+
+
+def _print_responsive_table(
+    headers: list[str], rows: list[list[str]], weights: list[int]
+) -> None:
+  """Prints a table with column widths that adapt to the terminal size."""
+  try:
+    terminal_width = shutil.get_terminal_size().columns
+  except OSError:
+    # Default to a common terminal width if size can't be determined.
+    terminal_width = 120
+
+  separator = "  "
+  num_columns = len(headers)
+  content_width = terminal_width - (num_columns - 1) * len(separator)
+
+  total_weight = sum(weights)
+  # Prevent division by zero if weights are empty or all zero.
+  if not total_weight:
+    total_weight = num_columns or 1
+    weights = [1] * num_columns
+
+  col_widths = [int(w / total_weight * content_width) for w in weights]
+
+  # Fallback for very narrow terminals where a column might get 0 width.
+  if any(w <= 0 for w in col_widths):
+    print("  ".join(headers))
+    print("-" * terminal_width)
+    for row in rows:
+      print("  ".join(str(s) for s in row))
+    return
+
+  # Adjust for rounding errors.
+  current_total = sum(col_widths)
+  diff = content_width - current_total
+  for i in range(diff):
+    col_widths[i % len(col_widths)] += 1
+
+  def _print_row(columns: list[str]) -> None:
+    wrapped_cols = [
+        textwrap.wrap(str(columns[i]), width=col_widths[i]) or [""]
+        for i in range(len(columns))
+    ]
+    max_lines = max(len(col_lines) for col_lines in wrapped_cols)
+    for i in range(max_lines):
+      row_line = []
+      for j, col_lines in enumerate(wrapped_cols):
+        line = col_lines[i] if i < len(col_lines) else ""
+        row_line.append(f"{line:<{col_widths[j]}}")
+      print(separator.join(row_line))
+
+  total_width = sum(col_widths) + (num_columns - 1) * len(separator)
+  print("-" * total_width)
+  _print_row(headers)
+  print("-" * total_width)
+  for row in rows:
+    _print_row(row)
+
+
+def _reporthook(block_num: int, block_size: int, total_size: int) -> None:
+  """A reporthook for urlretrieve to print a progress bar."""
+  downloaded = block_num * block_size
+  if total_size > 0:
+    percent = min(100, 100 * downloaded / total_size)
+    bar = "█" * int(percent / 2)
+    sys.stdout.write(f"\r|{bar:<50}| {percent:.1f}%")
+    sys.stdout.flush()
+  else:
+    # Total size not known.
+    sys.stdout.write(f"\rDownloaded {downloaded / (1024*1024):.2f} MB")
+    sys.stdout.flush()
+
+
+def _download_url_to_file(url: str, filename: str) -> None:
+  """Downloads content from a URL and saves it to a file."""
+  try:
+    print(f"\nDownloading artifact to {filename} ...")
+    urllib.request.urlretrieve(url, filename, reporthook=_reporthook)
+    print()  # New line after progress bar.
+    print("Download complete!")
+  except urllib.error.URLError as e:
+    print(f"\n[ERROR] Error downloading artifact {url}: {e}")
 
 
 def _is_valid_date(date: str) -> bool:
@@ -466,6 +724,10 @@ def cli_main() -> None:
 def main(argv: list[str]) -> None:
   if len(argv) != 2 or argv[1] == "help" or argv[1] not in _COMMANDS_LIST:
     show_help()
+    return
+
+  if argv[1] == "version":
+    print(f"Version: {__version__}")
     return
 
   command = argv[1]

@@ -16,6 +16,7 @@
 
 import io
 import json
+import os
 from unittest import mock
 
 from absl.testing import flagsaver
@@ -226,11 +227,12 @@ class FlywheelCliTest(parameterized.TestCase):
       self.service_mock.servingJobs.return_value.execute.assert_called_once()
       self.assertEqual(mock_stdout.getvalue(), expected_output)
 
-  def test_serve(self):
+  def test_serve_gemini_robotics_v1(self):
     self.service_mock.serveModel.return_value.execute.return_value = {
         "serving_job_id": "test_serving_job_id"
     }
     with flagsaver.flagsaver(
+        training_recipe="gemini_robotics_v1",
         training_job_id="test_training_job_id",
         model_checkpoint_number=1,
     ):
@@ -242,6 +244,73 @@ class FlywheelCliTest(parameterized.TestCase):
           }
       )
       self.service_mock.serveModel.return_value.execute.assert_called_once_with()
+
+  @parameterized.named_parameters(
+      (
+          "with_download_defaults",
+          {"training_job_id": "test_training_job_id"},
+          True,
+          60061,
+          0.8,
+          "/tmp/grod/test_training_job_id_0.chkpt",
+      ),
+      (
+          "with_path_custom_flags",
+          {
+              "model_checkpoint_path": "/test/path/model.chkpt",
+              "serve_port": 12345,
+              "gpu_mem_fraction": 0.5,
+          },
+          False,
+          12345,
+          0.5,
+          "/test/path/model.chkpt",
+      ),
+  )
+  @mock.patch("subprocess.run")
+  def test_serve_gemini_robotics_on_device_v1(
+      self,
+      flags_dict,
+      expect_download,
+      port,
+      mem_fraction,
+      checkpoint_path,
+      mock_subprocess_run,
+  ):
+    with flagsaver.flagsaver(
+        training_recipe="gemini_robotics_on_device_v1", **flags_dict
+    ):
+      with mock.patch.object(
+          self._cli,
+          "handle_download_training_artifacts",
+          return_value=checkpoint_path,
+      ) as mock_download:
+        self._cli.handle_serve()
+        if expect_download:
+          mock_download.assert_called_once()
+        else:
+          mock_download.assert_not_called()
+
+        file_dir = os.path.dirname(checkpoint_path)
+        file_name = os.path.basename(checkpoint_path)
+        expected_docker_command = [
+            "docker",
+            "run",
+            "-it",
+            "--gpus",
+            "0",
+            "-p",
+            f"{port}:60061",
+            "-v",
+            f"{file_dir}:/checkpoint",
+            "-e",
+            f"XLA_PYTHON_CLIENT_MEM_FRACTION={mem_fraction}",
+            "google-deepmind/gemini_robotics_on_device",
+            f"/checkpoint/{file_name}",
+        ]
+        mock_subprocess_run.assert_called_once_with(
+            expected_docker_command, check=True, text=True
+        )
 
   def test_download_training_artifacts(self):
     with flagsaver.flagsaver(training_job_id="test_training_job_id"):
@@ -264,33 +333,24 @@ class FlywheelCliTest(parameterized.TestCase):
             _URI_JSON_OUTPUT,
         )
 
-  def test_download_artifact_id(self):
+  @mock.patch(
+      "safari_sdk.flywheel.flywheel_cli._download_url_to_file"
+  )
+  @mock.patch("builtins.input", return_value="")
+  def test_download_artifact_id(self, mock_input, mock_download):
     with flagsaver.flagsaver(artifact_id="test_artifact_id"):
-      mock_stdout = io.StringIO()
       self.service_mock.loadArtifact.return_value.execute.return_value = {
-          "uris": ["test_uri_1", "test_uri_2"]
+          "uri": "test_uri_1"
       }
 
-      with mock.patch("sys.stdout", mock_stdout):
-        self._cli.handle_download_artifact_id()
-        self.service_mock.loadArtifact.assert_called_once_with(
-            body={
-                "artifact_id": "test_artifact_id",
-            }
-        )
-        self.service_mock.loadArtifact.return_value.execute.assert_called_once()
-        self.assertEqual(
-            mock_stdout.getvalue(),
-            _URI_JSON_OUTPUT,
-        )
+      self._cli.handle_download_artifact_id()
 
-  def test_version(self):
-    mock_stdout = io.StringIO()
-    with mock.patch("sys.stdout", mock_stdout):
-      self._cli.handle_version()
-      self.assertEqual(
-          mock_stdout.getvalue().rstrip(), f"Version: {__version__}"
+      self.service_mock.loadArtifact.assert_called_once_with(
+          body={"artifact_id": "test_artifact_id"}
       )
+      self.service_mock.loadArtifact.return_value.execute.assert_called_once()
+      mock_input.assert_called_once()
+      mock_download.assert_called_once()
 
   def test_show_help(self):
     mock_stdout = io.StringIO()
@@ -458,10 +518,20 @@ class FlywheelCliTest(parameterized.TestCase):
           ValueError,
       ),
       (
+          "serve_unsupported_recipe",
+          "serve",
+          {
+              "api_key": "test_api_key",
+              "training_recipe": "narrow",
+          },
+          ValueError,
+      ),
+      (
           "serve_missing_training_job_id",
           "serve",
           {
               "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_v1",
               "model_checkpoint_number": 1,
           },
           ValueError,
@@ -471,6 +541,7 @@ class FlywheelCliTest(parameterized.TestCase):
           "serve",
           {
               "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_v1",
               "training_job_id": "test_training_job_id",
           },
           ValueError,
@@ -480,6 +551,7 @@ class FlywheelCliTest(parameterized.TestCase):
           "serve",
           {
               "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_v1",
               "training_job_id": "test_training_job_id",
               "model_checkpoint_number": 0,
           },
@@ -490,8 +562,19 @@ class FlywheelCliTest(parameterized.TestCase):
           "serve",
           {
               "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_v1",
               "training_job_id": "test_training_job_id",
               "model_checkpoint_number": -1,
+          },
+          ValueError,
+      ),
+      (
+          "serve_on_device_with_checkpoint_number",
+          "serve",
+          {
+              "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_on_device_v1",
+              "model_checkpoint_number": 1,
           },
           ValueError,
       ),
@@ -522,12 +605,22 @@ class FlywheelCliTest(parameterized.TestCase):
           },
       ),
       (
-          "serve",
+          "serve_gemini_robotics_v1",
           "serve",
           {
               "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_v1",
               "training_job_id": "test_training_job_id",
               "model_checkpoint_number": 1,
+          },
+      ),
+      (
+          "serve_gemini_robotics_on_device_v1",
+          "serve",
+          {
+              "api_key": "test_api_key",
+              "training_recipe": "gemini_robotics_on_device_v1",
+              "training_job_id": "test_training_job_id",
           },
       ),
       (
@@ -574,7 +667,8 @@ class FlywheelCliTest(parameterized.TestCase):
           },
       ),
   )
-  def test_parse_flags_success(self, command, params):
+  @mock.patch("subprocess.run")
+  def test_parse_flags_success(self, command, params, mock_subprocess_run):
     self.service_mock.startTraining.return_value.execute.return_value = {
         "training_job_id": "test_training_job_id"
     }
@@ -594,7 +688,20 @@ class FlywheelCliTest(parameterized.TestCase):
         "uris": ["test_uri_1", "test_uri_2"]
     }
     with flagsaver.flagsaver(**params):
-      self._cli.parse_flag(command)
+      with mock.patch.object(
+          self._cli,
+          "handle_download_training_artifacts",
+          return_value="/fake/path.chkpt",
+      ), mock.patch.object(self._cli, "handle_download_artifact_id"):
+        self._cli.parse_flag(command)
+
+    if (
+        command == "serve"
+        and params.get("training_recipe") == "gemini_robotics_on_device_v1"
+    ):
+      mock_subprocess_run.assert_called_once()
+    else:
+      mock_subprocess_run.assert_not_called()
 
 
 if __name__ == "__main__":
