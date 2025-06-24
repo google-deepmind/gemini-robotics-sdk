@@ -1,0 +1,88 @@
+[project]
+name = "safari_sdk"
+description = "Safari SDK: the SDK for Google DeepMind Gemini Robotics models"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = {file = "LICENSE"}
+authors = [{name = "Google DeepMind", email="safari-sdk-authors@google.com"}]
+classifiers = [  # List of https://pypi.org/classifiers/
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",  # EOL 2026-10
+    "Programming Language :: Python :: 3.11",  # EOL 2027-10
+    "Programming Language :: Python :: 3.12",  # EOL 2028-10
+    # "Programming Language :: Python :: 3.13", # EOL 2029-19, no compatible tensorflow version as of TF 2.18
+    "License :: Other/Proprietary License",
+    "Intended Audience :: Science/Research",
+]
+keywords = []
+
+# pip dependencies of the project
+dependencies = [
+  # go/keep-sorted start
+  "absl-py",
+  "dataclasses_json",
+  "dm-env",
+  "evdev",
+  "google-api-python-client",
+  "google-auth-httplib2",
+  "google-auth-oauthlib",
+  "google-genai",
+  "grpcio",
+  "imageio",
+  "immutabledict",
+  "lark~=1.2",
+  "mcap-protobuf-support",
+  "mediapy",
+  "mujoco~=3.2",
+  "opencv-python",
+  # protobuf v4 required for TF as of v2.16. Update with a
+  # compatible version of protoc if this changes.
+  # See https://protobuf.dev/support/version-support/#python for more info.
+  "protobuf<5",
+  "python-magic",
+  "pytz",
+  "scipy",
+  "tf-nightly>=2.20.0.dev20250305",  # SavedModel exports often break backwards compatibility.
+  # go/keep-sorted end
+]
+
+# This is set automatically by flit using `safari.__version__`
+dynamic = ["version"]
+
+[project.scripts]
+flywheel-cli = "safari_sdk.flywheel.flywheel_cli:cli_main"  # 'flywheel-cli' will be installed as a command
+
+[project.urls]
+homepage = "https://deepmind.google/models/gemini-robotics/"
+repository = "https://github.com/google-deepmind/gemini-robotics-sdk"
+# Other: `documentation`, `changelog`
+
+[project.optional-dependencies]
+# Development deps (unittest, linting, formating,...)
+# Installed through `pip install .[dev]`
+dev = [
+    # go/keep-sorted start
+    "immutabledict",
+    "parameterized",
+    "pyink",
+    "pylint>=2.6.0",
+    "pytest",
+    "pytest-xdist",
+    # go/keep-sorted end
+]
+
+
+[tool.pyink]
+# Formatting configuration to follow Google style-guide
+pyink-indentation = 2
+pyink-use-majority-quotes = true
+
+[build-system]
+requires = ["flit_core >=3.5,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+python_files = ["*_test.py"]
