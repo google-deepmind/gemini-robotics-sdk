@@ -1,4 +1,6 @@
-grpcio
-tensorflow
-opencv-python
+# Additional requirements for running the real & sim robot eval.
 gymnasium
+modern_robotics
+pyyaml
+transforms3d
+dm_control

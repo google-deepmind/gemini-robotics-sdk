@@ -14,12 +14,12 @@
 
 """Aloha Gym environment."""
 
-import base64
 import threading
 import time
 from typing import Callable
 
 from aloha import robot_utils
+import cv2
 import gymnasium as gym
 from interbotix_common_modules.common_robot import robot
 from interbotix_xs_modules.xs_robot.arm import InterbotixManipulatorXS
@@ -96,7 +96,8 @@ class ImageController:
 
     def _callback(msg):
       with self._topic_mutex:
-        self._topic_images[key] = base64.b64encode(msg.data).decode('utf-8')
+        image_np = np.frombuffer(msg.data, dtype=np.uint8)
+        self._topic_images[key] = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
 
     return _callback
 
@@ -202,15 +203,15 @@ class AlohaEnv(gym.Env):
 
   def _get_obs(self) -> dict[str, any]:
     """Returns the observations for the follower arms."""
+    self.last_get_obs = time.time()
     images = self.image_node.get_images()
     obs = {
-        'joints_pos': self._get_proprio().reshape(1, 14).tolist(),
-        'images/overhead_cam': images[_COMPRESSED_CAM_OVERHEAD],
-        'images/wrist_cam_left': images[_COMPRESSED_CAM_LEFT],
-        'images/wrist_cam_right': images[_COMPRESSED_CAM_RIGHT],
-        'images/worms_eye_cam': images[_COMPRESSED_CAM_WORMS_EYE],
+        'joints_pos': self._get_proprio().reshape(1, 14),
+        'overhead_cam': images[_COMPRESSED_CAM_OVERHEAD],
+        'wrist_cam_left': images[_COMPRESSED_CAM_LEFT],
+        'wrist_cam_right': images[_COMPRESSED_CAM_RIGHT],
+        'worms_eye_cam': images[_COMPRESSED_CAM_WORMS_EYE],
     }
-    self.last_get_obs = time.time()
     return obs
 
   def _set_follower(
@@ -279,10 +280,12 @@ class AlohaEnv(gym.Env):
     self._set_follower(self.robots['follower_left'], left_action)
     self._set_follower(self.robots['follower_right'], right_action)
 
-    if time.time() - self.last_get_obs < self.dt:
-      time.sleep(self.dt - (time.time() - self.last_get_obs))
+    # Wait for consistent step time.
+    time_to_sleep = max(0, self.dt - (time.time() - self.last_get_obs))
+    time.sleep(time_to_sleep)
     observation = self._get_obs()
 
+    # These are not use in real robot eval. Omit the implementation for now.
     reward = 0
     terminated = False
     truncated = False

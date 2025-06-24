@@ -15,26 +15,29 @@
 """Run Robotics Policy Eval on Aloha Robot."""
 
 import argparse
-import json
-import time
+
 import env
-import grpc
-import numpy as np
 import rclpy
+
+from safari_sdk.model import gemini_robotics_policy
+from safari_sdk.model import genai_robotics
 
 AlohaEnv = env.AlohaEnv
 
-# GRPC server constants
-SERVER_ADDRESS = 'localhost:60061'
-SERVICE_NAME = 'gemini_robotics'
-METHOD_NAME = 'sample_actions_json_flat'
-FULL_METHOD_NAME = f'/{SERVICE_NAME}/{METHOD_NAME}'
+_SERVE_ID = 'gemini_robotics_on_device'
+
+_IMAGE_SIZE = (480, 848)
+_ALOHA_CAMERAS = {
+    'overhead_cam': _IMAGE_SIZE,
+    'worms_eye_cam': _IMAGE_SIZE,
+    'wrist_cam_left': _IMAGE_SIZE,
+    'wrist_cam_right': _IMAGE_SIZE,
+}
+_ALOHA_JOINTS = {'joints_pos': 14}
 
 # Robot constants
 ROBOT_CONFIG_NAME = 'aloha_stationary'
 CONFIG_BASE_PATH = '/home/juggler/interbotix_ws/src/aloha/config/'
-
-HOME_POSITION = [[0.0, -0.96, 1.16, 0.0, -0.3, 0.0, 1.0]]
 
 
 def run_single_episode(aloha_env, instruction, steps=5000):
@@ -46,36 +49,32 @@ def run_single_episode(aloha_env, instruction, steps=5000):
       'Initial observation received. Joint positions:'
       f" {len(obs['joints_pos'])}"
   )
-  # 3. setup the gRPC server
-  with grpc.insecure_channel(
-      SERVER_ADDRESS,
-  ) as channel:
-    # Prepare request bytes (client-side serialization)
-    query_model = channel.unary_unary(
-        FULL_METHOD_NAME,
-        request_serializer=lambda v: v,  # Already bytes
-        response_deserializer=lambda v: v,  # Expecting bytes back
+  # 3. Initialize the policy using GeminiRoboticsPolicy
+  try:
+    print('Creating policy...')
+    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id=_SERVE_ID,
+        task_instruction=instruction,
+        inference_mode=gemini_robotics_policy.InferenceMode.SYNCHRONOUS,
+        cameras=_ALOHA_CAMERAS,
+        joints=_ALOHA_JOINTS,
+        robotics_api_connection=genai_robotics.RoboticsApiConnectionType.LOCAL,
     )
-    future_actions = np.zeros((0, 14), dtype=np.float32).tolist()
+    policy.setup()  # Initialize the policy
+    print('GeminiRoboticsPolicy initialized successfully.')
+  except ValueError as e:
+    print(f'Error initializing policy: {e}')
+    raise
+  except Exception as e:  # pylint: disable=broad-except
+    print(f'An unexpected error occurred during initialization: {e}')
+    raise
 
-    # 4. Run a loop (e.g., for one episode)
-    for _ in range(steps):  # Run for 5000 stsps (100 seconds at 50Hz)
-      start_time = time.time()
-      obs['conditioning'] = future_actions
-      obs['task_instruction'] = info['instruction']
-      obs_json = json.dumps(obs).encode('utf-8')
-      request_bytes = obs_json
-
-      response_bytes = query_model(request_bytes, timeout=5)
-      response = json.loads(response_bytes.decode('utf-8'))
-      future_actions = response['conditioning']
-      action_chunk = np.asarray(response['action_chunk'])
-      # 5. Step the environment with the chosen action
-      obs, _, _, _, _ = aloha_env.step(action_chunk)
-
-      time_elapsed = time.time() - start_time
-      if time_elapsed < aloha_env.dt:
-        time.sleep(aloha_env.dt - time_elapsed)
+  # 4. Run a loop (e.g., for one episode)
+  for _ in range(steps):  # Default: Run for 5000 steps (100 seconds at 50Hz)
+    obs['task_instruction'] = info['instruction']
+    action = policy.step(obs)
+    # 5. Step the environment with the chosen action
+    obs, _, _, _, _ = aloha_env.step(action)
 
 
 def main():
