@@ -13,17 +13,6 @@
 #  limitations under the License.
 
 # Cmake file for building the Safari SDK.
-# BEGIN GOOGLE-INTERNAL
-# Cmake can only be used to build the externalized/Git-on-Borg version of the
-# SDK. The internal/google3 version is built with Blaze. To get the externalized
-# version, either clone the GoB repo or run this from your google3 root directory:
-#
-# alias copybara='/google/bin/releases/copybara/public/copybara/copybara'
-# copybara third_party/safari/sdk/copy.bara.sky folder_to_folder .. --folder-dir ~/safari_sdk
-#
-# The last argument is the folder created by copybara; it can be changed to a
-# different folder as desired. Then proceed with the usage below, from that folder.
-# END GOOGLE-INTERNAL
 
 # Example usage (starting in this directory):
 # mkdir build && cd build && cmake .. && make all
