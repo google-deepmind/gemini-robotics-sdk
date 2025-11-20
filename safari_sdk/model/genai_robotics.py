@@ -15,7 +15,7 @@
 """Forward compatibility layer for Gemini API. Will use genai in the future."""
 
 import base64
-import enum
+import functools
 import json
 import logging
 import time
@@ -28,12 +28,55 @@ import numpy as np
 import tensorflow as tf
 
 from safari_sdk import auth
+from safari_sdk.model import constants
+
+_CONNECTION = constants.RoboticsApiConnectionType
+_LOCAL_GRPC_URL = 'grpc://localhost:60061'
+_LOCAL_GRPC_METHOD_NAME = '/gemini_robotics/sample_actions_json_flat'
 
 
-class RoboticsApiConnectionType(enum.Enum):
-  """Connection types for the Robotics API."""
-  CLOUD = 'cloud'  # Connects to a Google Cloud-based server.
-  LOCAL = 'local'  # Connects to a local server.
+def update_robotics_content_to_genai_format(
+    contents: Union[types.ContentListUnion, types.ContentListUnionDict],
+    image_compression_jpeg_quality: int = 95,
+) -> Union[types.ContentListUnion, types.ContentListUnionDict]:
+  """Update robotics contents to required GenAI API format."""
+
+  if not isinstance(contents, list):
+    return contents
+
+  new_contents = []
+  for content in contents:
+    if isinstance(content, types.Part):
+      new_contents.append(content)
+    elif isinstance(content, str):
+      new_contents.append(content.replace('Infinity', '0.0'))
+    elif isinstance(content, (np.ndarray, tf.Tensor)):
+      # automatically convert images to jpeg bytes.
+      if (
+          content.dtype in (np.uint8, tf.uint8)
+          and content.ndim == 3
+          and content.shape[-1] == 3
+      ):
+        new_contents.append(
+            types.Part.from_bytes(
+                data=_coerced_to_image_bytes(
+                    content,
+                    image_compression_jpeg_quality=image_compression_jpeg_quality,
+                ),
+                mime_type='image/jpeg',
+            )
+        )
+      else:
+        raise ValueError(
+            f'Unsupported numpy array/tensor dtype: {content.dtype} with'
+            f' shape {content.shape}'
+        )
+    elif isinstance(content, tf.Tensor):
+      new_contents.append(types.Part(text=content.numpy().tolist()))
+    else:
+      raise ValueError(f'Unsupported content type: {type(content)}')
+
+  return new_contents
 
 
 class Client:
@@ -87,33 +130,39 @@ class Client:
   def __init__(
       self,
       *,
-      use_robotics_api: bool = False,
-      robotics_api_connection: RoboticsApiConnectionType = RoboticsApiConnectionType.CLOUD,
+      robotics_api_connection: _CONNECTION = _CONNECTION.CLOUD,
       api_key: str | None = None,
+      method_name: str = 'sample_actions_json_flat',
+      image_compression_jpeg_quality: int = 95,
       **kwargs,
   ):
-    self._use_robotics_api = use_robotics_api
-
-    if not self._use_robotics_api:
-      if not api_key:
-        api_key = auth.get_api_key()
-      self._client = genai.Client(api_key=api_key, **kwargs)
-      return
-
+    self._method_name = method_name
     self._robotics_api_connection = robotics_api_connection
     match self._robotics_api_connection:
-      case RoboticsApiConnectionType.CLOUD:
+      case _CONNECTION.CLOUD:
         service = auth.get_service()
         self._client = service.modelServing()
-      case RoboticsApiConnectionType.LOCAL:
+        self.models: Any = lambda: None
+        self.models.generate_content = functools.partial(
+            self._robotics_generate_content,
+            image_compression_jpeg_quality=image_compression_jpeg_quality,
+        )
+      case _CONNECTION.LOCAL:
         self._client = _connect_to_grpc(_LOCAL_GRPC_URL)
+        self.models: Any = lambda: None
+        self.models.generate_content = functools.partial(
+            self._robotics_generate_content,
+            image_compression_jpeg_quality=image_compression_jpeg_quality,
+        )
+      case _CONNECTION.CLOUD_GENAI:
+        if not api_key:
+          api_key = auth.get_api_key()
+        self._client = genai.Client(api_key=api_key, **kwargs)
       case _:
         raise ValueError(
             f'Unsupported robotics_api_connection: {robotics_api_connection}.'
-            ' Only Cloud and local are supported.'
+            ' Only cloud, cloud_genai, and local are supported.'
         )
-    self.models: Any = lambda: None
-    self.models.generate_content = self._robotics_generate_content
 
   def _robotics_generate_content(
       self,
@@ -121,6 +170,7 @@ class Client:
       model: str,
       contents: Union[types.ContentListUnion, types.ContentListUnionDict],
       config: Optional[types.GenerateContentConfigOrDict] = None,
+      image_compression_jpeg_quality: int = 95,
   ) -> types.GenerateContentResponse:
     """Generate content using the robotics API."""
     del config
@@ -143,7 +193,10 @@ class Client:
     for key, value in input_query.items():
       if key.startswith('images/'):
         query[key] = base64.b64encode(
-            _coerced_to_image_bytes(contents[value])
+            _coerced_to_image_bytes(
+                contents[value],
+                image_compression_jpeg_quality=image_compression_jpeg_quality,
+            )
         ).decode('utf-8')
       elif isinstance(value, (str, int, float)):
         query[key] = value
@@ -162,10 +215,10 @@ class Client:
             f'Unsupported value type: {type(value)} for key {key}.'
         )
     match self._robotics_api_connection:
-      case RoboticsApiConnectionType.CLOUD:
+      case _CONNECTION.CLOUD:
         req_body = {
             'modelId': model,
-            'methodName': 'sample_actions_json_flat',
+            'methodName': self._method_name,
             'inputBytes': (
                 base64.b64encode(json.dumps(query).encode('utf-8')).decode(
                     'utf-8'
@@ -179,7 +232,7 @@ class Client:
         logging.debug('Response: %s', res)
         response = lambda: None
         response.text = base64.b64decode(res['outputBytes']).decode('utf-8')
-      case RoboticsApiConnectionType.LOCAL:
+      case _CONNECTION.LOCAL:
         response = lambda: None
         response.text = self._client(query)
       case _:
@@ -191,13 +244,13 @@ class Client:
     return response
 
   def __getattr__(self, name):
-    if not self._use_robotics_api:
+    if self._robotics_api_connection == _CONNECTION.CLOUD_GENAI:
       return getattr(self._client, name)
 
     raise NameError(f'Attribute {name} not found.')
 
 
-def _coerced_to_image_bytes(content) -> bytes:
+def _coerced_to_image_bytes(content, image_compression_jpeg_quality) -> bytes:
   """Coerce content to image bytes."""
   if isinstance(content, types.Part):
     if content.inline_data.mime_type in ('image/jpeg', 'image/png'):
@@ -211,7 +264,8 @@ def _coerced_to_image_bytes(content) -> bytes:
     else:
       raise ValueError('Invalid PNG or JPEG image bytes.')
   elif isinstance(content, (np.ndarray, tf.Tensor)):
-    return tf.io.encode_jpeg(content).numpy()
+    return tf.io.encode_jpeg(content,
+                             quality=image_compression_jpeg_quality).numpy()
   else:
     raise ValueError(f'Unsupported image type: {type(content)}')
 
@@ -233,8 +287,7 @@ def _connect_to_grpc(base_url: str) -> Callable[[dict[str, Any]], str]:
   """Connects to gRPC server."""
   if not base_url.startswith('grpc://'):
     raise ValueError(
-        f'Unsupported base_url: {base_url}. Only gRPC is supported'
-        ' (grpc://).'
+        f'Unsupported base_url: {base_url}. Only gRPC is supported (grpc://).'
     )
   grpc_channel = grpc.insecure_channel(base_url[7:])
   grpc_stub = grpc_channel.unary_unary(
@@ -248,7 +301,3 @@ def _connect_to_grpc(base_url: str) -> Callable[[dict[str, Any]], str]:
     return grpc_stub(encoded_query).decode('utf-8')
 
   return query
-
-
-_LOCAL_GRPC_URL = 'grpc://localhost:60061'
-_LOCAL_GRPC_METHOD_NAME = '/gemini_robotics/sample_actions_json_flat'

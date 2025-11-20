@@ -88,9 +88,29 @@ message PinholeCamera {
     optional double k4 = 4;
   }
 
+  // Unified distortion model.
+  //
+  // This model can be used for both perspective, fisheye cameras, and
+  // catadiptical cameras.
+  message UnifiedDistortion {
+    optional double xi = 1;
+  }
+
+  // Special Enhanced Unified distortion model.
+  //
+  // This model can be used for ultrawide and fisheye cameras.
+  message EnhancedUnifiedDistortion {
+    optional double eu = 1;
+    optional double ev = 2;
+    optional double alpha = 3;
+    optional double beta = 4;
+  }
+
   oneof distortion_model {
     BrownConradyDistortion brown_conrady = 7;
     KannalaBrandtDistortion kannala_brandt = 8;
+    UnifiedDistortion unified = 11;
+    EnhancedUnifiedDistortion extended_unified = 12;
   }
 
   reserved 5, 13;

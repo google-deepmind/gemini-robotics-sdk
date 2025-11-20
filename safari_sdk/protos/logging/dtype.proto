@@ -16,28 +16,15 @@ syntax = "proto2";
 
 package safari_sdk.protos.logging;
 
-import "google/protobuf/struct.proto";
-import "safari_sdk/protos/pose.proto";
-
-message Tracker {
-  // The name of the tracker.
-  optional string name = 1;
-
-  // The pose of the tracker.
-  optional Pose pose = 2;
-
-  // The status of the tracker.
-  enum Status {
-    UNINITIALIZED = 0;
-    ACTIVE = 1;
-  }
-  optional Status status = 3;
-
-  // Metadata about the tracker for storing information such as tracking
-  // confidence.
-  optional google.protobuf.Struct metadata = 4;
-}
-
-message Trackers {
-  repeated Tracker trackers = 1;
+// Proto to serialize Numpy dtypes used for Safari logging.
+// Next ID: 8
+enum Dtype {
+  DTYPE_UNSPECIFIED = 0;
+  DTYPE_UINT8 = 1;
+  DTYPE_UINT16 = 2;
+  DTYPE_INT32 = 3;
+  DTYPE_INT64 = 4;
+  DTYPE_FLOAT32 = 5;
+  DTYPE_FLOAT64 = 6;
+  DTYPE_STRING = 7;
 }

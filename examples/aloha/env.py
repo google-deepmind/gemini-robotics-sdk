@@ -20,6 +20,8 @@ from typing import Callable
 
 from aloha import robot_utils
 import cv2
+from gdm_robotics.adapters import gymnasium_env_to_gdmr_env_wrapper
+from gdm_robotics.interfaces import environment as gdmr_env
 import gymnasium as gym
 from interbotix_common_modules.common_robot import robot
 from interbotix_xs_modules.xs_robot.arm import InterbotixManipulatorXS
@@ -49,6 +51,31 @@ GRIPPER_CLOSED = -0.06135
 
 MOTOR_REGISTER_VALUE = 300
 HOME_POSITION = [[0.0, -0.96, 1.16, 0.0, -0.3, 0.0]]
+
+INSTRUCTION_RESET_OPTION_KEY = 'instruction'
+SHOULD_MOVE_TO_HOME_RESET_OPTION_KEY = 'should_move_to_home'
+_MAX_INSTRUCTION_LENGTH = 1000
+
+# Forward reset option structure.
+ResetOptions = gymnasium_env_to_gdmr_env_wrapper.GymnasiumEnvResetOptions
+
+
+def create_aloha_environment(
+    robot_config_name: str,
+    config_base_path: str,
+    max_num_steps: int,
+    default_instruction: str = 'do something useful',
+    **kwargs
+) -> gdmr_env.Environment:
+  """Creates an Aloha environment."""
+  env = _AlohaEnv(
+      robot_config_name=robot_config_name,
+      config_base_path=config_base_path,
+      max_num_steps=max_num_steps,
+      default_instruction=default_instruction,
+      **kwargs,
+  )
+  return gymnasium_env_to_gdmr_env_wrapper.GymnasiumEnvToGdmrEnvWrapper(env)
 
 
 class ImageController:
@@ -97,7 +124,9 @@ class ImageController:
     def _callback(msg):
       with self._topic_mutex:
         image_np = np.frombuffer(msg.data, dtype=np.uint8)
-        self._topic_images[key] = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+        bgr_image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+        rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
+        self._topic_images[key] = rgb_image
 
     return _callback
 
@@ -126,14 +155,15 @@ class ImageController:
     return False
 
 
-class AlohaEnv(gym.Env):
+class _AlohaEnv(gym.Env):
   """A Gymnasium environment for the ALOHA robot system."""
 
   def __init__(
       self,
       robot_config_name: str,
       config_base_path: str,
-      instruction: str = '',
+      default_instruction: str,
+      max_num_steps: int = 5000,
       **kwargs
   ):
     super().__init__()
@@ -180,18 +210,47 @@ class AlohaEnv(gym.Env):
 
     # --- Define Gym Spaces ---
     # Action space: 7-DoF for each arm (6 joints + 1 gripper)
-    # Assuming joint limits are roughly -pi to pi
     # You should refine these bounds based on the actual robot limits
-    joint_low = np.full(7, -np.pi)
-    joint_high = np.full(7, np.pi)
-    joint_low[6] = GRIPPER_CLOSED  # Gripper closed
-    joint_high[6] = GRIPPER_OPEN  # Gripper open
+    joint_low = np.full(7, -np.inf)
+    joint_high = np.full(7, np.inf)
     self.action_space = gym.spaces.Box(
         low=np.concatenate([joint_low, joint_low]),
         high=np.concatenate([joint_high, joint_high]),
-        dtype=np.float32,
+        dtype=np.float64,
     )
-    self.instruction = instruction
+
+    self.observation_space = gym.spaces.Dict({
+        'joints_pos': gym.spaces.Box(
+            dtype=np.float64, shape=(1, 14), low=-np.inf, high=np.inf
+        ),
+        'overhead_cam': gym.spaces.Box(
+            dtype=np.uint8, shape=(480, 848, 3), low=0, high=255
+        ),
+        'wrist_cam_left': gym.spaces.Box(
+            dtype=np.uint8, shape=(480, 848, 3), low=0, high=255
+        ),
+        'wrist_cam_right': gym.spaces.Box(
+            dtype=np.uint8, shape=(480, 848, 3), low=0, high=255
+        ),
+        'worms_eye_cam': gym.spaces.Box(
+            dtype=np.uint8, shape=(480, 848, 3), low=0, high=255
+        ),
+        INSTRUCTION_RESET_OPTION_KEY: gym.spaces.Text(
+            max_length=_MAX_INSTRUCTION_LENGTH
+        ),
+    })
+    self._default_instruction = default_instruction
+    self._instruction = default_instruction
+    self._max_num_steps = max_num_steps
+    self._num_steps = 0
+
+  @property
+  def instruction(self) -> str:
+    return self._instruction
+
+  @instruction.setter
+  def instruction(self, instruction: str):
+    self._instruction = instruction
 
   def _get_proprio(self) -> np.ndarray:
     """Returns the proprioceptive observations for the follower arms."""
@@ -240,28 +299,36 @@ class AlohaEnv(gym.Env):
       The initial observation and info.
     """
     super().reset(seed=seed)
-
-    print('Resetting environment: moving arms to home position.')
-    # Move arms to a known home position
-    robot_utils.move_arms(
-        bot_list=self.robots.values(),
-        dt=self.dt,
-        target_pose_list=HOME_POSITION * 2,
-        moving_time=2.0,
-    )
-    robot_utils.move_grippers(
-        list(self.robots.values()), [1.5, 1.5], moving_time=1.0, dt=self.dt
-    )  # Open grippers
-    time.sleep(1.0)
+    if (
+        options
+        and SHOULD_MOVE_TO_HOME_RESET_OPTION_KEY in options
+        and options[SHOULD_MOVE_TO_HOME_RESET_OPTION_KEY]
+    ):
+      print('Resetting environment: moving arms to home position.')
+      # Move arms to a known home position
+      robot_utils.move_arms(
+          bot_list=self.robots.values(),
+          dt=self.dt,
+          target_pose_list=HOME_POSITION * 2,
+          moving_time=2.0,
+      )
+      robot_utils.move_grippers(
+          list(self.robots.values()), [1.5, 1.5], moving_time=1.0, dt=self.dt
+      )  # Open grippers
+      time.sleep(1.0)
 
     # The task instruction can be passed via options
-    if options and 'instruction' in options:
-      self.instruction = options['instruction']
+    if options and INSTRUCTION_RESET_OPTION_KEY in options:
+      self._instruction = options[INSTRUCTION_RESET_OPTION_KEY]
     else:
-      self.instruction = 'pick up the banana'
+      self._instruction = self._default_instruction
 
     observation = self._get_obs()
-    info = {'instruction': self.instruction}
+    # Provide the task instruction as part of the observation.
+    observation[INSTRUCTION_RESET_OPTION_KEY] = self._instruction
+    info = {'instruction': self._instruction}
+
+    self._num_steps = 0
 
     return observation, info
 
@@ -284,12 +351,18 @@ class AlohaEnv(gym.Env):
     time_to_sleep = max(0, self.dt - (time.time() - self.last_get_obs))
     time.sleep(time_to_sleep)
     observation = self._get_obs()
+    # Provide the task instruction as part of the observation.
+    observation[INSTRUCTION_RESET_OPTION_KEY] = self._instruction
 
-    # These are not use in real robot eval. Omit the implementation for now.
     reward = 0
     terminated = False
     truncated = False
     info = {}
+
+    self._num_steps += 1
+    if self._num_steps >= self._max_num_steps:
+      truncated = True
+
     return observation, reward, terminated, truncated, info
 
   def close(self, hard_shutdown=True):
@@ -304,7 +377,38 @@ class AlohaEnv(gym.Env):
     print('Closing environment and shutting down robot.')
     print(list(self.robots.values()))
     if hard_shutdown:
-      robot_utils.sleep_arms(
-          list(self.robots.values()), home_first=True, dt=self.dt
+      robot_utils.move_arms(
+          bot_list=self.robots.values(),
+          dt=self.dt,
+          target_pose_list=HOME_POSITION * 2,
+          moving_time=0.5,
       )
+      robot_utils.move_grippers(
+          list(self.robots.values()), [1.5, 1.5], moving_time=0.5, dt=self.dt
+      )
+      time.sleep(1.0)
+
     robot.robot_shutdown(self.node)
+    time.sleep(5.0)
+
+  def open_grippers(self):
+    """Opens the grippers."""
+    robot_utils.move_grippers(
+        list(self.robots.values()), [1.5, 1.5], moving_time=1.0, dt=self.dt
+    )
+
+  def get_overhead_cam_image(self) -> np.ndarray:
+    """Returns the overhead camera image."""
+    return self.image_node.get_images()[_COMPRESSED_CAM_OVERHEAD]
+
+  def get_worms_eye_cam_image(self) -> np.ndarray:
+    """Returns the worms eye camera image."""
+    return self.image_node.get_images()[_COMPRESSED_CAM_WORMS_EYE]
+
+  def get_wrist_cam_left_image(self) -> np.ndarray:
+    """Returns the wrist left camera image."""
+    return self.image_node.get_images()[_COMPRESSED_CAM_LEFT]
+
+  def get_wrist_cam_right_image(self) -> np.ndarray:
+    """Returns the wrist right camera image."""
+    return self.image_node.get_images()[_COMPRESSED_CAM_RIGHT]

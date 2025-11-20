@@ -206,6 +206,28 @@ class OrchestratorHelper:
 
     return self._interface.set_current_robot_operator_id(operator_id)
 
+  def add_operator_event(
+      self,
+      operator_event_str: str,
+      operator_id: str,
+      event_timestamp: int,
+      resetter_id: str,
+      event_note: str,
+  ) -> RESPONSE:
+    """Records an operator event."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.add_operator_event(
+        operator_event_str=operator_event_str,
+        operator_id=operator_id,
+        event_timestamp=event_timestamp,
+        resetter_id=resetter_id,
+        event_note=event_note,
+    )
+
   def request_work_unit(self) -> RESPONSE:
     """Requests for a work unit to execute on the robot."""
     if self._interface is None:
@@ -391,7 +413,11 @@ class OrchestratorHelper:
     return self._interface.robot_job_work_unit_start_execution()
 
   def complete_work_unit(
-      self, outcome: WORK_UNIT_OUTCOME, note: str
+      self,
+      outcome: WORK_UNIT_OUTCOME,
+      note: str,
+      success_score: float | None = None,
+      success_score_definition: str | None = None,
   ) -> RESPONSE:
     """Sets the current work unit's stage as completed."""
     if self._interface is None:
@@ -400,5 +426,48 @@ class OrchestratorHelper:
       return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
 
     return self._interface.robot_job_work_unit_complete_work_unit(
-        outcome=outcome, note=note
+        outcome=outcome,
+        success_score=success_score,
+        success_score_definition=success_score_definition,
+        note=note,
+    )
+
+  def get_artifact_uri(self, artifact_id: str) -> RESPONSE:
+    """Gets the artifact's download URI."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.get_artifact_uri(artifact_id=artifact_id)
+
+  def get_artifact(self, artifact_id: str) -> RESPONSE:
+    """Gets detailed artifact information."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.get_artifact(artifact_id=artifact_id)
+
+  def load_rui_workcell_state(self, robot_id: str) -> RESPONSE:
+    """Loads the RUI workcell state for the given robot."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.load_rui_workcell_state(robot_id=robot_id)
+
+  def set_rui_workcell_state(
+      self, robot_id: str, workcell_state: str
+  ) -> RESPONSE:
+    """Sets the RUI workcell state for the given robot."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.set_rui_workcell_state(
+        robot_id=robot_id, workcell_state=workcell_state
     )

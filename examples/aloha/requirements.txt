@@ -4,3 +4,6 @@ modern_robotics
 pyyaml
 transforms3d
 dm_control
+fastapi[standard]
+uvicorn
+gdm_robotics >= 1.0.1

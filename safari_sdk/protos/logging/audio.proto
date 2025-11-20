@@ -24,6 +24,9 @@ enum AudioFormat {
   // file. The actual encoding is stored within the header bytes; typically this
   // will be LPCM for storing uncompressed audio.
   AUDIO_FORMAT_WAV = 3;
+  // PCM audio format. Pulse Code Modulation, is a method for digitally
+  // representing analog audio signals. PCM data has no encoding.
+  AUDIO_FORMAT_PCM = 4;
 }
 
 message AudioMetadata {

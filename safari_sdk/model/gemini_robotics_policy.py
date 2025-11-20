@@ -14,163 +14,285 @@
 
 """Gemini Robotics Policy."""
 
+from collections.abc import Iterable, Sequence
 from concurrent import futures
 import copy
-import enum
 import json
 import logging
 import threading
-from typing import Any
 
+import dm_env
+from dm_env import specs
+from gdm_robotics.interfaces import policy as gdmr_policy
+from gdm_robotics.interfaces import types as gdmr_types
 import numpy as np
-import tensorflow as tf
+import tree
+from typing_extensions import override
 
+from safari_sdk.model import additional_observations_provider
+from safari_sdk.model import constants
 from safari_sdk.model import genai_robotics
-from safari_sdk.model import tf_agents_interface as tfa_interface
+from safari_sdk.model import observation_to_model_query_contents
 
 
-class InferenceMode(enum.Enum):
-  SYNCHRONOUS = enum.auto()
-  ASYNCHRONOUS = enum.auto()
-
-
-class GeminiRoboticsPolicy:
+class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
   """Policy which uses the Gemini Robotics API."""
 
   def __init__(
       self,
       serve_id: str,
-      task_instruction: str,
-      cameras: dict[str, tuple[int, int]],
-      joints: dict[str, int],
+      task_instruction_key: str,
+      image_observation_keys: Iterable[str],
+      proprioceptive_observation_keys: Iterable[str],
       min_replan_interval: int = 15,
-      inference_mode: InferenceMode = InferenceMode.ASYNCHRONOUS,
-      robotics_api_connection: genai_robotics.RoboticsApiConnectionType = genai_robotics.RoboticsApiConnectionType.CLOUD,
+      inference_mode: constants.InferenceMode = constants.InferenceMode.ASYNCHRONOUS,
+      additional_observations_providers: Sequence[
+          additional_observations_provider.AdditionalObservationsProvider
+      ] = (),
+      robotics_api_connection: constants.RoboticsApiConnectionType = constants.RoboticsApiConnectionType.CLOUD,
+      image_compression_jpeg_quality: int = 95,
   ):
     """Initializes the evaluation policy.
 
+    Note: this is policy has an implicit state which is not returned by the
+    functions.
+
+    Important: Before using the policy (i.e. calling `initial_state` and `step`)
+    you must initialize it by providing the timestep spec by calling
+    `step_spec`.
+
     Args:
       serve_id: The serve ID to use for the policy.
-      task_instruction: The task instruction to use for the policy.
-      cameras: A dict of camera names to (height, width) tuples.
-      joints: A dict of joint names to the number of joints.
+      task_instruction_key: The key of the task instruction in the observation.
+      image_observation_keys: A list of observation keys that are related to
+        images.
+      proprioceptive_observation_keys: The list of observation keys that are
+        related to proprioceptive sensors (e.g. joints).
       min_replan_interval: The minimum number of steps to wait before replanning
         the task instruction.
       inference_mode: Whether to use an async or sync implementation of the
         policy.
+      additional_observations_providers: A sequence of providers for additional
+        observations.
       robotics_api_connection: Connection type for the Robotics API.
+      image_compression_jpeg_quality: The JPEG quality for encoding images.
     """
     self._serve_id = serve_id
-    self._task_instruction = task_instruction
-    self._cameras = cameras
-    self._joints = joints
+    self._string_observations_keys = [task_instruction_key]
+    self._task_instruction_key = task_instruction_key
+    self._image_observation_keys = list(image_observation_keys)
+    self._proprioceptive_observation_keys = list(
+        proprioceptive_observation_keys
+    )
     self._min_replan_interval = min_replan_interval
+    self._additional_observations_providers = list(
+        additional_observations_providers
+    )
+    self._robotics_api_connection = robotics_api_connection
+    self._image_compression_jpeg_quality = image_compression_jpeg_quality
+
+    # Go through the additional observation observations spec and
+    # augment the image, string and proprioceptive keys.
+    for provider in self._additional_observations_providers:
+      additional_specs = provider.get_additional_observations_spec()
+      for key, spec in additional_specs.items():
+        if isinstance(spec, specs.StringArray):
+          self._string_observations_keys.append(key)
+        elif isinstance(spec, specs.Array):
+          if len(spec.shape) == 3:
+            self._image_observation_keys.append(key)
+          elif len(spec.shape) == 1 or len(spec.shape) == 2:
+            self._proprioceptive_observation_keys.append(key)
+
+    self._dummy_state = np.zeros(())
 
     self._model_output = np.array([])
-    self._action_spec = None
+    self._action_spec: gdmr_types.UnboundedArraySpec | None = None
+    self._timestep_spec: gdmr_types.TimeStepSpec | None = None
+    self._num_of_actions_per_request = 0
+
     # Initialize the genai_robotics client
     self._client = genai_robotics.Client(
-        use_robotics_api=True,  # Use the specific Robotics API endpoint
         robotics_api_connection=robotics_api_connection,
     )
     # Threading setup
     self._inference_mode = inference_mode
-    if inference_mode == InferenceMode.ASYNCHRONOUS:
+    if inference_mode == constants.InferenceMode.ASYNCHRONOUS:
       self._executor = futures.ThreadPoolExecutor(max_workers=1)
       self._future: futures.Future[np.ndarray] | None = None
       self._model_output_lock = threading.Lock()
       self._actions_executed_during_inference = 0
 
-  def setup(self):
-    """Initializes the policy."""
-    self._action = self._query_model(
-        self._reset_sync(), self._task_instruction, np.array([])
-    )
-    self._action_spec = tf.TensorSpec(
-        shape=self._action.shape, dtype=tf.float32
-    )
-
-  @property
-  def action_spec(self) -> tf.TensorSpec:
+  @override
+  def initial_state(
+      self,
+  ) -> gdmr_types.StateStructure[np.ndarray]:
+    """Resets the policy and returns the policy initial state."""
     if self._action_spec is None:
-      logging.warning('action_spec is None, calling setup()')
-      self.setup()
-    assert self._action_spec is not None, 'action_spec is None, setup failed'
-    return self._action_spec
+      raise ValueError('Cannot call initial_state before calling step_spec.')
 
-  @property
-  def observation_spec(self) -> dict[str, tf.TensorSpec]:
-    return {
-        joint_name: tf.TensorSpec(shape=(num_joints,), dtype=tf.float32)
-        for joint_name, num_joints in self._joints.items()
-    } | {
-        camera_name: tf.TensorSpec(
-            shape=(camera_info[0], camera_info[1], 3),
-            dtype=tf.uint8,
-        )
-        for camera_name, camera_info in self._cameras.items()
-    }
-
-  def _reset_sync(self) -> dict[str, np.ndarray]:
-    """Resets the policy."""
+    if self._inference_mode == constants.InferenceMode.ASYNCHRONOUS:
+      # Cancel any pending futures on reset
+      if self._future and self._future.running():
+        self._future.cancel()
+      self._future = None
 
     self._model_output = np.array([])
-    observation_0 = tf.nest.map_structure(
-        lambda x: tf.zeros(x.shape, x.dtype),
-        self.observation_spec,
+    for provider in self._additional_observations_providers:
+      provider.reset()
+
+    return self._dummy_state
+
+  @override
+  def step(
+      self,
+      timestep: dm_env.TimeStep,
+      prev_state: gdmr_types.StateStructure[np.ndarray],
+  ) -> tuple[
+      tuple[
+          gdmr_types.ActionType,
+          gdmr_types.ExtraOutputStructure[np.ndarray],
+      ],
+      gdmr_types.StateStructure[np.ndarray],
+  ]:
+    """Takes a step with the policy given an environment timestep.
+
+    Args:
+      timestep: An instance of environment `TimeStep`.
+      prev_state: This is ignored.
+
+    Returns:
+      A tuple of ((action, extra), state) with `action` indicating the action to
+      be executed, extra an empty dict and state the dummy policy state.
+    """
+    del prev_state  # Unused.
+
+    # Add additional observations.
+    should_replan = self._should_replan()
+    for provider in self._additional_observations_providers:
+      additional_obs = provider.get_additional_observations(
+          timestep, should_replan
+      )
+      timestep.observation.update(additional_obs)
+
+    if 'thinking' in timestep.observation:
+      logging.info('thinking: %s', str(timestep.observation['thinking']))
+    if self._inference_mode == constants.InferenceMode.ASYNCHRONOUS:
+      action = self._step_async(timestep.observation)
+    else:
+      action = self._step_sync(timestep.observation)
+
+    return (action, {}), self._dummy_state
+
+  @override
+  def step_spec(self, timestep_spec: gdmr_types.TimeStepSpec) -> tuple[
+      tuple[gdmr_types.ActionSpec, gdmr_types.ExtraOutputSpec],
+      gdmr_types.StateSpec,
+  ]:
+    """Returns the spec of the ((action, extra), state) from `step` method."""
+
+    observation_spec = dict(timestep_spec.observation)
+
+    # Add additional observations specs provided by the users.
+    extra_specs = {}
+    for provider in self._additional_observations_providers:
+      extra_specs.update(provider.get_additional_observations_spec())
+
+    if extra_specs:
+      observation_spec.update(extra_specs)
+
+      self._timestep_spec = gdmr_types.TimeStepSpec(
+          observation=observation_spec,
+          step_type=timestep_spec.step_type,
+          reward=timestep_spec.reward,
+          discount=timestep_spec.discount,
+      )
+    else:
+      self._timestep_spec = timestep_spec
+
+    # Validate that the timestep_spec contains the required keys.
+    if self._string_observations_keys and not all(
+        string_obs_key in self._timestep_spec.observation
+        for string_obs_key in self._string_observations_keys
+    ):
+      raise ValueError(
+          'timestep_spec does not contain all string observation keys.'
+          f' Expected: {self._string_observations_keys}, actual:'
+          f' {self._timestep_spec.observation}'
+      )
+
+    if self._image_observation_keys and not all(
+        image_obs_key in self._timestep_spec.observation
+        for image_obs_key in self._image_observation_keys
+    ):
+      raise ValueError(
+          'timestep_spec does not contain all image observation keys.'
+          f' Expected: {self._image_observation_keys}, actual:'
+          f' {self._timestep_spec.observation}'
+      )
+    if self._proprioceptive_observation_keys and not all(
+        proprio_obs_key in self._timestep_spec.observation
+        for proprio_obs_key in self._proprioceptive_observation_keys
+    ):
+      raise ValueError(
+          'timestep_spec does not contain all proprioceptive observation keys.'
+          f' Expected: {self._proprioceptive_observation_keys}, actual:'
+          f' {self._timestep_spec.observation}'
+      )
+
+    if self._action_spec is None:
+      logging.warning('action_spec is None, initializing policy.')
+      self._setup()
+    if self._action_spec is None:
+      raise ValueError('action_spec is None, setup failed')
+
+    return (self._action_spec, {}), specs.Array(shape=(), dtype=np.float32)
+
+  def _setup(self):
+    """Initializes the policy."""
+    if self._timestep_spec is None:
+      raise ValueError('timestep_spec is None. Call step_spec first.')
+
+    empty_observation = tree.map_structure(
+        lambda s: s.generate_value(), self._timestep_spec.observation
     )
 
-    return observation_0
+    # Some models require a task instruction to be present
+    for string_obs_key in self._string_observations_keys:
+      empty_observation[string_obs_key] = np.array('non empty string')
 
-  def _reset_async(self) -> dict[str, np.ndarray]:
-    """Resets the policy."""
-    # Reset the model output
-    with self._model_output_lock:
-      self._model_output = np.array([])
+    self._actions_buffer = self._query_model(empty_observation, np.array([]))
+    # First axis is the number of actions.
+    self._num_of_actions_per_request = self._actions_buffer.shape[0]
 
-    # Cancel any pending futures on reset
-    if self._future and self._future.running():
-      self._future.cancel()
-    self._future = None
-    return self._reset_sync()
-
-  def reset(self) -> dict[str, np.ndarray]:
-    """Resets the policy."""
-    if self._inference_mode == InferenceMode.ASYNCHRONOUS:
-      return self._reset_async()
-    return self._reset_sync()
+    self._action_spec = gdmr_types.UnboundedArraySpec(
+        shape=self._actions_buffer.shape[1:],
+        dtype=np.float32,
+    )
 
   def _should_replan(self) -> bool:
     """Returns whether the policy should replan."""
+    assert self._action_spec is not None
     actions_left = self._model_output.shape[0]
-    total_actions = self.action_spec.shape[0]
-    if (total_actions - actions_left) >= self._min_replan_interval:
+    if (
+        self._num_of_actions_per_request - actions_left
+    ) >= self._min_replan_interval:
       return True
     if actions_left == 0:
       return True
     return False
 
-  def _step_sync(
-      self, observation: dict[str, np.ndarray]
-  ) -> tfa_interface.ActionType:
+  def _step_sync(self, observation: dict[str, np.ndarray]) -> np.ndarray:
     """Computes an action from observations."""
     if self._should_replan():
-      self._model_output = self._query_model(
-          observation, self._task_instruction, self._model_output
-      )
+      self._model_output = self._query_model(observation, self._model_output)
       assert self._model_output.shape[0] > 0
 
     action = self._model_output[0]
     self._model_output = self._model_output[1:]
     return action
 
-  def set_task_instruction(self, task_instruction: str):
-    """Sets the task instruction for the policy."""
-    self._task_instruction = task_instruction
-
-  def _step_async(
-      self, observation: dict[str, np.ndarray]
-  ) -> tfa_interface.ActionType:
+  def _step_async(self, observation: dict[str, np.ndarray]) -> np.ndarray:
     """Computes an action from the given observation.
 
     Method:
@@ -205,12 +327,12 @@ class GeminiRoboticsPolicy:
         ]
         self._future = None
       actions_left = self._model_output.shape[0]
+
       # If not enough actions left and not generating, trigger a replan.
       if self._should_replan() and self._future is None:
         self._future = self._executor.submit(
             self._query_model,
             copy.deepcopy(observation),
-            copy.deepcopy(self._task_instruction),
             copy.deepcopy(self._model_output),
         )
         self._actions_executed_during_inference = 0
@@ -233,75 +355,29 @@ class GeminiRoboticsPolicy:
       self._actions_executed_during_inference += 1
     return action
 
-  def step(
-      self, observation: dict[str, np.ndarray]
-  ) -> tfa_interface.ActionType:
-    """Computes an action from the given observation."""
-    if self._inference_mode == InferenceMode.ASYNCHRONOUS:
-      return self._step_async(observation)
-    return self._step_sync(observation)
-
-  def _observation_to_contents(
-      self,
-      observation: dict[str, np.ndarray],
-      task_instruction: str,
-      model_output: np.ndarray,
-  ) -> list[Any]:
-    """Encodes the observation and task instruction as a GenerateRequest."""
-    encoded_observation = {}
-    encoded_observation['task_instruction'] = task_instruction
-    # Conditioning on what the model has left to output.
-    if model_output.size > 0:
-      encoded_observation['conditioning'] = model_output.tolist()
-
-    for joint_name in self._joints:
-      joints = observation[joint_name]
-      # Tolerate common mistake of having an extra batch dimension.
-      if joints.ndim == 2:
-        joints = joints[0]
-      if joints.ndim != 1:
-        raise ValueError(
-            f'Joint {joint_name} has {joints.ndim} dimensions, but should be 1.'
-        )
-      encoded_observation[joint_name] = [float(j) for j in joints]
-
-    images = []
-    for i, camera_name in enumerate(self._cameras):
-      encoded_observation[f'images/{camera_name}'] = i
-      image = observation[camera_name]
-      if isinstance(image, (np.ndarray, tf.Tensor)):
-        # Tolerate common mistake of having an extra batch dimension.
-        image_dim = image.ndim
-        if image_dim == 4:
-          image = image[0]
-        if image.ndim != 3:
-          raise ValueError(
-              f'Image {camera_name} has {image_dim} dimensions, but should'
-              ' be 3.'
-          )
-      elif isinstance(image, bytes):
-        pass  # can directly take encoded image bytes.
-      else:
-        raise ValueError(
-            f'Image {camera_name} is of type {type(image)}, but should be'
-            ' np.ndarray, tf.Tensor or bytes.'
-        )
-      images.append(image)
-    return [
-        *images,
-        json.dumps(encoded_observation),
-    ]
-
   def _query_model(
       self,
       observation: dict[str, np.ndarray],
-      task_instruction: str,
       model_output: np.ndarray,
   ) -> np.ndarray:
     """Queries the model with the given observation and task instruction."""
-    contents = self._observation_to_contents(
-        observation, task_instruction, model_output
+    contents = observation_to_model_query_contents.observation_to_model_query_contents(
+        observation=observation,
+        model_output=model_output,
+        string_observations_keys=self._string_observations_keys,
+        task_instruction_key=self._task_instruction_key,
+        proprioceptive_observation_keys=self._proprioceptive_observation_keys,
+        image_observation_keys=self._image_observation_keys,
+        inference_mode=self._inference_mode,
     )
+    if (
+        self._robotics_api_connection
+        == constants.RoboticsApiConnectionType.CLOUD_GENAI
+    ):
+      contents = genai_robotics.update_robotics_content_to_genai_format(
+          contents,
+          image_compression_jpeg_quality=self._image_compression_jpeg_quality,
+      )
 
     response = self._client.models.generate_content(
         model=self._serve_id,
@@ -309,15 +385,27 @@ class GeminiRoboticsPolicy:
     )
 
     # Parse the response text (assuming its JSON containing the action)
-    response_data = json.loads(response.text)
+    if response.text:
+      response_data = json.loads(response.text)
+    elif response.candidates:
+      response_data = json.loads(
+          response.candidates[0].content.parts[0].inline_data.data
+      )
+    else:
+      raise ValueError('Response does not contain text or candidates.')
+
     # Assuming the structure is {'action_chunk': [...]}
     action_chunk = response_data.get('action_chunk')
     if action_chunk is None:
       raise ValueError("Response JSON does not contain 'action_chunk'")
-    return np.array(action_chunk)
+    action_chunk = np.array(action_chunk)
+    if action_chunk.ndim == 3:
+      action_chunk = action_chunk[0]
+
+    return action_chunk
 
   @property
   def policy_type(self) -> str:
-    if self._inference_mode == InferenceMode.ASYNCHRONOUS:
+    if self._inference_mode == constants.InferenceMode.ASYNCHRONOUS:
       return f'gemini_robotics_async[{self._serve_id}]'
     return f'gemini_robotics[{self._serve_id}]'

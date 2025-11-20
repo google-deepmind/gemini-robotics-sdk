@@ -12,18 +12,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# Cmake file for building the Safari SDK.
+# Cmake file for building the Safari SDK protobuf messages. This is invoked by
+# pip when it builds the safari_sdk package; it should not be invoked directly.
 
-# Example usage (starting in this directory):
-# mkdir build && cd build && cmake .. && make all
-# when rebuilding, only `make all` is necessary.
-
-# Version 3.16 ships with Ubuntu 22.04, which is required by ROS noetic.
 cmake_minimum_required(VERSION 3.16)
 project(safari_sdk)
 include(cmake/protobuf-generate.cmake)
-include(cmake/python-packaging.cmake)
-include(cmake/safari-targets.cmake)
 
 # Generate the python protobufs and add them to the 'all' build target.
 # Ouput files are placed in the source tree, along side their corresponding
@@ -37,34 +31,4 @@ protobuf_generate(
 )
 add_custom_target(py_proto ALL
   DEPENDS ${_PB_GENERATED_FILES}
-)
-
-# Define the properies needed to build and/or install the safari package.
-add_pip_source_package_info(
-  TARGET_NAME safari_sdk_source_package
-  PACKAGE_NAME safari_sdk
-  IMPORT_ROOT_DIR safari_sdk
-  DEPENDS ${_PB_GENERATED_FILES}
-  EDITABLE_INSTALL_OUTPUT safari_sdk.pth
-  PY_FILE_GLOB
-)
-
-# Add targets to install the package from source in regular and editable modes.
-# TODO(b/413020601#comment2): Which method should be used for installation?
-add_pip_install(
-  TARGET_NAME pip_install
-  VENV_NAME safari_venv
-  PACKAGE safari_sdk_source_package
-)
-add_pip_editable_install(
-  TARGET_NAME pip_install_e
-  VENV_NAME safari_venv
-  PACKAGE safari_sdk_source_package
-)
-
-# Add a target to build a pip wheel.
-add_pip_wheel(
-  TARGET_NAME pip_wheel
-  VENV_NAME safari_venv
-  PACKAGE safari_sdk_source_package
 )

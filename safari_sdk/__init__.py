@@ -16,4 +16,4 @@
 # Release version of the Safari SDK. Note: This is read by cmake, which expects
 # the version to be a plain string surrounded by quotes. Do not evaluate any
 # python expressions, including string formatting, variable substitution, etc.
-__version__ = "2.5.0"
+__version__ = "2.74.0.dev0"

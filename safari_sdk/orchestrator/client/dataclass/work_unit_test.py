@@ -31,6 +31,87 @@ class WorkUnitResponseTest(absltest.TestCase):
     outcome = work_unit.WorkUnitOutcome.WORK_UNIT_OUTCOME_UNSPECIFIED
     self.assertEqual(outcome.num_value(), 0)
 
+  def test_pixel_location_post_init(self):
+    pixel_location = work_unit.PixelLocation(x=1, y=2)
+    self.assertEqual(pixel_location.x, 1)
+    self.assertEqual(pixel_location.y, 2)
+
+    pixel_location = work_unit.PixelLocation(x=1)
+    self.assertEqual(pixel_location.x, 1)
+    self.assertEqual(pixel_location.y, 0)
+
+    pixel_location = work_unit.PixelLocation(y=2)
+    self.assertEqual(pixel_location.x, 0)
+    self.assertEqual(pixel_location.y, 2)
+
+    pixel_location = work_unit.PixelLocation()
+    self.assertIsNone(pixel_location.x)
+    self.assertIsNone(pixel_location.y)
+
+  def test_pixel_vector_post_init(self):
+    pixel_vector = work_unit.PixelVector(
+        coordinate=work_unit.PixelLocation(x=1, y=2),
+        direction=work_unit.PixelDirection(rad=1.57)
+    )
+    self.assertEqual(pixel_vector.coordinate.x, 1)
+    self.assertEqual(pixel_vector.coordinate.y, 2)
+    self.assertEqual(pixel_vector.direction.rad, 1.57)
+
+    pixel_vector = work_unit.PixelVector(
+        coordinate=work_unit.PixelLocation(x=1, y=2)
+    )
+    self.assertEqual(pixel_vector.coordinate.x, 1)
+    self.assertEqual(pixel_vector.coordinate.y, 2)
+    self.assertEqual(pixel_vector.direction.rad, 0.0)
+
+    pixel_vector = work_unit.PixelVector(
+        direction=work_unit.PixelDirection(rad=1.57)
+    )
+    self.assertEqual(pixel_vector.coordinate.x, 0)
+    self.assertEqual(pixel_vector.coordinate.y, 0)
+    self.assertEqual(pixel_vector.direction.rad, 1.57)
+
+    pixel_vector = work_unit.PixelVector()
+    self.assertIsNone(pixel_vector.coordinate)
+    self.assertIsNone(pixel_vector.direction)
+
+  def test_shape_box_post_init(self):
+    shape_box = work_unit.ShapeBox(x=1, y=2, w=3, h=4)
+    self.assertEqual(shape_box.x, 1)
+    self.assertEqual(shape_box.y, 2)
+    self.assertEqual(shape_box.w, 3)
+    self.assertEqual(shape_box.h, 4)
+
+    shape_box = work_unit.ShapeBox(x=1, w=3, h=4)
+    self.assertEqual(shape_box.x, 1)
+    self.assertEqual(shape_box.y, 0)
+    self.assertEqual(shape_box.w, 3)
+    self.assertEqual(shape_box.h, 4)
+
+    shape_box = work_unit.ShapeBox(x=1, y=2, h=4)
+    self.assertEqual(shape_box.x, 1)
+    self.assertEqual(shape_box.y, 2)
+    self.assertEqual(shape_box.w, 0)
+    self.assertEqual(shape_box.h, 4)
+
+    shape_box = work_unit.ShapeBox(x=1, y=2, w=3)
+    self.assertEqual(shape_box.x, 1)
+    self.assertEqual(shape_box.y, 2)
+    self.assertEqual(shape_box.w, 3)
+    self.assertEqual(shape_box.h, 0)
+
+    shape_box = work_unit.ShapeBox(w=3)
+    self.assertEqual(shape_box.x, 0)
+    self.assertEqual(shape_box.y, 0)
+    self.assertEqual(shape_box.w, 3)
+    self.assertEqual(shape_box.h, 0)
+
+    shape_box = work_unit.ShapeBox()
+    self.assertIsNone(shape_box.x)
+    self.assertIsNone(shape_box.y)
+    self.assertIsNone(shape_box.w)
+    self.assertIsNone(shape_box.h)
+
   def test_kv_msg_get_value_good(self):
     kv_msg = work_unit.KvMsg(
         key="test_key",
@@ -81,31 +162,31 @@ class WorkUnitResponseTest(absltest.TestCase):
         type=work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING,
         value=work_unit.KvMsgValue(),
     )
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEmpty(kv_msg.get_value())
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING_LIST
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEmpty(kv_msg.get_value())
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEqual(kv_msg.get_value(), 0)
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT_LIST
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEmpty(kv_msg.get_value())
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEqual(kv_msg.get_value(), 0.0)
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT_LIST
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEmpty(kv_msg.get_value())
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL
-    self.assertIsNone(kv_msg.get_value())
+    self.assertFalse(kv_msg.get_value())
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL_LIST
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEmpty(kv_msg.get_value())
 
     kv_msg.type = work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_JSON
-    self.assertIsNone(kv_msg.get_value())
+    self.assertEmpty(kv_msg.get_value())
 
   def test_scene_preset_details_get_all_parameters_good(self):
     scene_preset_details = work_unit.ScenePresetDetails(
@@ -169,6 +250,8 @@ class WorkUnitResponseTest(absltest.TestCase):
 
   def test_policy_details_get_all_parameters_good(self):
     policy_details = work_unit.PolicyDetails(
+        name="test_policy_name",
+        description="test_policy_description",
         parameters=[
             work_unit.KvMsg(
                 key="test_key_1",
@@ -180,13 +263,19 @@ class WorkUnitResponseTest(absltest.TestCase):
                 type=work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT,
                 value=work_unit.KvMsgValue(intValue=2),
             ),
-        ]
+        ],
+        artifactIds=["test_artifact_id_1", "test_artifact_id_2"]
     )
     params = policy_details.get_all_parameters()
+    self.assertEqual(policy_details.name, "test_policy_name")
+    self.assertEqual(policy_details.description, "test_policy_description")
     self.assertLen(params, 2)
     self.assertSameElements(params.keys(), ["test_key_1", "test_key_2"])
     self.assertEqual(params["test_key_1"], "test_value_1")
     self.assertEqual(params["test_key_2"], 2)
+    self.assertSequenceEqual(
+        policy_details.artifactIds, ["test_artifact_id_1", "test_artifact_id_2"]
+    )
 
   def test_policy_details_get_all_parameters_with_no_parameters(self):
     policy_details = work_unit.PolicyDetails()
@@ -226,6 +315,31 @@ class WorkUnitResponseTest(absltest.TestCase):
         key="test_key_1", default_value="ERROR"
     )
     self.assertEqual(value, "ERROR")
+
+  def test_policy_details_get_artifact_ids_good(self):
+    policy_details = work_unit.PolicyDetails(
+        artifactIds=["test_artifact_id_1", "test_artifact_id_2"]
+    )
+    self.assertSequenceEqual(
+        policy_details.artifactIds,
+        ["test_artifact_id_1", "test_artifact_id_2"],
+    )
+
+  def test_policy_details_get_artifact_ids_with_no_artifact_ids(self):
+    policy_details = work_unit.PolicyDetails()
+    self.assertIsNone(policy_details.artifactIds)
+
+  def test_success_score_post_init_from_json_response(self):
+    success_score = work_unit.SuccessScore(
+        score=0.5,
+        definition="test_definition",
+    )
+    self.assertEqual(success_score.score, 0.5)
+    self.assertEqual(success_score.definition, "test_definition")
+
+    success_score = work_unit.SuccessScore()
+    self.assertEqual(success_score.score, 0.0)
+    self.assertEqual(success_score.definition, "")
 
   def test_response_post_init_from_json_response(self):
     response = work_unit.WorkUnit(

@@ -83,6 +83,7 @@ class OrchestratorCurrentRobotInfo:
         work_unit_stage=info.stage,
         operator_id=info.operatorId,
         is_operational=info.isOperational,
+        robot_stage=info.robotStage,
     )
 
   def set_current_robot_operator_id(self, operator_id: str) -> _RESPONSE:

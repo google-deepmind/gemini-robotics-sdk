@@ -14,145 +14,160 @@
 
 """Run Robotics Policy Eval on Aloha Robot."""
 
-import argparse
-
+import socket
+from absl import app
+from absl import flags
 import env
+from gdm_robotics.runtime import runloop as runloop_lib
 import rclpy
-
+from safari_sdk.logging.python import episodic_logger
+from safari_sdk.model import constants
 from safari_sdk.model import gemini_robotics_policy
-from safari_sdk.model import genai_robotics
-
-AlohaEnv = env.AlohaEnv
-
-_SERVE_ID = 'gemini_robotics_on_device'
-
-_IMAGE_SIZE = (480, 848)
-_ALOHA_CAMERAS = {
-    'overhead_cam': _IMAGE_SIZE,
-    'worms_eye_cam': _IMAGE_SIZE,
-    'wrist_cam_left': _IMAGE_SIZE,
-    'wrist_cam_right': _IMAGE_SIZE,
-}
-_ALOHA_JOINTS = {'joints_pos': 14}
 
 # Robot constants
 ROBOT_CONFIG_NAME = 'aloha_stationary'
 CONFIG_BASE_PATH = '/home/juggler/interbotix_ws/src/aloha/config/'
 
-
-def run_single_episode(aloha_env, instruction, steps=5000):
-  """Run a single episode of AlohaEnv."""
-  # 2. Reset the environment with a task instruction
-  obs, info = aloha_env.reset(options={'instruction': instruction})
-  print(f"Starting episode with instruction: {info['instruction']}")
-  print(
-      'Initial observation received. Joint positions:'
-      f" {len(obs['joints_pos'])}"
-  )
-  # 3. Initialize the policy using GeminiRoboticsPolicy
-  try:
-    print('Creating policy...')
-    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
-        serve_id=_SERVE_ID,
-        task_instruction=instruction,
-        inference_mode=gemini_robotics_policy.InferenceMode.SYNCHRONOUS,
-        cameras=_ALOHA_CAMERAS,
-        joints=_ALOHA_JOINTS,
-        robotics_api_connection=genai_robotics.RoboticsApiConnectionType.LOCAL,
-    )
-    policy.setup()  # Initialize the policy
-    print('GeminiRoboticsPolicy initialized successfully.')
-  except ValueError as e:
-    print(f'Error initializing policy: {e}')
-    raise
-  except Exception as e:  # pylint: disable=broad-except
-    print(f'An unexpected error occurred during initialization: {e}')
-    raise
-
-  # 4. Run a loop (e.g., for one episode)
-  for _ in range(steps):  # Default: Run for 5000 steps (100 seconds at 50Hz)
-    obs['task_instruction'] = info['instruction']
-    action = policy.step(obs)
-    # 5. Step the environment with the chosen action
-    obs, _, _, _, _ = aloha_env.step(action)
+SERVE_ID = flags.DEFINE_string(
+    'serve_id',
+    'gemini_robotics_on_device',
+    'The serve id to use for the Gemini Robotics Policy.',
+)
+INFERENCE_MODE = flags.DEFINE_enum_class(
+    'inference_mode',
+    constants.InferenceMode.SYNCHRONOUS,
+    constants.InferenceMode,
+    'The inference mode to use for the Gemini Robotics Policy.',
+)
+ROBOTS_API_CONNECTION = flags.DEFINE_enum_class(
+    'robotics_api_connection',
+    constants.RoboticsApiConnectionType.LOCAL,
+    constants.RoboticsApiConnectionType,
+    'The robotics API connection type to use.',
+)
+INSTRUCTION = flags.DEFINE_string(
+    'instruction', None, 'Specify the instruction to give to the robot.'
+)
+MAX_NUM_STEPS = flags.DEFINE_integer(
+    'steps', 5000, 'Number of steps to run the episode for.'
+)
+AGENT_ID = flags.DEFINE_string(
+    'agent_id',
+    socket.gethostname(),
+    'The agent id to use for the episodic logger.',
+)
 
 
-def main():
-  """Main function.
+class UserInputRunloopOperations(runloop_lib.RunloopRuntimeOperations):
+  """Runloop runtime operations that handle user input."""
 
-  Usage: python3 eval.py [--instruction <instruction>] [--steps <steps>]
+  def __init__(self, default_instruction: str):
+    self._instruction = default_instruction
+    self._has_quit = False
 
-    If --instruction is specified, all episodes will use the same instruction.
-    Otherwise, specify task instruction when prompted.
+  @property
+  def instruction(self) -> str:
+    return self._instruction
 
-    You may stop the task using ctrl-c or by providing a KeyboardInterrupt.
-    Exit the program by typing 'quit' or ctrl-c between episodes.
-  """
-  parser = argparse.ArgumentParser(
-      description='Run Robotics Policy Eval on Aloha Robot.'
-  )
-  parser.add_argument(
-      '--instruction',
-      type=str,
-      help='Specify the instruction to give to the robot.',
-  )
-  parser.add_argument(
-      '--steps',
-      type=int,
-      default=5000,
-      help='Number of steps to run the episode for.',
-  )
-  args = parser.parse_args()
+  @property
+  def has_quit(self) -> bool:
+    return self._has_quit
 
-  if args.instruction is None:
+  def before_episode_reset(self) -> bool:
+    # Reset the quit flag.
+    self._has_quit = False
+
+    new_input = instruction = input(
+        "\nEnter a new instruction or 'quit' to cleanly exit: "
+    ).lower()
+
+    if new_input == 'quit':
+      self._has_quit = True
+      return False
+
+    # It is an instruction. Save it.
+    self._instruction = instruction
+    return True
+
+
+def main(argv):
+  del argv  # Unused.
+  if SERVE_ID.value is None:
+    raise ValueError('serve_id must be specified.')
+
+  if INSTRUCTION.value is None:
     print('Script started. Enter an instruction to begin.')
   else:
-    print(f'Script started with instruction: {args.instruction}')
+    print(f'Script started with instruction: {INSTRUCTION.value}')
 
-  # 1. Initialize the environment
-  aloha_env = AlohaEnv(
-      robot_config_name=ROBOT_CONFIG_NAME, config_base_path=CONFIG_BASE_PATH
+  # Create environment and policy.
+  environment = env.create_aloha_environment(
+      robot_config_name=ROBOT_CONFIG_NAME,
+      config_base_path=CONFIG_BASE_PATH,
+      max_num_steps=MAX_NUM_STEPS.value,
   )
-
-  # uninstalls ros signal handlers (signal.SIGINT, signal.SIGTERM) to avoid
+  # Uninstalls ros signal handlers (signal.SIGINT, signal.SIGTERM) to avoid
   # automatic ROS shutdown during keyboard interrupt.
   rclpy.signals.uninstall_signal_handlers()
+  policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+      serve_id=SERVE_ID.value,
+      task_instruction_key=env.INSTRUCTION_RESET_OPTION_KEY,
+      image_observation_keys=(
+          'overhead_cam',
+          'worms_eye_cam',
+          'wrist_cam_left',
+          'wrist_cam_right',
+      ),
+      proprioceptive_observation_keys=('joints_pos',),
+      inference_mode=INFERENCE_MODE.value,
+      robotics_api_connection=ROBOTS_API_CONNECTION.value,
+  )
+  policy.step_spec(environment.timestep_spec())
 
-  # Uses reset to bring the robot to a known home position before starting the
-  # eval loop.
-  aloha_env.reset(options={'instruction': ''})
+  user_input_ops = UserInputRunloopOperations(INSTRUCTION.value)
+
+  def _update_instruction_on_reset():
+    return env.ResetOptions(
+        options={env.INSTRUCTION_RESET_OPTION_KEY: user_input_ops.instruction}
+    )
+
+  logger = episodic_logger.EpisodicLogger.create(
+      agent_id=AGENT_ID.value,
+      task_id=user_input_ops.instruction,
+      proprioceptive_observation_keys=['joints_pos'],
+      output_directory='/tmp/eval_logs',
+      action_spec=environment.action_spec(),
+      timestep_spec=environment.timestep_spec(),
+      image_observation_keys=[
+          'overhead_cam',
+          'worms_eye_cam',
+          'wrist_cam_left',
+          'wrist_cam_right',
+      ],
+      policy_extra_spec={},
+  )
+
+  runloop = runloop_lib.Runloop(
+      environment=environment,
+      policy=policy,
+      loggers=[logger],
+      runloop_runtime_operations=(user_input_ops,),
+      reset_options_provider=_update_instruction_on_reset,
+  )
 
   print('Script started. Enter an instruction to begin.')
-  # The main application loop. It continues until the user decides to quit.
-  episode_started = False
+
   while True:
     try:
-      episode_started = False
-      if args.instruction:
-        instruction = args.instruction.lower()
-        if (
-            input(
-                "\nEnter to start an episode, 'quit' to cleanly exit."
-            ).lower()
-            == 'quit'
-        ):
-          raise KeyboardInterrupt
-      else:
-        instruction = input(
-            "\nEnter a new instruction or 'quit' to cleanly exit: "
-        ).lower()
-        if instruction == 'quit':
-          raise KeyboardInterrupt
-
-      episode_started = True
-      print('Episode started, Ctrl-C to stop')
-      run_single_episode(aloha_env, instruction, steps=args.steps)
-    except KeyboardInterrupt:
-      if not episode_started:
-        print('\nExiting program.')
-        aloha_env.close()
+      runloop.reset()
+      runloop.run_single_episode()
+      if user_input_ops.has_quit:
         break
+    except KeyboardInterrupt:
+      runloop.stop()
+
+  environment.close()
 
 
 if __name__ == '__main__':
-  main()
+  app.run(main)

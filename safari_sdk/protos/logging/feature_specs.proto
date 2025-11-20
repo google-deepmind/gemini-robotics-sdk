@@ -16,28 +16,14 @@ syntax = "proto2";
 
 package safari_sdk.protos.logging;
 
-import "google/protobuf/struct.proto";
-import "safari_sdk/protos/pose.proto";
+import "safari_sdk/protos/logging/spec.proto";
 
-message Tracker {
-  // The name of the tracker.
-  optional string name = 1;
-
-  // The pose of the tracker.
-  optional Pose pose = 2;
-
-  // The status of the tracker.
-  enum Status {
-    UNINITIALIZED = 0;
-    ACTIVE = 1;
-  }
-  optional Status status = 3;
-
-  // Metadata about the tracker for storing information such as tracking
-  // confidence.
-  optional google.protobuf.Struct metadata = 4;
-}
-
-message Trackers {
-  repeated Tracker trackers = 1;
+// Maps each episodic key or stream topic to a Numpy array representation.
+// Next ID: 6
+message FeatureSpecs {
+  map<string, Spec> observation = 1;
+  map<string, Spec> reward = 2;
+  map<string, Spec> discount = 3;
+  map<string, Spec> action = 4;
+  map<string, Spec> policy_extra_output = 5;
 }

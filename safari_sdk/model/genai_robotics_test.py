@@ -109,7 +109,8 @@ class GenaiRoboticsTest(absltest.TestCase):
       FLAGS.api_key = "test_api_key"
 
       client = genai_robotics.Client(
-          use_robotics_api=False, project="test_project"
+          robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.CLOUD_GENAI,
+          project="test_project"
       )
       self.assertIsNotNone(client)
       mock_genai_client.assert_called_once_with(
@@ -123,7 +124,9 @@ class GenaiRoboticsTest(absltest.TestCase):
       FLAGS.api_key = None
 
       client = genai_robotics.Client(
-          api_key="test_api_key", use_robotics_api=False, project="test_project"
+          robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.CLOUD_GENAI,
+          api_key="test_api_key",
+          project="test_project",
       )
       self.assertIsNotNone(client)
       mock_genai_client.assert_called_once_with(

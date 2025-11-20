@@ -125,6 +125,7 @@ class OrchestratorRobotJobWorkUnit:
       return _RESPONSE(
           success=True,
           no_more_work_unit=True,
+          robot_job_id=self._robot_job_id,
           error_message=_ERROR_EMPTY_RESPONSE
       )
 
@@ -259,7 +260,11 @@ class OrchestratorRobotJobWorkUnit:
     )
 
   def complete_work_unit(
-      self, outcome: work_unit.WorkUnitOutcome, note: str
+      self,
+      outcome: work_unit.WorkUnitOutcome,
+      success_score: float | None,
+      success_score_definition: str | None,
+      note: str,
   ) -> _RESPONSE:
     """Set the current work unit's stage as completed."""
     if self._connection is None:
@@ -278,6 +283,13 @@ class OrchestratorRobotJobWorkUnit:
         "outcome": outcome.num_value(),
         "note": note,
     }
+    if success_score is not None:
+      body["success_score"] = {
+          "score": success_score,
+          "definition": (
+              success_score_definition if success_score_definition else ""
+          ),
+      }
 
     try:
       self._connection.orchestrator().completeWorkUnit(body=body).execute()

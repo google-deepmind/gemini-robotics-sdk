@@ -20,6 +20,7 @@ from googleapiclient import discovery
 import numpy as np
 from PIL import Image
 
+from safari_sdk.orchestrator.client.dataclass import artifact as artifact_data
 from safari_sdk.orchestrator.client.dataclass import robot_job as robot_job_data
 from safari_sdk.orchestrator.client.dataclass import work_unit as work_unit_data
 
@@ -57,6 +58,10 @@ class OrchestratorAPIResponse:
     visual_overlay_renderer_keys: List of keys to access specific visual overlay
       renderers.
     visual_overlay_image: Image with visual overlay drawn on it.
+    artifact: Artifact information for the current work unit.
+    workcell_state: Current RUI workcell state.
+    robot_stage: Current Orca status of the robot.
+    artifact_uri: Download URI for the specified artifact.
   """
 
   success: bool = False
@@ -76,3 +81,7 @@ class OrchestratorAPIResponse:
   server_connection: discovery.Resource | None = None
   visual_overlay_renderer_keys: list[str] | None = None
   visual_overlay_image: Image.Image | np.ndarray | bytes | None = None
+  artifact: artifact_data.Artifact | None = None
+  workcell_state: str | None = None
+  robot_stage: str | None = None
+  artifact_uri: str | None = None

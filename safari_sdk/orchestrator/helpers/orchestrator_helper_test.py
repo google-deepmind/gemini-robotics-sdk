@@ -206,6 +206,69 @@ class OrchestratorHelperTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       helper_lib.set_current_robot_operator_id(operator_id="test_operator_id")
 
+  def test_add_operator_event_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.add_operator_event.return_value = (
+        orchestrator_helper.interface.RESPONSE(success=True)
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.add_operator_event(
+        operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_operator_event.assert_called_once_with(
+        operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+  def test_add_operator_event_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.add_operator_event(
+        operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_add_operator_event_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.add_operator_event(
+          operator_event_str="Other Break",
+          operator_id="test_operator_id",
+          event_timestamp=123456789,
+          resetter_id="test_resetter_id",
+          event_note="test_event_note",
+      )
+
   def test_request_work_unit_good(self):
     mock_interface = mock.create_autospec(
         spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
@@ -947,6 +1010,8 @@ class OrchestratorHelperTest(absltest.TestCase):
 
     response = helper_lib.complete_work_unit(
         outcome=orchestrator_helper.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="test_note",
     )
     self.assertTrue(response.success)
@@ -959,6 +1024,8 @@ class OrchestratorHelperTest(absltest.TestCase):
 
     response = helper_lib.complete_work_unit(
         outcome=orchestrator_helper.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="test_note",
     )
     self.assertFalse(response.success)
@@ -978,8 +1045,85 @@ class OrchestratorHelperTest(absltest.TestCase):
           outcome=(
               orchestrator_helper.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS
           ),
+          success_score=0.5,
+          success_score_definition="test_success_score_definition",
           note="test_note",
       )
+
+  def test_get_artifact_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.get_artifact.return_value = orchestrator_helper.interface.RESPONSE(
+        success=True,
+        artifact=orchestrator_helper.interface.api_response.artifact_data.Artifact(
+            uri="test_artifact_uri",
+            artifactId="test_artifact_id",
+            name="test_name",
+            artifactObjectType="ARTIFACT_OBJECT_TYPE_IMAGE",
+            commitTime="2025-01-01T00:00:00Z",
+            tags=["tag1", "tag2"],
+            version="1",
+            isZipped=False,
+        ),
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.get_artifact(artifact_id="test_artifact_id")
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact.uri, "test_artifact_uri")
+    self.assertEqual(response.artifact.artifactId, "test_artifact_id")
+    self.assertEqual(response.artifact.name, "test_name")
+    self.assertEqual(
+        response.artifact.artifactObjectType,
+        "ARTIFACT_OBJECT_TYPE_IMAGE",
+    )
+    self.assertEqual(response.artifact.commitTime, "2025-01-01T00:00:00Z")
+    self.assertEqual(response.artifact.tags, ["tag1", "tag2"])
+    self.assertEqual(response.artifact.version, "1")
+    self.assertFalse(response.artifact.isZipped)
+
+  def test_get_artifact_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.get_artifact(artifact_id="test_artifact_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_get_artifact_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.get_artifact(artifact_id="test_artifact_id")
+
+  def test_get_artifact_uri_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.get_artifact_uri.return_value = (
+        orchestrator_helper.interface.RESPONSE(
+            success=True,
+            artifact_uri="test_artifact_uri",
+        )
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
 
 
 if __name__ == "__main__":

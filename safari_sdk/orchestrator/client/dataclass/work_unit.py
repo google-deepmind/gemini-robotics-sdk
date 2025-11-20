@@ -130,26 +130,48 @@ class KvMsg:
   value: KvMsgValue | None = None
 
   def get_value(self) -> Any:
-    if self.value is None:
+    if (
+        self.type is None
+        or self.type == KvMsgValueType.KV_MSG_VALUE_TYPE_UNSPECIFIED
+    ):
       return None
+
     match self.type:
       case KvMsgValueType.KV_MSG_VALUE_TYPE_STRING:
+        if self.value is None or self.value.stringValue is None:
+          return ""
         return self.value.stringValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_STRING_LIST:
+        if self.value is None or self.value.stringListValue is None:
+          return []
         return self.value.stringListValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_INT:
+        if self.value is None or self.value.intValue is None:
+          return 0
         return self.value.intValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_INT_LIST:
+        if self.value is None or self.value.intListValue is None:
+          return []
         return self.value.intListValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT:
+        if self.value is None or self.value.floatValue is None:
+          return 0.0
         return self.value.floatValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT_LIST:
+        if self.value is None or self.value.floatListValue is None:
+          return []
         return self.value.floatListValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL:
+        if self.value is None or self.value.boolValue is None:
+          return False
         return self.value.boolValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL_LIST:
+        if self.value is None or self.value.boolListValue is None:
+          return []
         return self.value.boolListValue
       case KvMsgValueType.KV_MSG_VALUE_TYPE_JSON:
+        if self.value is None or self.value.jsonValue is None:
+          return ""
         return self.value.jsonValue
       case _:
         return None
@@ -193,6 +215,13 @@ class PixelLocation:
   x: int | None = None
   y: int | None = None
 
+  def __post_init__(self):
+    if self.x or self.y:
+      if self.x is None:
+        self.x = 0
+      if self.y is None:
+        self.y = 0
+
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
@@ -215,6 +244,12 @@ class PixelVector:
 
   coordinate: PixelLocation | None = None
   direction: PixelDirection | None = None
+
+  def __post_init__(self):
+    if self.coordinate and self.direction is None:
+      self.direction = PixelDirection(rad=0.0)
+    elif self.direction and self.coordinate is None:
+      self.coordinate = PixelLocation(x=0, y=0)
 
 
 @dataclasses_json.dataclass_json
@@ -239,6 +274,17 @@ class ShapeBox:
   y: int | None = None
   w: int | None = None
   h: int | None = None
+
+  def __post_init__(self):
+    if self.x or self.y or self.w or self.h:
+      if self.x is None:
+        self.x = 0
+      if self.y is None:
+        self.y = 0
+      if self.w is None:
+        self.w = 0
+      if self.h is None:
+        self.h = 0
 
 
 @dataclasses_json.dataclass_json
@@ -338,11 +384,13 @@ class PolicyDetails:
     name: Name of the policy.
     description: Description of the policy.
     parameters: List of key-value pair parameters for the policy.
+    artifactIds: List of artifact ids for the policy.
   """
 
   name: str | None = None
   description: str | None = None
   parameters: list[KvMsg] | None = None
+  artifactIds: list[str] | None = None
 
   def get_all_parameters(self) -> dict[str, Any]:
     if self.parameters is None:
@@ -369,6 +417,21 @@ class RobotJobAsset:
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
+class SuccessScore:
+  """Custom success score information."""
+
+  score: float | None = None
+  definition: str | None = None
+
+  def __post_init__(self):
+    if self.score is None:
+      self.score = 0.0
+    if self.definition is None:
+      self.definition = ""
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
 class WorkUnitContext:
   """Work unit context information."""
 
@@ -378,6 +441,7 @@ class WorkUnitContext:
   orchestratorTaskId: str | None = None
   policyDetails: PolicyDetails | None = None
   robotJobAssets: list[RobotJobAsset] | None = None
+  successScores: list[SuccessScore] | None = None
 
 
 @dataclasses_json.dataclass_json

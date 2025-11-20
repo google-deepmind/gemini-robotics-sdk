@@ -27,22 +27,14 @@ from safari_sdk.model import genai_robotics
 _SERVE_ID = flags.DEFINE_string(
     "serve_id", None, "The ID of the model to use.", required=True
 )
-_USE_ROBOTICS_API = flags.DEFINE_boolean(
-    "use_robotics_api",
-    True,
-    "Whether to use the specific Robotics API endpoint.",
-)
 
 
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError("Too many command-line arguments.")
 
-  if not _USE_ROBOTICS_API.value:
-    raise ValueError("Only robotics API is supported.")
-
   # 1. Initialize the client
-  client = genai_robotics.Client(use_robotics_api=_USE_ROBOTICS_API.value)
+  client = genai_robotics.Client()
 
   # 2. Prepare sample input data
   # Sample image (e.g., from a camera)

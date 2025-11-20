@@ -16,28 +16,12 @@ syntax = "proto2";
 
 package safari_sdk.protos.logging;
 
-import "google/protobuf/struct.proto";
-import "safari_sdk/protos/pose.proto";
-
-message Tracker {
-  // The name of the tracker.
-  optional string name = 1;
-
-  // The pose of the tracker.
-  optional Pose pose = 2;
-
-  // The status of the tracker.
-  enum Status {
-    UNINITIALIZED = 0;
-    ACTIVE = 1;
-  }
-  optional Status status = 3;
-
-  // Metadata about the tracker for storing information such as tracking
-  // confidence.
-  optional google.protobuf.Struct metadata = 4;
-}
-
-message Trackers {
-  repeated Tracker trackers = 1;
+// Proto to specify the codec of the media being logged.
+// Next ID: 4
+enum Codec {
+  // Used for non-image and non-video data.
+  CODEC_NONE = 0;
+  CODEC_VIDEO_MPEG4 = 1;
+  CODEC_IMAGE_JPEG = 2;
+  CODEC_IMAGE_PNG = 3;
 }

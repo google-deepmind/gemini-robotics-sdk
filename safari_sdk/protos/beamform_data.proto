@@ -12,32 +12,15 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-syntax = "proto2";
+syntax = "proto3";
 
-package safari_sdk.protos.logging;
+package robotics;
 
-import "google/protobuf/struct.proto";
-import "safari_sdk/protos/pose.proto";
-
-message Tracker {
-  // The name of the tracker.
-  optional string name = 1;
-
-  // The pose of the tracker.
-  optional Pose pose = 2;
-
-  // The status of the tracker.
-  enum Status {
-    UNINITIALIZED = 0;
-    ACTIVE = 1;
-  }
-  optional Status status = 3;
-
-  // Metadata about the tracker for storing information such as tracking
-  // confidence.
-  optional google.protobuf.Struct metadata = 4;
-}
-
-message Trackers {
-  repeated Tracker trackers = 1;
+// Next ID: 6
+message BeamformData {
+  repeated float doa_azimuth = 1;
+  repeated float doa_elevation = 2;
+  repeated float doa_intensity = 3;
+  int32 channels = 4;
+  repeated float audio_data = 5;
 }

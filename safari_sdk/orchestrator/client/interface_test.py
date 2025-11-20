@@ -215,6 +215,73 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
     )
 
+  def test_add_operator_event(self):
+    # Mock auth.get_service
+    mock_auth_get_service = self.enter_context(
+        mock.patch.object(interface.auth, "get_service", autospec=True)
+    )
+    mock_connection = mock.MagicMock()
+    mock_auth_get_service.return_value = mock_connection
+
+    # Mock operator_event.OrchestratorOperatorEvent
+    mock_operator_event_class = self.enter_context(
+        mock.patch.object(
+            interface.operator_event, "OrchestratorOperatorEvent", autospec=True
+        )
+    )
+    mock_operator_event = mock_operator_event_class.return_value
+    mock_operator_event.add_operator_event.return_value = interface._SUCCESS
+
+    # Create OrchestratorInterface instance
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    # Connect
+    interface_lib.connect()
+
+    # Call add_operator_event
+    response = interface_lib.add_operator_event(
+        operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+    # Assertions
+    self.assertTrue(response.success)
+    mock_operator_event.add_operator_event.assert_called_once_with(
+        operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+  def test_add_operator_event_no_connection(self):
+    # Create OrchestratorInterface instance
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    # Call add_operator_event without connect
+    response = interface_lib.add_operator_event(
+        operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+    # Assertions
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -236,6 +303,7 @@ class InterfaceTest(absltest.TestCase):
           ),
       ),
   )
+
   def test_request_robot_job_work_unit_good(self, *_):
 
     FLAGS.api_key = "mock_test_key"
@@ -2151,6 +2219,8 @@ class InterfaceTest(absltest.TestCase):
 
     response = interface_lib.robot_job_work_unit_complete_work_unit(
         outcome=interface.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="test_note",
     )
     self.assertTrue(response.success)
@@ -2178,6 +2248,8 @@ class InterfaceTest(absltest.TestCase):
 
     response = interface_lib.robot_job_work_unit_complete_work_unit(
         outcome=interface.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="test_note",
     )
     self.assertFalse(response.success)
@@ -2195,6 +2267,8 @@ class InterfaceTest(absltest.TestCase):
 
     response = interface_lib.robot_job_work_unit_complete_work_unit(
         outcome=interface.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="test_note",
     )
     self.assertFalse(response.success)
@@ -2212,8 +2286,200 @@ class InterfaceTest(absltest.TestCase):
 
     response = interface_lib.robot_job_work_unit_complete_work_unit(
         outcome=interface.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="test_note",
     )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.artifact.OrchestratorArtifact.get_artifact",
+      return_value=interface.RESPONSE(
+          success=True,
+          artifact=interface.api_response.artifact_data.Artifact(
+              uri="test_artifact_uri",
+              artifactId="test_artifact_id",
+              name="test_name",
+              desc="test_description",
+              artifactObjectType="ARTIFACT_OBJECT_TYPE_IMAGE",
+              commitTime="2025-01-01T00:00:00Z",
+              tags=["tag1", "tag2"],
+              version="1",
+              isZipped=False,
+          ),
+      ),
+  )
+  def test_load_artifact_good(self, *_):
+
+    FLAGS.api_key = "mock_test_key"
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_build.return_value = mock.Mock(
+          spec=interface.auth.discovery.Resource
+      )
+      response = interface_lib.connect()
+      self.assertTrue(response.success)
+
+    response = interface_lib.get_artifact(artifact_id="test_artifact_id")
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact.uri, "test_artifact_uri")
+    self.assertEqual(response.artifact.artifactId, "test_artifact_id")
+    self.assertEqual(response.artifact.name, "test_name")
+    self.assertEqual(response.artifact.desc, "test_description")
+    self.assertEqual(
+        response.artifact.artifactObjectType,
+        "ARTIFACT_OBJECT_TYPE_IMAGE",
+    )
+    self.assertEqual(response.artifact.commitTime, "2025-01-01T00:00:00Z")
+    self.assertEqual(response.artifact.tags, ["tag1", "tag2"])
+    self.assertEqual(response.artifact.version, "1")
+    self.assertFalse(response.artifact.isZipped)
+
+  def test_load_artifact_bad_active_connection(self):
+
+    FLAGS.api_key = None
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+    interface_lib._connection = None
+    interface_lib._artifact_lib = mock.MagicMock(
+        spec=interface.artifact.OrchestratorArtifact
+    )
+
+    response = interface_lib.get_artifact(artifact_id="test_artifact_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+    interface_lib._connection = mock.Mock(
+        spec=interface.auth.discovery.Resource
+    )
+    interface_lib._artifact_lib = None
+
+    response = interface_lib.get_artifact(artifact_id="test_artifact_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.rui_workcell_state.OrchestratorRuiWorkcellState.load_rui_workcell_state",
+      return_value=interface.rui_workcell_state._RESPONSE(
+          success=True, workcell_state="RUI_WORKCELL_STATE_AVAILABLE"
+      ),
+  )
+  def test_rui_workcell_state_load_rui_workcell_state_good(self, *_):
+    FLAGS.api_key = "mock_test_key"
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_build.return_value = mock.Mock(
+          spec=interface.auth.discovery.Resource
+      )
+      response = interface_lib.connect()
+      self.assertTrue(response.success)
+
+    response = interface_lib.load_rui_workcell_state(robot_id="test_robot_id")
+    self.assertTrue(response.success)
+    self.assertEqual(response.workcell_state, "RUI_WORKCELL_STATE_AVAILABLE")
+
+  def test_rui_workcell_state_load_rui_workcell_state_bad_active_connection(
+      self, *_
+  ):
+    FLAGS.api_key = None
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+    interface_lib._connection = None
+    interface_lib._rui_workcell_state_lib = mock.MagicMock(
+        spec=interface.rui_workcell_state.OrchestratorRuiWorkcellState
+    )
+
+    response = interface_lib.load_rui_workcell_state(robot_id="test_robot_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+    interface_lib._connection = mock.Mock(
+        spec=interface.auth.discovery.Resource
+    )
+    interface_lib._rui_workcell_state_lib = None
+
+    response = interface_lib.load_rui_workcell_state(robot_id="test_robot_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.rui_workcell_state.OrchestratorRuiWorkcellState.set_rui_workcell_state",
+      return_value=interface.rui_workcell_state._RESPONSE(
+          success=True,
+      ),
+  )
+  def test_rui_workcell_state_set_rui_workcell_state_good(self, *_):
+    FLAGS.api_key = "mock_test_key"
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_build.return_value = mock.Mock(
+          spec=interface.auth.discovery.Resource
+      )
+      response = interface_lib.connect()
+      self.assertTrue(response.success)
+
+    response = interface_lib.set_rui_workcell_state(
+        robot_id="test_robot_id",
+        workcell_state="Available",
+    )
+    self.assertTrue(response.success)
+
+  def test_rui_workcell_state_set_rui_workcell_state_bad_active_connection(
+      self, *_
+  ):
+    FLAGS.api_key = None
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+    interface_lib._connection = None
+    interface_lib._rui_workcell_state_lib = mock.MagicMock(
+        spec=interface.rui_workcell_state.OrchestratorRuiWorkcellState
+    )
+
+    response = interface_lib.set_rui_workcell_state(
+        robot_id="test_robot_id",
+        workcell_state="Available")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+    interface_lib._connection = mock.Mock(
+        spec=interface.auth.discovery.Resource
+    )
+    interface_lib._rui_workcell_state_lib = None
+
+    response = interface_lib.set_rui_workcell_state(
+        robot_id="test_robot_id",
+        workcell_state="test_workcell_state")
     self.assertFalse(response.success)
     self.assertEqual(
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION

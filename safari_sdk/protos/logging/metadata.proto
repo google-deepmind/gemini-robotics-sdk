@@ -17,6 +17,7 @@ syntax = "proto2";
 package safari_sdk.protos.logging;
 
 import "safari_sdk/protos/label.proto";
+import "safari_sdk/protos/logging/policy_environment_metadata.proto";
 
 message KeyRange {
   // Name of the data stream.
@@ -45,6 +46,9 @@ message Session {
 
   // The string should consist of only alphanumeric and underscore.
   optional string task_id = 5;
+
+  // Metadata related to the policy and environment.
+  optional PolicyEnvironmentMetadata policy_environment_metadata = 6;
 }
 
 // Metadata of a log file. There should be one file metadata per log file.

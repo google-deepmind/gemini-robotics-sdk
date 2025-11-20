@@ -20,25 +20,29 @@ import time
 
 from absl import app
 from absl import flags
+# import cv2
 import numpy as np
 
+from safari_sdk.model import constants
 from safari_sdk.model import genai_robotics
+
+_CONNECTION = constants.RoboticsApiConnectionType
 
 _SERVE_ID = flags.DEFINE_string(
     "serve_id",
     None,
     "The ID of the model to use. Required for Cloud-based inference.",
 )
-_USE_ROBOTICS_API = flags.DEFINE_boolean(
-    "use_robotics_api",
-    True,
-    "Whether to use the specific Robotics API endpoint.",
-)
-_ROBOTICS_API_CONNECTION = flags.DEFINE_enum(
+_ROBOTICS_API_CONNECTION = flags.DEFINE_enum_class(
     "robotics_api_connection",
-    "local",
-    ["cloud", "local"],
+    _CONNECTION.LOCAL,
+    _CONNECTION,
     "The robotics API connection type to use.",
+)
+_SERVER_BASE_URL = flags.DEFINE_string(
+    "server_base_url",
+    None,
+    "The server URL to use. None means use the default.",
 )
 
 
@@ -46,48 +50,86 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError("Too many command-line arguments.")
 
-  if not _USE_ROBOTICS_API.value:
-    raise ValueError("Only robotics API is supported.")
-
   # 1. Initialize the client
+  http_options = (
+      genai_robotics.types.HttpOptions(base_url=_SERVER_BASE_URL.value)
+      if _SERVER_BASE_URL.value
+      else None
+  )
+  robotics_api_connection = _CONNECTION(_ROBOTICS_API_CONNECTION.value)
   client = genai_robotics.Client(
-      use_robotics_api=_USE_ROBOTICS_API.value,
-      robotics_api_connection=genai_robotics.RoboticsApiConnectionType(
-          _ROBOTICS_API_CONNECTION.value
-      ),
+      robotics_api_connection=robotics_api_connection,
+      http_options=http_options,
   )
 
   # 2. Prepare sample input data
   # Gemini Robotics
-  test_img = np.random.randint(0, 255, (480, 848, 3), dtype=np.uint8)
+  test_img_gemini_robotics = np.random.randint(
+      0, 255, (480, 848, 3), dtype=np.uint8
+  )
   # Gemini Robotics Nano
-  # test_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+  test_img_robotics_nano = np.random.randint(
+      0, 255, (224, 224, 3), dtype=np.uint8
+  )
+
   obs = {
       "images/overhead_cam": 0,
       "images/wrist_cam_left": 1,
       "images/wrist_cam_right": 2,
       "images/worms_eye_cam": 3,
       "task_instruction": "make a fox shaped origami",
-      "joints_pos": np.random.randn(14).astype(np.float32).tolist(),
+      # "joints_pos": np.random.randn(14).astype(np.float32).tolist(),
+      "joints_pos": [-np.inf] * 14,
   }
   obs_json = json.dumps(obs)
 
-  # 5. Call 5 times and print the average time
-  print("Calling model 100 times...")
+  match _ROBOTICS_API_CONNECTION.value:
+    case _CONNECTION.CLOUD | _CONNECTION.CLOUD_GENAI:
+      content = [
+          test_img_gemini_robotics,
+          test_img_gemini_robotics,
+          test_img_gemini_robotics,
+          test_img_gemini_robotics,
+          obs_json,
+      ]
+      if _ROBOTICS_API_CONNECTION.value == _CONNECTION.CLOUD_GENAI:
+        content = genai_robotics.update_robotics_content_to_genai_format(
+            contents=content
+        )
+    case _CONNECTION.LOCAL:
+      content = [
+          test_img_robotics_nano,
+          test_img_robotics_nano,
+          test_img_robotics_nano,
+          test_img_robotics_nano,
+          obs_json,
+      ]
+    case _:
+      raise ValueError(
+          "Unsupported robotics_api_connection:"
+          f" {_ROBOTICS_API_CONNECTION.value}."
+      )
+
+  # 3. Call 20 times and print the average time
+  num_calls = 20
+  print(f"Calling model {num_calls} times...")
   times = []
-  for _ in range(100):
+  for _ in range(num_calls):
     start = time.time()
     response = client.models.generate_content(
         model=_SERVE_ID.value,
-        contents=[
-            test_img,
-            test_img,
-            test_img,
-            test_img,
-            obs_json,
-        ],
+        contents=content,
     )
-    print(response.text)
+    match _ROBOTICS_API_CONNECTION.value:
+      case _CONNECTION.CLOUD_GENAI:
+        action_chunk = np.array(
+            json.loads(
+                response.candidates[0].content.parts[0].inline_data.data
+            )["action_chunk"]
+        )[0]
+        print("action_chunk: ", action_chunk[0])
+      case _:
+        print(response.text)
     end = time.time()
     times.append(end - start)
     print("Inference time (s): ", end - start)

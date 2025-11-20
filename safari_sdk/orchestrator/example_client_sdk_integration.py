@@ -88,6 +88,13 @@ def _print_orchestrator_work_unit_info(
     print(f" Scene episode index: {work_unit_context.sceneEpisodeIndex}")
     print(f" Orchestrator Task ID: {work_unit_context.orchestratorTaskId}\n")
 
+    success_scores = work_unit_context.successScores
+    if success_scores is not None:
+      for s_score in success_scores:
+        print(" Success Scores:")
+        print(f"   Definition: {s_score.definition}")
+        print(f"   Score: {s_score.score}\n")
+
     scene_details = work_unit_context.scenePresetDetails
     if scene_details is not None:
       print(f" Setup Instructions: {scene_details.setupInstructions}")
@@ -222,6 +229,24 @@ def run_mock_eval_loop(params: EvalPolicyParams) -> None:
       print(f"\n - ERROR: {response.error_message} -\n")
       break
 
+    print(" - Checking if current work unit have reference images -\n")
+    if work_unit.context.scenePresetDetails.referenceImages:
+      print(" - Resolving URI for reference images -\n")
+
+      for ref_img in work_unit.context.scenePresetDetails.referenceImages:
+        if not ref_img.artifactId:
+          continue
+        print(f" - Reference image artifact ID: {ref_img.artifactId} -\n")
+        response = (
+            params.orchestrator_client.get_artifact_uri(
+                artifact_id=ref_img.artifactId
+            )
+        )
+        if not response.success:
+          print(f"\n - ERROR: {response.error_message} -\n")
+          break
+        print(f" - Reference image URI: {response.artifact_uri} -\n")
+
     print(" - Checking if current work unit have visual overlay info -\n")
     response = (
         params.orchestrator_client.is_visual_overlay_in_current_work_unit()
@@ -323,6 +348,8 @@ def run_mock_eval_loop(params: EvalPolicyParams) -> None:
     print(" - Marking current work unit as completed -\n")
     response = params.orchestrator_client.complete_work_unit(
         outcome=orchestrator_helper.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="Mock score from SDK example code.",
         note="This is a mock episode from SDK example code.",
     )
     if not response.success:

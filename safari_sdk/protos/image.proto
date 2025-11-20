@@ -16,6 +16,8 @@ syntax = "proto2";
 
 package safari_sdk.protos;
 
+import "google/protobuf/struct.proto";
+
 // A descriptive proto for image storage.  This proto explicitly splits out the
 // pixel description for its primitive type, number of channels, and channel
 // order, where the latter two are described jointly.  The image producer
@@ -68,4 +70,8 @@ message Image {
   optional PixelType pixel_type = 3;
 
   optional bytes data = 4;
+
+  // Metadata about the tracker for storing information such as tracking
+  // confidence.
+  optional google.protobuf.Struct metadata = 5;
 }

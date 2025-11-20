@@ -34,8 +34,12 @@
 # update the timestamps and prevent these commands from running every time.
 set(_DOWNLOADED_PROTOC_DIR ${CMAKE_BINARY_DIR}/protoc)
 set(_DOWNLOADED_PROTOC_EXE_PATH ${_DOWNLOADED_PROTOC_DIR}/bin/protoc)
-set(_DOWNLOADED_PROTOC_ZIP_FILE "protoc-25.4-linux-x86_64.zip")
-set(_DOWNLOADED_PROTOC_WEB_PATH "https://github.com/protocolbuffers/protobuf/releases/download/v25.4/${_DOWNLOADED_PROTOC_ZIP_FILE}")
+
+# Protobuf versions defined:
+# https://protobuf.dev/support/version-support/#python
+
+set(_DOWNLOADED_PROTOC_ZIP_FILE "protoc-32.0-linux-x86_64.zip")
+set(_DOWNLOADED_PROTOC_WEB_PATH "https://github.com/protocolbuffers/protobuf/releases/download/v32.0/${_DOWNLOADED_PROTOC_ZIP_FILE}")
 
 # Add a command to download and extract the protobuf compiler. The timestamps
 # are not set in a useful way (or at all), so touch the output to update the

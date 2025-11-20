@@ -2,12 +2,13 @@
 name = "safari_sdk"
 description = "Safari SDK: the SDK for Google DeepMind Gemini Robotics models"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"  # TODO
 license = {file = "LICENSE"}
-authors = [{name = "Google DeepMind", email="safari-sdk-authors@google.com"}]
+authors = [{name = "Safari SDKAuthors", email="safari-sdk-authors@google.com"}]
 classifiers = [  # List of https://pypi.org/classifiers/
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    # "Programming Language :: Python :: 3.9",  # TODO
     "Programming Language :: Python :: 3.10",  # EOL 2026-10
     "Programming Language :: Python :: 3.11",  # EOL 2027-10
     "Programming Language :: Python :: 3.12",  # EOL 2028-10
@@ -19,11 +20,15 @@ keywords = []
 
 # pip dependencies of the project
 dependencies = [
+  # copybara:strip_begin(for internal changes only)
+  # LINT.IfChange
+  # copybara:strip_end
   # go/keep-sorted start
   "absl-py",
   "dataclasses_json",
   "dm-env",
   "evdev",
+  "gdm-robotics",
   "google-api-python-client",
   "google-auth-httplib2",
   "google-auth-oauthlib",
@@ -34,21 +39,39 @@ dependencies = [
   "lark~=1.2",
   "mcap-protobuf-support",
   "mediapy",
-  "mujoco~=3.2",
+  "mujoco>=3.3.6",
   "opencv-python",
-  # protobuf v4 required for TF as of v2.16. Update with a
-  # compatible version of protoc if this changes.
-  # See https://protobuf.dev/support/version-support/#python for more info.
-  "protobuf<5",
+  "overrides",
+  "protobuf<7",
+  "psutil",
   "python-magic",
   "pytz",
   "scipy",
-  "tf-nightly>=2.20.0.dev20250305",  # SavedModel exports often break backwards compatibility.
+  "tensorflow",
+  "watchdog",
   # go/keep-sorted end
+  # copybara:strip_begin(for internal changes only)
+  # LINT.ThenChange(//depot/google3/third_party/safari/sdk/requirements.txt)
+  # Run `bash third_party/safari/sdk/scripts/check_dependency_version_requirements.sh`
+  # to update the dependencies in requirements.txt.
+  # copybara:strip_end
 ]
 
-# This is set automatically by flit using `safari.__version__`
+# Configure scikit to pull version value from "safari_sdk/__init__.py"
+# See: https://scikit-build-core.readthedocs.io/en/latest/configuration/dynamic.html#regex
 dynamic = ["version"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "safari_sdk/__init__.py"
+
+[tool.scikit-build.wheel]
+# By default, scikit-build assumes the package contains platform-specific files
+# and names the .whl file accordingly (eg "*-cp313-cp313-linux_x86_64.whl").
+# However, this package does not contain any platform-specific files, so set
+# platlib to false so the output whl ends with "-py3-none-any.whl". If this ever
+# changes (e.g. if we add pybind11 extensions), this flag should be removed.
+platlib = false
 
 [project.scripts]
 flywheel-cli = "safari_sdk.flywheel.flywheel_cli:cli_main"  # 'flywheel-cli' will be installed as a command
@@ -78,9 +101,11 @@ dev = [
 pyink-indentation = 2
 pyink-use-majority-quotes = true
 
+# The scikit backend invokes cmake to build the proto messages.
+# This is done in a unique temporary build directory unless otherwise specified.
 [build-system]
-requires = ["flit_core >=3.5,<4"]
-build-backend = "flit_core.buildapi"
+requires = ["scikit-build-core>=0.10","setuptools"]
+build-backend = "scikit_build_core.build"
 
 [tool.pytest.ini_options]
 minversion = "8.0"

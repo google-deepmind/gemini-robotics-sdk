@@ -17,7 +17,9 @@
 import io
 import json
 import os
+import tempfile
 from unittest import mock
+import urllib.error
 
 from absl.testing import flagsaver
 from absl.testing import parameterized
@@ -117,33 +119,66 @@ class FlywheelCliTest(parameterized.TestCase):
       mock_build.assert_called_once()
 
   @parameterized.named_parameters(
-      ("narrow", "narrow", "TRAINING_TYPE_NARROW"),
+      ("narrow", None, "narrow", "TRAINING_TYPE_NARROW"),
       (
           "gemini_robotics_v1",
+          None,
           "gemini_robotics_v1",
           "TRAINING_TYPE_GEMINI_ROBOTICS_V1",
       ),
+      (
+          "narrow_with_robot_id",
+          "test_robot_id",
+          "narrow",
+          "TRAINING_TYPE_NARROW",
+      ),
+      (
+          "gemini_robotics_on_device_v1",
+          "test_robot_id",
+          "gemini_robotics_on_device_v1",
+          "TRAINING_TYPE_GEMINI_ROBOTICS_ON_DEVICE_V1",
+      ),
   )
-  def test_train(self, recipe, training_type):
+  def test_train(self, robot_id, recipe, training_type):
     self.service_mock.startTraining.return_value.execute.return_value = {
         "training_job_id": "test_training_job_id"
     }
-    with flagsaver.flagsaver(
-        task_id="test_task_id",
-        start_date="20240101",
-        end_date="20240102",
-        training_recipe=recipe,
-    ):
+    req_flags = {
+        "task_id": "test_task_id",
+        "start_date": "20240101",
+        "end_date": "20240102",
+        "training_recipe": recipe,
+        "max_training_steps": 12345,
+        "checkpoint_every_n_steps": 123,
+        "checkpoint_type": "aloha",
+        "image_keys": ["image1", "image2"],
+        "proprioception_keys": ["prop1", "prop2"],
+    }
+    if robot_id:
+      req_flags["robot_id"] = robot_id
+
+    expected_body = {
+        "training_data_filters": {
+            "robot_id": robot_id if robot_id else None,
+            "task_id": "test_task_id",
+            "start_date": "20240101",
+            "end_date": "20240102",
+        },
+        "training_type": training_type,
+    }
+    if recipe == "gemini_robotics_on_device_v1":
+      expected_body["training_config"] = {
+          "max_training_steps": 12345,
+          "checkpoint_every_n_steps": 123,
+          "checkpoint_type": "CHECKPOINT_TYPE_ALOHA",
+          "image_keys": ["image1", "image2"],
+          "proprioception_keys": ["prop1", "prop2"],
+      }
+
+    with flagsaver.flagsaver(**req_flags):
       self._cli.handle_train()
       self.service_mock.startTraining.assert_called_once_with(
-          body={
-              "training_data_filters": {
-                  "task_id": "test_task_id",
-                  "start_date": "20240101",
-                  "end_date": "20240102",
-              },
-              "training_type": training_type,
-          }
+          body=expected_body
       )
       self.service_mock.startTraining.return_value.execute.assert_called_once_with()
 
@@ -298,7 +333,7 @@ class FlywheelCliTest(parameterized.TestCase):
             "run",
             "-it",
             "--gpus",
-            "0",
+            "device=0",
             "-p",
             f"{port}:60061",
             "-v",
@@ -306,7 +341,7 @@ class FlywheelCliTest(parameterized.TestCase):
             "-e",
             f"XLA_PYTHON_CLIENT_MEM_FRACTION={mem_fraction}",
             "google-deepmind/gemini_robotics_on_device",
-            f"/checkpoint/{file_name}",
+            f"--checkpoint_path=/checkpoint/{file_name}",
         ]
         mock_subprocess_run.assert_called_once_with(
             expected_docker_command, check=True, text=True
@@ -336,11 +371,54 @@ class FlywheelCliTest(parameterized.TestCase):
   @mock.patch(
       "safari_sdk.flywheel.flywheel_cli._download_url_to_file"
   )
+  @mock.patch("os.path.exists", return_value=False)
+  @mock.patch("builtins.input", side_effect=["0", ""])
+  def test_download_training_artifacts_interactive(
+      self, mock_input, mock_exists, mock_download
+  ):
+    """Mocks "flywheel-cli download" command, interactive mode."""
+    with flagsaver.flagsaver(
+        training_job_id="test_training_job_id", json_output=False
+    ):
+      self.service_mock.trainingArtifact.return_value.execute.return_value = {
+          "uris": [
+              "https://storage.googleapis.com/foo/checkpoint_10",
+              "https://storage.googleapis.com/foo/checkpoint_2",
+          ]
+      }
+
+      returned_filename = self._cli.handle_download_training_artifacts()
+
+      self.service_mock.trainingArtifact.assert_called_once_with(
+          body={
+              "training_job_id": "test_training_job_id",
+          }
+      )
+      self.service_mock.trainingArtifact.return_value.execute.assert_called_once()
+      self.assertEqual(mock_input.call_count, 2)
+      mock_exists.assert_called_once()
+
+      expected_filename = os.path.join(
+          tempfile.gettempdir(),
+          "grod",
+          "test_training_job_id_checkpoint_2.chkpt",
+      )
+      mock_download.assert_called_once_with(
+          "https://storage.googleapis.com/foo/checkpoint_2",
+          expected_filename,
+      )
+      self.assertEqual(returned_filename, expected_filename)
+
+  @mock.patch(
+      "safari_sdk.flywheel.flywheel_cli._download_url_to_file"
+  )
   @mock.patch("builtins.input", return_value="")
   def test_download_artifact_id(self, mock_input, mock_download):
     with flagsaver.flagsaver(artifact_id="test_artifact_id"):
       self.service_mock.loadArtifact.return_value.execute.return_value = {
-          "uri": "test_uri_1"
+          "artifact": {
+              "uri": "test_uri_1"
+          }
       }
 
       self._cli.handle_download_artifact_id()
@@ -351,6 +429,46 @@ class FlywheelCliTest(parameterized.TestCase):
       self.service_mock.loadArtifact.return_value.execute.assert_called_once()
       mock_input.assert_called_once()
       mock_download.assert_called_once()
+
+  @mock.patch(
+      "safari_sdk.flywheel.flywheel_cli._download_url_to_file"
+  )
+  @mock.patch("builtins.input", return_value="")
+  def test_download_artifact_id_with_empty_response(
+      self, mock_input, mock_download
+  ):
+    with flagsaver.flagsaver(artifact_id="test_artifact_id"):
+      self.service_mock.loadArtifact.return_value.execute.return_value = {}
+
+      self._cli.handle_download_artifact_id()
+
+      self.service_mock.loadArtifact.assert_called_once_with(
+          body={"artifact_id": "test_artifact_id"}
+      )
+      self.service_mock.loadArtifact.return_value.execute.assert_called_once()
+      mock_input.assert_not_called()
+      mock_download.assert_not_called()
+
+  @mock.patch(
+      "safari_sdk.flywheel.flywheel_cli._download_url_to_file"
+  )
+  @mock.patch("builtins.input", return_value="")
+  def test_download_artifact_id_with_empty_artifact(
+      self, mock_input, mock_download
+  ):
+    with flagsaver.flagsaver(artifact_id="test_artifact_id"):
+      self.service_mock.loadArtifact.return_value.execute.return_value = {
+          "artifact": {}
+      }
+
+      self._cli.handle_download_artifact_id()
+
+      self.service_mock.loadArtifact.assert_called_once_with(
+          body={"artifact_id": "test_artifact_id"}
+      )
+      self.service_mock.loadArtifact.return_value.execute.assert_called_once()
+      mock_input.assert_not_called()
+      mock_download.assert_not_called()
 
   def test_show_help(self):
     mock_stdout = io.StringIO()
@@ -702,6 +820,58 @@ class FlywheelCliTest(parameterized.TestCase):
       mock_subprocess_run.assert_called_once()
     else:
       mock_subprocess_run.assert_not_called()
+
+  @parameterized.named_parameters(
+      ("with_directory", "/tmp/test_dir/test_file.txt", True),
+      ("without_directory", "test_file.txt", False),
+  )
+  @mock.patch("urllib.request.urlretrieve")
+  @mock.patch("os.makedirs")
+  def test_download_url_to_file_success(
+      self, filename, should_call_makedirs, mock_makedirs, mock_urlretrieve
+  ):
+    mock_stdout = io.StringIO()
+    url = "http://example.com/file"
+    with mock.patch("sys.stdout", mock_stdout):
+      flywheel_cli._download_url_to_file(url, filename)
+
+    if should_call_makedirs:
+      mock_makedirs.assert_called_once_with(
+          os.path.dirname(filename), exist_ok=True
+      )
+    else:
+      mock_makedirs.assert_not_called()
+
+    mock_urlretrieve.assert_called_once_with(
+        url, filename, reporthook=flywheel_cli._reporthook
+    )
+    output = mock_stdout.getvalue()
+    self.assertIn(f"Downloading artifact to {filename} ...", output)
+    self.assertIn("Download complete!", output)
+
+  @mock.patch(
+      "urllib.request.urlretrieve",
+      side_effect=urllib.error.URLError("test error"),
+  )
+  @mock.patch("os.makedirs")
+  def test_download_url_to_file_failure(self, mock_makedirs, mock_urlretrieve):
+    mock_stdout = io.StringIO()
+    filename = "/tmp/test_file.txt"
+    url = "http://example.com/file"
+    with mock.patch("sys.stdout", mock_stdout):
+      flywheel_cli._download_url_to_file(url, filename)
+
+    mock_makedirs.assert_called_once_with(
+        os.path.dirname(filename), exist_ok=True
+    )
+    mock_urlretrieve.assert_called_once_with(
+        url, filename, reporthook=flywheel_cli._reporthook
+    )
+    self.assertIn(
+        f"\n[ERROR] Error downloading artifact {url}: <urlopen error test"
+        " error>",
+        mock_stdout.getvalue(),
+    )
 
 
 if __name__ == "__main__":

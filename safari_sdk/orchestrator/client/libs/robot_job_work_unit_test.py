@@ -177,6 +177,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
     response = work_unit_lib.request_work_unit()
     self.assertTrue(response.success)
     self.assertTrue(response.no_more_work_unit)
+    self.assertEqual(response.robot_job_id, "test_robot_job_id")
     self.assertEqual(
         response.error_message, robot_job_work_unit._ERROR_EMPTY_RESPONSE
     )
@@ -597,6 +598,8 @@ class RobotJobWorkUnitTest(absltest.TestCase):
 
     response = work_unit_lib.complete_work_unit(
         outcome=robot_job_work_unit.work_unit.WorkUnitOutcome.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="Work Unit completed.",
     )
     self.assertTrue(response.success)
@@ -667,6 +670,8 @@ class RobotJobWorkUnitTest(absltest.TestCase):
 
     response = work_unit_lib.complete_work_unit(
         outcome=robot_job_work_unit.work_unit.WorkUnitOutcome.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
         note="Work Unit completed.",
     )
     self.assertFalse(response.success)

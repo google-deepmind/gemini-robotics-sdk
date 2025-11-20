@@ -55,6 +55,11 @@ _RECIPE_TO_TYPE_MAP = {
     ),
 }
 
+_CHECKPOINT_TYPE_MAP = {
+    "aloha": "CHECKPOINT_TYPE_ALOHA",
+    "franka_duo": "CHECKPOINT_TYPE_FRANKA_DUO",
+}
+
 _TRAINING_JOB_ID = flags.DEFINE_string(
     name="training_job_id", default=None, help="The training job id to use."
 )
@@ -94,6 +99,10 @@ _TASK_ID = flags.DEFINE_list(
     name="task_id", default=None, help="The task id to use."
 )
 
+_ROBOT_ID = flags.DEFINE_list(
+    name="robot_id", default=None, help="The robot id to use."
+)
+
 _START_DATE = flags.DEFINE_string(
     name="start_date",
     default=None,
@@ -102,6 +111,47 @@ _START_DATE = flags.DEFINE_string(
 
 _END_DATE = flags.DEFINE_string(
     name="end_date", default=None, help="The end date to use. Format: YYYYMMDD."
+)
+
+_MAX_TRAINING_STEPS = flags.DEFINE_integer(
+    name="max_training_steps",
+    default=10000,
+    help="The maximum number of training steps to use.",
+)
+
+_CHECKPOINT_EVERY_N_STEPS = flags.DEFINE_integer(
+    name="checkpoint_every_n_steps",
+    default=None,
+    help=(
+        "The number of steps to checkpoint. If not set, the default is"
+        " max_training_steps / 5."
+    ),
+)
+
+_CHECKPOINT_TYPE = flags.DEFINE_enum(
+    name="checkpoint_type",
+    default="aloha",
+    enum_values=list(_CHECKPOINT_TYPE_MAP.keys()),
+    help="The checkpoint type to use.",
+)
+
+_IMAGE_KEYS = flags.DEFINE_list(
+    name="image_keys",
+    default=[],
+    help=(
+        "The image keys to use for training. They should be a subset of the"
+        " available image_observation_keys logged by EpisodicLogger."
+    ),
+)
+
+_PROPRIOCEPTION_KEYS = flags.DEFINE_list(
+    name="proprioception_keys",
+    default=[],
+    help=(
+        "The proprioception keys to use for training. They should be a subset"
+        " of the available proprioceptive_observation_keys logged by"
+        " EpisodicLogger."
+    ),
 )
 
 _JSON_OUTPUT = flags.DEFINE_bool(
@@ -139,6 +189,7 @@ _HELP_STRING = f"""Usage: flywheel-cli command --api_key=api_key <additional fla
 
 Commands:
   train: Train a model, need flags:
+    --robot_id: The robot id to use. (Optional)
     --task_id: The task id to use.
     --start_date: The start date to use. Format: YYYYMMDD.
     --end_date: The end date to use. Format: YYYYMMDD.
@@ -198,12 +249,23 @@ class FlywheelCli:
     body = copy.deepcopy(self._base_request_body)
     body |= {
         "training_data_filters": {
+            "robot_id": _ROBOT_ID.value,
             "task_id": _TASK_ID.value,
             "start_date": _START_DATE.value,
             "end_date": _END_DATE.value,
         },
         "training_type": _RECIPE_TO_TYPE_MAP[_TRAINING_RECIPE.value],
     }
+    if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+      body |= {
+          "training_config": {
+              "max_training_steps": _MAX_TRAINING_STEPS.value,
+              "checkpoint_every_n_steps": _CHECKPOINT_EVERY_N_STEPS.value,
+              "checkpoint_type": _CHECKPOINT_TYPE_MAP[_CHECKPOINT_TYPE.value],
+              "image_keys": _IMAGE_KEYS.value,
+              "proprioception_keys": _PROPRIOCEPTION_KEYS.value,
+          }
+      }
     response = self._service.orchestrator().startTraining(body=body).execute()
 
     print(json.dumps(response, indent=4))
@@ -333,7 +395,10 @@ class FlywheelCli:
             str(training_job_id),
             str(serving_job.get("modelCheckpointNumber")),
             str(serving_job.get("stage")),
-            str(task_id), str(robot_id), str(start_date), str(end_date)
+            str(task_id),
+            str(robot_id),
+            str(start_date),
+            str(end_date),
         ])
       _print_responsive_table(headers, rows, weights)
     else:
@@ -369,7 +434,7 @@ class FlywheelCli:
           "run",
           "-it",
           "--gpus",
-          "0",
+          "device=0",
           "-p",
           f"{_SERVE_PORT.value}:60061",
           "-v",
@@ -377,7 +442,7 @@ class FlywheelCli:
           "-e",
           f"XLA_PYTHON_CLIENT_MEM_FRACTION={_GPU_MEM_FRACTION.value}",
           "google-deepmind/gemini_robotics_on_device",
-          f"/checkpoint/{file_name}",
+          f"--checkpoint_path=/checkpoint/{file_name}",
       ]
       print(f"Running commands: {' '.join(commands)}")
       subprocess.run(
@@ -439,6 +504,7 @@ class FlywheelCli:
 
       print("\nAvailable artifacts to download:")
       artifact_names = []
+      uri_from_name = {}
       for uri in uris:
         # Try to find a descriptive name like 'checkpoint_...'
         match = re.search(r"(checkpoint_[\w.-]+)", uri)
@@ -449,6 +515,14 @@ class FlywheelCli:
           parsed_uri = urllib.parse.urlparse(uri)
           name = os.path.basename(parsed_uri.path)
         artifact_names.append(name)
+        uri_from_name[name] = uri
+      # Sort the artifact names by number to be more intuitive.
+      artifact_names = sorted(
+          artifact_names,
+          key=lambda s: int("".join(re.findall(r"\d+", s)))
+          if re.findall(r"\d+", s)
+          else -1,
+      )
 
       for i, name in enumerate(artifact_names):
         print(f"  [{i}] {name}")
@@ -463,12 +537,12 @@ class FlywheelCli:
         if not 0 <= artifact_number < len(uris):
           print("Invalid artifact number.")
           return
-
+        selected_name = artifact_names[artifact_number]
         default_file_name = os.path.join(
             tempfile.gettempdir(),
             "grod",
-            f"{_TRAINING_JOB_ID.value}_{artifact_number}.chkpt",
-        )
+            f"{_TRAINING_JOB_ID.value}_{selected_name}.chkpt",
+        ).replace(".chkpt.chkpt", ".chkpt")
         file_name = input(
             f"> Save artifact as (default: {default_file_name}): "
         )
@@ -479,8 +553,7 @@ class FlywheelCli:
           if overwrite.lower() != "y":
             print("Download cancelled.")
             return file_name
-
-        _download_url_to_file(uris[artifact_number], file_name)
+        _download_url_to_file(uri_from_name[selected_name], file_name)
         return file_name
       except ValueError:
         print("Invalid input. Please enter a number.")
@@ -496,20 +569,22 @@ class FlywheelCli:
         "artifact_id": _ARTIFACT_ID.value,
     }
     response = self._service.orchestrator().loadArtifact(body=body).execute()
-    uri = response.get("uri")
-    if uri:
-      container_dir = os.path.join(tempfile.gettempdir(), "grod")
-      os.makedirs(container_dir, exist_ok=True)
-      default_filename = os.path.join(
-          container_dir, f"{_ARTIFACT_ID.value}.tar"
-      )
-      filename = input(f"\n> Save artifact as (default: {default_filename}): ")
-      if not filename:
-        filename = default_filename
-      _download_url_to_file(uri, filename)
-    else:
+    artifact = response.get("artifact")
+    if not artifact:
       print("No artifact found.")
       return
+    uri = artifact.get("uri")
+    if not uri:
+      print(f"URI is not specified for artifact: {_ARTIFACT_ID.value}.")
+      return
+
+    container_dir = os.path.join(tempfile.gettempdir(), "grod")
+    default_filename = os.path.join(container_dir, f"{_ARTIFACT_ID.value}.tar")
+    filename = input(f"\n> Save artifact as (default: {default_filename}): ")
+    print(f"Filename: {filename}")
+    if not filename:
+      filename = default_filename
+    _download_url_to_file(uri, filename)
 
     if "docker" in _ARTIFACT_ID.value:
       load_docker_image = input(
@@ -536,7 +611,9 @@ class FlywheelCli:
     match command:
       case "train":
         if not _TASK_ID.value:
-          raise ValueError("Task is is required.")
+          raise ValueError("Task id is required.")
+        if not _ROBOT_ID.value:
+          print("No Robot id is specified. Using data from all robots...")
         if not _START_DATE.value:
           raise ValueError("Start date is required.")
         if not _is_valid_date(_START_DATE.value):
@@ -685,6 +762,9 @@ def _reporthook(block_num: int, block_size: int, total_size: int) -> None:
 def _download_url_to_file(url: str, filename: str) -> None:
   """Downloads content from a URL and saves it to a file."""
   try:
+    dirname = os.path.dirname(filename)
+    if dirname:
+      os.makedirs(dirname, exist_ok=True)
     print(f"\nDownloading artifact to {filename} ...")
     urllib.request.urlretrieve(url, filename, reporthook=_reporthook)
     print()  # New line after progress bar.

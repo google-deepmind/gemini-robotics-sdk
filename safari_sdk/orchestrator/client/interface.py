@@ -16,11 +16,15 @@
 
 import random
 import threading
+
 from safari_sdk import auth
 from safari_sdk.orchestrator.client.dataclass import api_response
+from safari_sdk.orchestrator.client.libs import artifact
 from safari_sdk.orchestrator.client.libs import current_robot
+from safari_sdk.orchestrator.client.libs import operator_event
 from safari_sdk.orchestrator.client.libs import robot_job
 from safari_sdk.orchestrator.client.libs import robot_job_work_unit
+from safari_sdk.orchestrator.client.libs import rui_workcell_state
 from safari_sdk.orchestrator.client.libs import visual_overlay
 
 JOB_TYPE = robot_job.JobType
@@ -78,6 +82,7 @@ class OrchestratorInterface:
     self._connection = None
     self._robot_job_lib = None
     self._robot_job_work_unit_lib = None
+    self._artifact_lib = None
     self._visual_overlay = {}
 
   def connect(self) -> RESPONSE:
@@ -100,6 +105,18 @@ class OrchestratorInterface:
         robot_job_work_unit.OrchestratorRobotJobWorkUnit(
             connection=self._connection,
             robot_id=self._robot_id,
+        )
+    )
+    self._operator_event_lib = operator_event.OrchestratorOperatorEvent(
+        connection=self._connection,
+        robot_id=self._robot_id,
+    )
+    self._artifact_lib = artifact.OrchestratorArtifact(
+        connection=self._connection,
+    )
+    self._rui_workcell_state_lib = (
+        rui_workcell_state.OrchestratorRuiWorkcellState(
+            connection=self._connection,
         )
     )
     return _SUCCESS
@@ -142,6 +159,27 @@ class OrchestratorInterface:
     with self._rpc_lock:
       return self._current_robot_lib.set_current_robot_operator_id(
           operator_id=operator_id
+      )
+
+  def add_operator_event(
+      self,
+      operator_event_str: str,
+      operator_id: str,
+      event_timestamp: int,
+      resetter_id: str,
+      event_note: str,
+  ) -> RESPONSE:
+    """Records an operator event."""
+    if self._connection is None:
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    with self._rpc_lock:
+      return self._operator_event_lib.add_operator_event(
+          operator_event_str=operator_event_str,
+          operator_id=operator_id,
+          event_timestamp=event_timestamp,
+          resetter_id=resetter_id,
+          event_note=event_note,
       )
 
   def request_robot_job_work_unit(self) -> RESPONSE:
@@ -385,7 +423,11 @@ class OrchestratorInterface:
       return self._robot_job_work_unit_lib.start_work_unit_execution()
 
   def robot_job_work_unit_complete_work_unit(
-      self, outcome: robot_job_work_unit.WORK_UNIT_OUTCOME, note: str
+      self,
+      outcome: robot_job_work_unit.WORK_UNIT_OUTCOME,
+      success_score: float | None,
+      success_score_definition: str | None,
+      note: str,
   ) -> RESPONSE:
     """Sets the current work unit's stage as completed."""
     if (
@@ -397,5 +439,46 @@ class OrchestratorInterface:
 
     with self._rpc_lock:
       return self._robot_job_work_unit_lib.complete_work_unit(
-          outcome=outcome, note=note
+          outcome=outcome,
+          success_score=success_score,
+          success_score_definition=success_score_definition,
+          note=note,
+      )
+
+  def get_artifact(self, artifact_id: str) -> RESPONSE:
+    """Gets the artifact's download URI."""
+    if self._connection is None or self._artifact_lib is None:
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    with self._rpc_lock:
+      return self._artifact_lib.get_artifact(artifact_id=artifact_id)
+
+  def get_artifact_uri(self, artifact_id: str) -> RESPONSE:
+    """Gets the artifact's download URI."""
+    if self._connection is None or self._artifact_lib is None:
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    with self._rpc_lock:
+      return self._artifact_lib.get_artifact_uri(artifact_id=artifact_id)
+
+  def load_rui_workcell_state(self, robot_id: str) -> RESPONSE:
+    """Loads the RUI workcell state for the given robot."""
+    if self._connection is None or self._rui_workcell_state_lib is None:
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    with self._rpc_lock:
+      return self._rui_workcell_state_lib.load_rui_workcell_state(
+          robot_id=robot_id
+      )
+
+  def set_rui_workcell_state(
+      self, robot_id: str, workcell_state: str
+  ) -> RESPONSE:
+    """Sets the RUI workcell state for the given robot."""
+    if self._connection is None or self._rui_workcell_state_lib is None:
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    with self._rpc_lock:
+      return self._rui_workcell_state_lib.set_rui_workcell_state(
+          robot_id=robot_id, workcell_state=workcell_state
       )

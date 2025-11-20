@@ -60,14 +60,19 @@ class OrchestratorRenderer:
     self._source_topic = scene_reference_image_data.sourceTopic
     self._overlay_x_size = scene_reference_image_data.rawImageWidth
     self._overlay_y_size = scene_reference_image_data.rawImageHeight
-    self._ratio_x = self._compute_ui_to_image_ratio(
-        size_ui=scene_reference_image_data.renderedCanvasWidth,
-        size_image=self._overlay_x_size,
+    self._ratio_ref_x = self._compute_image_conversion_ratio(
+        initial_size=scene_reference_image_data.renderedCanvasWidth,
+        desired_size=self._overlay_x_size,
     )
-    self._ratio_y = self._compute_ui_to_image_ratio(
-        size_ui=scene_reference_image_data.renderedCanvasHeight,
-        size_image=self._overlay_y_size,
+    self._ratio_ref_y = self._compute_image_conversion_ratio(
+        initial_size=scene_reference_image_data.renderedCanvasHeight,
+        desired_size=self._overlay_y_size,
     )
+    # Assuming that the reference image used is the same size as the camera.
+    # This will be rechecked when the user provides an base image to render.
+    self._ratio_camera_x = 1.0
+    self._ratio_camera_y = 1.0
+
     self._overlay_image = Image.new(
         mode="RGB",
         size=(self._overlay_x_size, self._overlay_y_size),
@@ -83,9 +88,11 @@ class OrchestratorRenderer:
         | visual_overlay_icon.DrawContainer
     ] = []
 
-  def _compute_ui_to_image_ratio(self, size_ui: int, size_image: int) -> float:
-    """Compute ratio of UI to image size."""
-    return float(size_image) / float(size_ui)
+  def _compute_image_conversion_ratio(
+      self, initial_size: int, desired_size: int
+  ) -> float:
+    """Compute ratio to transfrom image from intital size to desired size."""
+    return float(desired_size) / float(initial_size)
 
   def reset_all_object_settings(self) -> _RESPONSE:
     """Resets all object settings."""
@@ -260,6 +267,7 @@ class OrchestratorRenderer:
 
   def _update_image(self, image: AcceptedImageTypes) -> None:
     """Updates the underlaying image to be drawn on."""
+    current_image_size = self._overlay_image.size
     if isinstance(image, Image.Image):
       self._overlay_image = image
       self._overlay_image_np = np.array(self._overlay_image)
@@ -271,6 +279,24 @@ class OrchestratorRenderer:
       self._overlay_image_np = np.array(self._overlay_image)
     else:
       raise ValueError(f"Unsupported image type: {type(image)}")
+
+    updated_image_size = self._overlay_image.size
+    if current_image_size != updated_image_size:
+      self._ratio_camera_x = self._compute_image_conversion_ratio(
+          initial_size=self._overlay_x_size,
+          desired_size=updated_image_size[0],
+      )
+      self._ratio_camera_y = self._compute_image_conversion_ratio(
+          initial_size=self._overlay_y_size,
+          desired_size=updated_image_size[1],
+      )
+      self._overlay_objects.clear()
+      for obj in self._workunit_objects:
+        if (
+            obj.sceneReferenceImageArtifactId
+            == self._reference_image_artifact_id
+        ):
+          self._process_scene_object(obj=obj)
 
   def _draw_overlay_arrow(
       self,
@@ -399,9 +425,11 @@ class OrchestratorRenderer:
     )
     self._overlay_image = Image.fromarray(self._overlay_image_np)
 
-  def _scale_to_image_size(self, value: int, ratio: float) -> int:
+  def _scale_to_image_size(
+      self, value: int, ratio_ui_to_ref: float, ratio_ref_to_camera: float
+  ) -> int:
     """Scale coordinate to image size."""
-    return int(value * ratio)
+    return int(value * ratio_ui_to_ref * ratio_ref_to_camera)
 
   def _process_scene_object(self, obj: work_unit.SceneObject) -> None:
     """Processes a single scene object."""
@@ -426,11 +454,13 @@ class OrchestratorRenderer:
       case work_unit.OverlayObjectIcon.OVERLAY_OBJECT_ICON_CIRCLE:
         x = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.x,
-            ratio=self._ratio_x,
+            ratio_ui_to_ref=self._ratio_ref_x,
+            ratio_ref_to_camera=self._ratio_camera_x,
         )
         y = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.y,
-            ratio=self._ratio_y,
+            ratio_ui_to_ref=self._ratio_ref_y,
+            ratio_ref_to_camera=self._ratio_camera_y,
         )
         self._overlay_objects.append(
             visual_overlay_icon.DrawCircleIcon(
@@ -445,11 +475,13 @@ class OrchestratorRenderer:
       case work_unit.OverlayObjectIcon.OVERLAY_OBJECT_ICON_ARROW:
         x = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.x,
-            ratio=self._ratio_x,
+            ratio_ui_to_ref=self._ratio_ref_x,
+            ratio_ref_to_camera=self._ratio_camera_x,
         )
         y = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.y,
-            ratio=self._ratio_y,
+            ratio_ui_to_ref=self._ratio_ref_y,
+            ratio_ref_to_camera=self._ratio_camera_y,
         )
         self._overlay_objects.append(
             visual_overlay_icon.DrawArrowIcon(
@@ -465,11 +497,13 @@ class OrchestratorRenderer:
       case work_unit.OverlayObjectIcon.OVERLAY_OBJECT_ICON_SQUARE:
         x = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.x,
-            ratio=self._ratio_x,
+            ratio_ui_to_ref=self._ratio_ref_x,
+            ratio_ref_to_camera=self._ratio_camera_x,
         )
         y = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.y,
-            ratio=self._ratio_y,
+            ratio_ui_to_ref=self._ratio_ref_y,
+            ratio_ref_to_camera=self._ratio_camera_y,
         )
         self._overlay_objects.append(
             visual_overlay_icon.DrawSquareIcon(
@@ -484,11 +518,13 @@ class OrchestratorRenderer:
       case work_unit.OverlayObjectIcon.OVERLAY_OBJECT_ICON_TRIANGLE:
         x = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.x,
-            ratio=self._ratio_x,
+            ratio_ui_to_ref=self._ratio_ref_x,
+            ratio_ref_to_camera=self._ratio_camera_x,
         )
         y = self._scale_to_image_size(
             value=obj.evaluationLocation.location.coordinate.y,
-            ratio=self._ratio_y,
+            ratio_ui_to_ref=self._ratio_ref_y,
+            ratio_ref_to_camera=self._ratio_camera_y,
         )
         self._overlay_objects.append(
             visual_overlay_icon.DrawTriangleIcon(
@@ -504,15 +540,21 @@ class OrchestratorRenderer:
         if obj.evaluationLocation.containerArea.circle:
           x = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.circle.center.x,
-              ratio=self._ratio_x,
+              ratio_ui_to_ref=self._ratio_ref_x,
+              ratio_ref_to_camera=self._ratio_camera_x,
           )
           y = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.circle.center.y,
-              ratio=self._ratio_y,
+              ratio_ui_to_ref=self._ratio_ref_y,
+              ratio_ref_to_camera=self._ratio_camera_y,
           )
           radius = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.circle.radius,
-              ratio=max(self._ratio_x, self._ratio_y),
+              ratio_ui_to_ref=max(self._ratio_ref_x, self._ratio_ref_y),
+              ratio_ref_to_camera=max(
+                  self._ratio_camera_x, self._ratio_camera_y
+              ),
+
           )
           self._overlay_objects.append(
               visual_overlay_icon.DrawContainer(
@@ -528,19 +570,23 @@ class OrchestratorRenderer:
         elif obj.evaluationLocation.containerArea.box:
           x = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.box.x,
-              ratio=self._ratio_x,
+              ratio_ui_to_ref=self._ratio_ref_x,
+              ratio_ref_to_camera=self._ratio_camera_x,
           )
           y = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.box.y,
-              ratio=self._ratio_y,
+              ratio_ui_to_ref=self._ratio_ref_y,
+              ratio_ref_to_camera=self._ratio_camera_y,
           )
           w = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.box.w,
-              ratio=self._ratio_x,
+              ratio_ui_to_ref=self._ratio_ref_x,
+              ratio_ref_to_camera=self._ratio_camera_x,
           )
           h = self._scale_to_image_size(
               value=obj.evaluationLocation.containerArea.box.h,
-              ratio=self._ratio_y,
+              ratio_ui_to_ref=self._ratio_ref_y,
+              ratio_ref_to_camera=self._ratio_camera_y,
           )
           self._overlay_objects.append(
               visual_overlay_icon.DrawContainer(
