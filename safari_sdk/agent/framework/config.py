@@ -69,7 +69,7 @@ class AgentFrameworkConfig:
   # Whether to meow.
   meow_mode: bool = False
   # The name of the model to use for the Gemini Live agent.
-  agent_model_name: str = 'gemini-live-2.5-flash-preview'
+  agent_model_name: str = 'gemini-2.5-flash-native-audio-preview-12-2025'
   # Whether to enable audio input.
   enable_audio_input: bool = False
   # Whether to enable audio output.
@@ -116,6 +116,9 @@ class AgentFrameworkConfig:
   )
   # Whether to use language control in the prompt.
   use_language_control: bool = False
+  # Whether to instruct the agent to focus on fulfilling the given task and not
+  # engage in conversation (useful for autonomous or sim eval).
+  use_quiet_autonomy_mode: bool = False
   # The number of tokens to trigger context window compression.
   context_compression_trigger_tokens: int = 110000
   # The target number of tokens for the sliding window.
@@ -232,6 +235,7 @@ class AgentFrameworkConfig:
       reminder_text_list: list[str] | None = None,
       reminder_time_in_seconds: list[float] | None = None,
       use_language_control: bool | None = None,
+      use_quiet_autonomy_mode: bool | None = None,
       context_compression_trigger_tokens: int | None = None,
       context_compression_sliding_window_target: int | None = None,
       log_gemini_query: bool | None = None,
@@ -336,6 +340,10 @@ class AgentFrameworkConfig:
         use_language_control=(
             use_language_control
             or agentic_flags.AGENTIC_USE_LANGUAGE_CONTROL.value
+        ),
+        use_quiet_autonomy_mode=(
+            use_quiet_autonomy_mode
+            or agentic_flags.AGENTIC_USE_QUIET_AUTONOMY_MODE.value
         ),
         context_compression_trigger_tokens=(
             context_compression_trigger_tokens

@@ -35,7 +35,10 @@ from tensorflow.core.example import feature_pb2
 
 # The type of the proto message that can be logged in the mcap file.
 _LogProtoType = TypeVar(
-    "_LogProtoType", example_pb2.Example, metadata_pb2.Session
+    "_LogProtoType",
+    example_pb2.Example,
+    metadata_pb2.Session,
+    metadata_pb2.FileMetadata,
 )
 
 
@@ -145,6 +148,21 @@ def read_session_proto_data(
     raise ValueError("No session messages found in mcap files.")
 
   return session_messages
+
+
+def read_file_metadata_proto_data(
+    mcap_root_path: str, file_metadata_topic_name: str
+) -> list[metadata_pb2.FileMetadata]:
+  """Reads FileMetadata proto data from the given mcap root path."""
+  mcap_files = get_mcap_file_paths(mcap_root_path)
+  file_metadata_messages = read_and_parse_mcap_messages(
+      mcap_files, file_metadata_topic_name, metadata_pb2.FileMetadata
+  )
+
+  if not file_metadata_messages:
+    raise ValueError("No FileMetadata messages found in mcap files.")
+
+  return file_metadata_messages
 
 
 def parse_examples_to_dm_env_types(
@@ -322,6 +340,7 @@ def _parse_and_match_spec(
     stripped_key = key.removeprefix(f"{prefix}/")
     spec = cast(specs.Array, values_spec[stripped_key])
 
+    dtype = spec.dtype
     if isinstance(spec, specs.StringArray):
       # We expect a single string inside the value but the parser returns a
       # list.
@@ -330,7 +349,10 @@ def _parse_and_match_spec(
         raise ValueError(f"Expected bytes but got {type(value)}")
       value = cast(bytes, value).decode("utf-8")
 
-    parsed_values[stripped_key] = np.asarray(value).astype(spec.dtype)
+      if spec.string_type == bytes:
+        dtype = np.bytes_
+
+    parsed_values[stripped_key] = np.asarray(value).astype(dtype)
     if not spec.shape:
       parsed_values[stripped_key] = np.squeeze(parsed_values[stripped_key])
   return parsed_values

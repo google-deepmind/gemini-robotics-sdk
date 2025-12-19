@@ -218,6 +218,12 @@ AGENTIC_USE_LANGUAGE_CONTROL = flags.DEFINE_bool(
     "Whether to use language control in the prompt.",
 )
 
+AGENTIC_USE_QUIET_AUTONOMY_MODE = flags.DEFINE_bool(
+    "agent.use_quiet_autonomy_mode",
+    False,
+    "Whether to use quiet autonomy mode in the prompt.",
+)
+
 AGENTIC_CONTEXT_COMPRESSION_TRIGGER_TOKENS = flags.DEFINE_integer(
     "agent.context_compression_trigger_tokens",
     110000,
