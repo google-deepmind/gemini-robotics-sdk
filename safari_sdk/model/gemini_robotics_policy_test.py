@@ -640,6 +640,56 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
       self.assertEqual(action, [1.0])
       policy._client.models.generate_content.assert_called_once()
 
+  # TODO: Remove this testwhen this is fixed.
+  def test_local_policy_calls_reset_method(self):
+    FLAGS.api_key = "mock_test_key"
+    FLAGS.safari_enable_server_init = True
+
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_resource = mock.MagicMock()
+      mock_resource.modelServing.return_value = mock.MagicMock()
+      mock_build.return_value = mock_resource
+
+      policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+          serve_id="test_serve_id",
+          task_instruction_key="test_instruction_key",
+          image_observation_keys=("test_camera_1",),
+          proprioceptive_observation_keys=("test_joint_1",),
+          min_replan_interval=3,
+          inference_mode=constants.InferenceMode.SYNCHRONOUS,
+          robotics_api_connection=constants.RoboticsApiConnectionType.LOCAL,
+      )
+
+      self.assertIsNotNone(policy._initial_state_method)
+
+      # Now overwrite the initial_state method with a mock.
+      policy._initial_state_method = mock.MagicMock()
+
+      returned_action = np.array([[1.0], [2.0], [3.0]])
+      encoded_response = mock.MagicMock()
+      encoded_response.text = json.dumps(
+          {"action_chunk": returned_action.tolist()}
+      )
+
+      policy._client.models.generate_content = mock.MagicMock(
+          return_value=encoded_response
+      )
+
+      timestep_spec = gdmr_types.TimeStepSpec(
+          step_type=gdmr_types.STEP_TYPE_SPEC,
+          reward={},
+          discount={},
+          observation={
+              "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+              "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+              "test_instruction_key": specs.StringArray(()),
+          },
+      )
+      policy.step_spec(timestep_spec)
+
+      policy.initial_state()
+      policy._initial_state_method.assert_called_once()
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -165,6 +165,7 @@ class FlywheelCliTest(parameterized.TestCase):
             "end_date": "20240102",
         },
         "training_type": training_type,
+        "tracer": mock.ANY,
     }
     if recipe == "gemini_robotics_on_device_v1":
       expected_body["training_config"] = {
@@ -200,7 +201,9 @@ class FlywheelCliTest(parameterized.TestCase):
     with flagsaver.flagsaver(json_output=json_output):
       with mock.patch("sys.stdout", mock_stdout):
         self._cli.handle_data_stats()
-        self.service_mock.trainingDataDetails.assert_called_once_with(body={})
+        self.service_mock.trainingDataDetails.assert_called_once_with(
+            body={"tracer": mock.ANY}
+        )
         self.service_mock.trainingDataDetails.return_value.execute.assert_called_once()
         self.assertEqual(mock_stdout.getvalue(), expected_output)
 
@@ -229,7 +232,9 @@ class FlywheelCliTest(parameterized.TestCase):
       with flagsaver.flagsaver(json_output=json_output):
         self._cli.handle_list_training_jobs()
 
-      self.service_mock.trainingJobs.assert_called_once_with(body={})
+      self.service_mock.trainingJobs.assert_called_once_with(
+          body={"tracer": mock.ANY}
+      )
       self.service_mock.trainingJobs.return_value.execute.assert_called_once()
       self.assertEqual(mock_stdout.getvalue(), expected_output)
 
@@ -258,7 +263,9 @@ class FlywheelCliTest(parameterized.TestCase):
       with flagsaver.flagsaver(json_output=json_output):
         self._cli.handle_list_serving_jobs()
 
-      self.service_mock.servingJobs.assert_called_once_with(body={})
+      self.service_mock.servingJobs.assert_called_once_with(
+          body={"tracer": mock.ANY}
+      )
       self.service_mock.servingJobs.return_value.execute.assert_called_once()
       self.assertEqual(mock_stdout.getvalue(), expected_output)
 
@@ -276,6 +283,7 @@ class FlywheelCliTest(parameterized.TestCase):
           body={
               "training_job_id": "test_training_job_id",
               "model_checkpoint_number": 1,
+              "tracer": mock.ANY,
           }
       )
       self.service_mock.serveModel.return_value.execute.assert_called_once_with()
@@ -288,6 +296,9 @@ class FlywheelCliTest(parameterized.TestCase):
           60061,
           0.8,
           "/tmp/grod/test_training_job_id_0.chkpt",
+          False,
+          [],
+          [],
       ),
       (
           "with_path_custom_flags",
@@ -300,6 +311,25 @@ class FlywheelCliTest(parameterized.TestCase):
           12345,
           0.5,
           "/test/path/model.chkpt",
+          False,
+          [],
+          [],
+      ),
+      (
+          "with_cpu_keys_flags",
+          {
+              "model_checkpoint_path": "/test/path/model.chkpt",
+              "use_cpu": True,
+              "image_keys": ["image1", "image2"],
+              "proprioception_keys": ["prop1", "prop2"],
+          },
+          False,
+          60061,
+          0.8,
+          "/test/path/model.chkpt",
+          True,
+          ["image1", "image2"],
+          ["prop1", "prop2"],
       ),
   )
   @mock.patch("subprocess.run")
@@ -310,6 +340,9 @@ class FlywheelCliTest(parameterized.TestCase):
       port,
       mem_fraction,
       checkpoint_path,
+      use_cpu,
+      image_keys,
+      proprio_keys,
       mock_subprocess_run,
   ):
     with flagsaver.flagsaver(
@@ -328,21 +361,28 @@ class FlywheelCliTest(parameterized.TestCase):
 
         file_dir = os.path.dirname(checkpoint_path)
         file_name = os.path.basename(checkpoint_path)
-        expected_docker_command = [
-            "docker",
-            "run",
-            "-it",
-            "--gpus",
-            "device=0",
+        expected_docker_command = ["docker", "run", "-it"]
+        if not use_cpu:
+          expected_docker_command.extend([
+              "--gpus",
+              "device=0",
+              "-e",
+              f"XLA_PYTHON_CLIENT_MEM_FRACTION={mem_fraction}",
+          ])
+        expected_docker_command.extend([
             "-p",
             f"{port}:60061",
             "-v",
             f"{file_dir}:/checkpoint",
-            "-e",
-            f"XLA_PYTHON_CLIENT_MEM_FRACTION={mem_fraction}",
             "google-deepmind/gemini_robotics_on_device",
             f"--checkpoint_path=/checkpoint/{file_name}",
-        ]
+        ])
+        if image_keys:
+          expected_docker_command.append(f"--image_keys={','.join(image_keys)}")
+        if proprio_keys:
+          expected_docker_command.append(
+              f"--proprio_keys={','.join(proprio_keys)}"
+          )
         mock_subprocess_run.assert_called_once_with(
             expected_docker_command, check=True, text=True
         )
@@ -360,6 +400,7 @@ class FlywheelCliTest(parameterized.TestCase):
         self.service_mock.trainingArtifact.assert_called_once_with(
             body={
                 "training_job_id": "test_training_job_id",
+                "tracer": mock.ANY,
             }
         )
         self.service_mock.trainingArtifact.return_value.execute.assert_called_once()
@@ -392,6 +433,7 @@ class FlywheelCliTest(parameterized.TestCase):
       self.service_mock.trainingArtifact.assert_called_once_with(
           body={
               "training_job_id": "test_training_job_id",
+              "tracer": mock.ANY,
           }
       )
       self.service_mock.trainingArtifact.return_value.execute.assert_called_once()
@@ -416,15 +458,13 @@ class FlywheelCliTest(parameterized.TestCase):
   def test_download_artifact_id(self, mock_input, mock_download):
     with flagsaver.flagsaver(artifact_id="test_artifact_id"):
       self.service_mock.loadArtifact.return_value.execute.return_value = {
-          "artifact": {
-              "uri": "test_uri_1"
-          }
+          "artifact": {"uri": "test_uri_1"}
       }
 
       self._cli.handle_download_artifact_id()
 
       self.service_mock.loadArtifact.assert_called_once_with(
-          body={"artifact_id": "test_artifact_id"}
+          body={"artifact_id": "test_artifact_id", "tracer": mock.ANY}
       )
       self.service_mock.loadArtifact.return_value.execute.assert_called_once()
       mock_input.assert_called_once()
@@ -443,7 +483,7 @@ class FlywheelCliTest(parameterized.TestCase):
       self._cli.handle_download_artifact_id()
 
       self.service_mock.loadArtifact.assert_called_once_with(
-          body={"artifact_id": "test_artifact_id"}
+          body={"artifact_id": "test_artifact_id", "tracer": mock.ANY}
       )
       self.service_mock.loadArtifact.return_value.execute.assert_called_once()
       mock_input.assert_not_called()
@@ -464,11 +504,27 @@ class FlywheelCliTest(parameterized.TestCase):
       self._cli.handle_download_artifact_id()
 
       self.service_mock.loadArtifact.assert_called_once_with(
-          body={"artifact_id": "test_artifact_id"}
+          body={"artifact_id": "test_artifact_id", "tracer": mock.ANY}
       )
       self.service_mock.loadArtifact.return_value.execute.assert_called_once()
       mock_input.assert_not_called()
       mock_download.assert_not_called()
+
+  def test_print_responsive_table(self):
+    mock_stdout = io.StringIO()
+    headers = ["H1", "Header2"]
+    rows = [["d1", "data2"], ["data1-long", "d2"]]
+    with mock.patch("sys.stdout", mock_stdout):
+      flywheel_cli._print_responsive_table(headers, rows)
+
+    expected = (
+        "-------------------\n"
+        "H1          Header2\n"
+        "-------------------\n"
+        "d1          data2  \n"
+        "data1-long  d2     \n"
+    )
+    self.assertEqual(mock_stdout.getvalue(), expected)
 
   def test_show_help(self):
     mock_stdout = io.StringIO()

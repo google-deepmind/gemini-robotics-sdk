@@ -20,11 +20,14 @@ import copy
 import json
 import logging
 import threading
+from typing import Any
 
+from absl import flags
 import dm_env
 from dm_env import specs
 from gdm_robotics.interfaces import policy as gdmr_policy
 from gdm_robotics.interfaces import types as gdmr_types
+import grpc
 import numpy as np
 import tree
 from typing_extensions import override
@@ -33,6 +36,13 @@ from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 from safari_sdk.model import genai_robotics
 from safari_sdk.model import observation_to_model_query_contents
+
+
+_ENABLE_SERVER_INIT = flags.DEFINE_bool(
+    'safari_enable_server_init',
+    False,
+    'Whether to enable server init.',
+)
 
 
 class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
@@ -115,6 +125,31 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._client = genai_robotics.Client(
         robotics_api_connection=robotics_api_connection,
     )
+
+    # TODO: Remove when this is fixed.
+    if (
+        _ENABLE_SERVER_INIT.value
+        and self._robotics_api_connection
+        == constants.RoboticsApiConnectionType.LOCAL
+    ):
+      # Create an additional client connection for the reset method.
+      local_credentials = grpc.local_channel_credentials()
+      self._grpc_channel = grpc.secure_channel(
+          genai_robotics._LOCAL_GRPC_URL.removeprefix('grpc://'),
+          local_credentials,
+      )
+      self._initial_state_stub = self._grpc_channel.unary_unary(
+          method='/gemini_robotics/initial_state',
+          request_serializer=lambda v: v,
+          response_deserializer=lambda v: v,
+      )
+
+      def _query_encoder(query: dict[str, Any]) -> str:
+        encoded_query = json.dumps(query).encode('utf-8')
+        return self._initial_state_stub(encoded_query).decode('utf-8')
+
+      self._initial_state_method = _query_encoder
+
     # Threading setup
     self._inference_mode = inference_mode
     if inference_mode == constants.InferenceMode.ASYNCHRONOUS:
@@ -140,6 +175,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._model_output = np.array([])
     for provider in self._additional_observations_providers:
       provider.reset()
+
+    # TODO: Remove when this is fixed.
+    if (
+        _ENABLE_SERVER_INIT.value
+        and self._robotics_api_connection
+        == constants.RoboticsApiConnectionType.LOCAL
+    ):
+      self._initial_state_method({})
 
     return self._dummy_state
 

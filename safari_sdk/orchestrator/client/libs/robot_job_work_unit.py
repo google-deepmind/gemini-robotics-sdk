@@ -15,6 +15,7 @@
 """Robot job work unit APIs for interacting with the orchestrator server."""
 
 import json
+import time
 
 from googleapiclient import discovery
 from googleapiclient import errors
@@ -107,6 +108,7 @@ class OrchestratorRobotJobWorkUnit:
     body = {
         "robot_id": self._robot_id,
         "robot_job_id": self._robot_job_id,
+        "tracer": time.time_ns(),
     }
 
     try:
@@ -160,6 +162,7 @@ class OrchestratorRobotJobWorkUnit:
     body = {
         "robot_id": self._robot_id,
         "work_unit_id": work_unit_response.work_unit_id,
+        "tracer": time.time_ns(),
     }
 
     try:
@@ -198,6 +201,7 @@ class OrchestratorRobotJobWorkUnit:
     body = {
         "robot_id": self._robot_id,
         "work_unit_id": work_unit_response.work_unit_id,
+        "tracer": time.time_ns(),
     }
 
     try:
@@ -236,6 +240,7 @@ class OrchestratorRobotJobWorkUnit:
     body = {
         "robot_id": self._robot_id,
         "work_unit_id": work_unit_response.work_unit_id,
+        "tracer": time.time_ns(),
     }
 
     try:
@@ -282,6 +287,7 @@ class OrchestratorRobotJobWorkUnit:
         "work_unit_id": work_unit_response.work_unit_id,
         "outcome": outcome.num_value(),
         "note": note,
+        "tracer": time.time_ns(),
     }
     if success_score is not None:
       body["success_score"] = {

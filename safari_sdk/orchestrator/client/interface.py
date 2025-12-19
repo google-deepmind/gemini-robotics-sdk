@@ -96,6 +96,19 @@ class OrchestratorInterface:
         connection=self._connection,
         robot_id=self._robot_id,
     )
+    response = self._current_robot_lib.get_current_robot_info()
+    if not response.success:
+      self._connection = None
+      self._current_robot_lib = None
+      return RESPONSE(
+          error_message=(
+              "Failed to validate connection to orchestrator server with"
+              f" {self._robot_id}. Validation failed with error:"
+              f" {response.error_message}"
+          ),
+          robot_id=self._robot_id,
+      )
+
     self._robot_job_lib = robot_job.OrchestratorRobotJob(
         connection=self._connection,
         robot_id=self._robot_id,

@@ -27,8 +27,11 @@ FLAGS.mark_as_parsed()
 
 class InterfaceTest(absltest.TestCase):
 
-  def test_connect_good(self):
-
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  def test_connect_good(self, *_):
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -43,7 +46,6 @@ class InterfaceTest(absltest.TestCase):
       self.assertTrue(response.success)
 
   def test_connect_bad_connect(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -56,8 +58,43 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, "Auth: No API key provided by flag or file."
     )
 
-  def test_get_current_connection_good(self, *_):
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(
+          success=False,
+          error_message="Mock validation error.",
+      ),
+  )
+  def test_connect_bad_validation(self, *_):
+    FLAGS.api_key = "mock_test_key"
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.EVALUATION,
+    )
 
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_build.return_value = mock.Mock(
+          spec=interface.auth.discovery.Resource
+      )
+      response = interface_lib.connect()
+      self.assertFalse(response.success)
+      self.assertEqual(
+          response.error_message,
+          "Failed to validate connection to orchestrator server with"
+          " test_robot_id. Validation failed with error: Mock validation"
+          " error.",
+      )
+
+    self.assertIsNone(interface_lib._connection)
+    self.assertIsNone(interface_lib._robot_job_lib)
+    self.assertIsNone(interface_lib._robot_job_work_unit_lib)
+    self.assertIsNone(interface_lib._artifact_lib)
+
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  def test_get_current_connection_good(self, *_):
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -122,7 +159,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(response.operator_id, "test_operator_id")
 
   def test_get_current_robot_info_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -151,6 +187,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.set_current_robot_operator_id",
       return_value=interface.current_robot._RESPONSE(
           success=True,
@@ -160,7 +200,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_set_current_robot_operator_id_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -183,7 +222,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(response.operator_id, "test_operator_id")
 
   def test_set_current_robot_operator_id_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -215,7 +253,11 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
     )
 
-  def test_add_operator_event(self):
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  def test_add_operator_event(self, *_):
     # Mock auth.get_service
     mock_auth_get_service = self.enter_context(
         mock.patch.object(interface.auth, "get_service", autospec=True)
@@ -283,6 +325,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -303,9 +349,7 @@ class InterfaceTest(absltest.TestCase):
           ),
       ),
   )
-
   def test_request_robot_job_work_unit_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -329,7 +373,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_request_robot_job_work_unit_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -378,13 +421,16 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=False, error_message="Error from request robot job."
       ),
   )
   def test_request_robot_job_work_unit_bad_request_robot_job(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -403,6 +449,10 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(response.error_message, "Error from request robot job.")
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -411,7 +461,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_request_robot_job_work_unit_no_more_robot_job(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -430,6 +479,10 @@ class InterfaceTest(absltest.TestCase):
     self.assertTrue(response.no_more_robot_job)
     self.assertEqual(response.error_message, "No more robot job.")
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -452,7 +505,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_get_current_robot_job_work_unit_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -476,7 +528,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_get_current_robot_job_work_unit_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -524,6 +575,10 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
     )
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -578,7 +633,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_is_visual_overlay_in_current_work_unit_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -596,6 +650,10 @@ class InterfaceTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertTrue(response.is_visual_overlay_found)
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -628,7 +686,6 @@ class InterfaceTest(absltest.TestCase):
   def test_is_visual_overlay_in_current_work_unit_good_with_no_scene_objects(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -649,7 +706,6 @@ class InterfaceTest(absltest.TestCase):
   def test_is_visual_overlay_in_current_work_unit_bad_active_connection(
       self
   ):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -678,6 +734,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -693,7 +753,6 @@ class InterfaceTest(absltest.TestCase):
   def test_is_visual_overlay_in_current_work_unit_with_no_context(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -711,6 +770,10 @@ class InterfaceTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertFalse(response.is_visual_overlay_found)
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -731,7 +794,6 @@ class InterfaceTest(absltest.TestCase):
   def test_is_visual_overlay_in_current_work_unit_with_no_scene_preset_details(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -749,6 +811,10 @@ class InterfaceTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertFalse(response.is_visual_overlay_found)
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -795,7 +861,6 @@ class InterfaceTest(absltest.TestCase):
   def test_is_visual_overlay_in_current_work_unit_with_no_reference_images(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -813,6 +878,10 @@ class InterfaceTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertFalse(response.is_visual_overlay_found)
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -867,7 +936,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_create_visual_overlays_for_current_work_unit_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -890,6 +958,10 @@ class InterfaceTest(absltest.TestCase):
         interface.visual_overlay.OrchestratorRenderer,
     )
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -922,7 +994,6 @@ class InterfaceTest(absltest.TestCase):
   def test_create_visual_overlays_for_current_work_unit_good_with_no_scene_objects(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -948,7 +1019,6 @@ class InterfaceTest(absltest.TestCase):
   def test_create_visual_overlays_for_current_work_unit_bad_active_connection(
       self
   ):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -977,6 +1047,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -992,7 +1066,6 @@ class InterfaceTest(absltest.TestCase):
   def test_create_visual_overlays_for_current_work_unit_with_no_context(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -1013,6 +1086,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -1032,7 +1109,6 @@ class InterfaceTest(absltest.TestCase):
   def test_create_visual_overlays_for_current_work_unit_with_no_scene_preset_details(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -1052,6 +1128,10 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_NO_SCENE_PRESET_DETAILS
     )
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job_work_unit.OrchestratorRobotJobWorkUnit.get_current_work_unit",
       return_value=interface.robot_job_work_unit._RESPONSE(
@@ -1098,7 +1178,6 @@ class InterfaceTest(absltest.TestCase):
   def test_create_visual_overlays_for_current_work_unit_with_no_reference_images(
       self, *_
   ):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -1119,7 +1198,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_list_visual_overlay_renderer_keys_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1189,7 +1267,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_list_visual_overlay_renderer_keys_no_visual_overlay_found(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1202,7 +1279,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_get_visual_overlay_image_as_pil_image_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1255,7 +1331,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(image.height, 20)
 
   def test_get_visual_overlay_image_as_pil_image_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1284,7 +1359,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_get_visual_overlay_image_as_np_array_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1335,7 +1409,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(image.shape, (20, 20, 3))
 
   def test_get_visual_overlay_image_as_np_array_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1364,7 +1437,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_get_visual_overlay_image_as_bytes_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1425,7 +1497,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertNotEqual(image_png, image_jpeg)
 
   def test_get_visual_overlay_image_as_bytes_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1454,7 +1525,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_reset_visual_overlay_renderer_good_individual(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1553,7 +1623,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertLen(renderer_2._overlay_objects, 1)
 
   def test_reset_visual_overlay_renderer_good_all(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1652,7 +1721,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEmpty(renderer_2._overlay_objects)
 
   def test_reset_visual_overlay_renderer_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1680,7 +1748,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_create_single_visual_overlay_renderer_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1713,7 +1780,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(renderer_2._overlay_image_np.shape, (20, 20, 3))
 
   def test_create_single_visual_overlay_renderer_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1742,7 +1808,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertIn("test_renderer_key_1", interface_lib._visual_overlay)
 
   def test_add_single_overlay_object_to_visual_overlay_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1783,7 +1848,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertLen(renderer_1._overlay_objects, 2)
 
   def test_add_single_overlay_object_to_visual_overlay_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1814,7 +1878,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEmpty(renderer_1._overlay_objects)
 
   def test_render_visual_overlay_good(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1864,7 +1927,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_render_visual_overlay_bad_renderer_key(self):
-
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
         job_type=interface.JOB_TYPE.ALL,
@@ -1898,6 +1960,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -1919,7 +1985,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_robot_job_work_unit_start_software_asset_prep_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -1945,7 +2010,6 @@ class InterfaceTest(absltest.TestCase):
   def test_robot_job_work_unit_start_software_asset_prep_bad_active_connection(
       self,
   ):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -1994,6 +2058,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -2015,7 +2083,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_robot_job_work_unit_start_scene_prep_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2039,7 +2106,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_robot_job_work_unit_start_scene_prep_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2088,6 +2154,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -2109,7 +2179,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_robot_job_work_unit_start_execution_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2133,7 +2202,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_robot_job_work_unit_start_execution_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2182,6 +2250,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.request_robot_job",
       return_value=interface.robot_job_work_unit._RESPONSE(
           success=True,
@@ -2203,7 +2275,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_robot_job_work_unit_complete_work_unit_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2232,7 +2303,6 @@ class InterfaceTest(absltest.TestCase):
     )
 
   def test_robot_job_work_unit_complete_work_unit_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2296,6 +2366,10 @@ class InterfaceTest(absltest.TestCase):
     )
 
   @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
       "safari_sdk.orchestrator.client.libs.artifact.OrchestratorArtifact.get_artifact",
       return_value=interface.RESPONSE(
           success=True,
@@ -2313,7 +2387,6 @@ class InterfaceTest(absltest.TestCase):
       ),
   )
   def test_load_artifact_good(self, *_):
-
     FLAGS.api_key = "mock_test_key"
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2343,7 +2416,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertFalse(response.artifact.isZipped)
 
   def test_load_artifact_bad_active_connection(self):
-
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(
         robot_id="test_robot_id",
@@ -2371,6 +2443,10 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
     )
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.rui_workcell_state.OrchestratorRuiWorkcellState.load_rui_workcell_state",
       return_value=interface.rui_workcell_state._RESPONSE(
@@ -2425,6 +2501,10 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
     )
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.rui_workcell_state.OrchestratorRuiWorkcellState.set_rui_workcell_state",
       return_value=interface.rui_workcell_state._RESPONSE(

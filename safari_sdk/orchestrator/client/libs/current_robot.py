@@ -15,6 +15,7 @@
 """Current robot info APIs for interacting with the orchestrator server."""
 
 import json
+import time
 
 from googleapiclient import discovery
 from googleapiclient import errors
@@ -55,9 +56,7 @@ class OrchestratorCurrentRobotInfo:
     if self._connection is None:
       return _RESPONSE(error_message=_ERROR_NO_ORCHESTRATOR_CONNECTION)
 
-    body = {
-        "robot_id": self._robot_id,
-    }
+    body = {"robot_id": self._robot_id, "tracer": time.time_ns()}
 
     # assert server_connection_response.server_connection is not None
     try:
@@ -95,6 +94,7 @@ class OrchestratorCurrentRobotInfo:
     body = {
         "robot_id": self._robot_id,
         "operator_id": operator_id,
+        "tracer": time.time_ns(),
     }
 
     try:

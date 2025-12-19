@@ -15,6 +15,7 @@
 """Artifact APIs interacting with the orchestrator server."""
 
 import json
+import time
 
 from googleapiclient import discovery
 from googleapiclient import errors
@@ -53,7 +54,7 @@ class OrchestratorArtifact:
     if self._connection is None:
       return _RESPONSE(error_message=_ERROR_NO_ORCHESTRATOR_CONNECTION)
 
-    body = {"artifact_id": artifact_id}
+    body = {"artifact_id": artifact_id, "tracer": time.time_ns()}
 
     try:
       response = (
@@ -87,7 +88,7 @@ class OrchestratorArtifact:
     if self._connection is None:
       return _RESPONSE(error_message=_ERROR_NO_ORCHESTRATOR_CONNECTION)
 
-    body = {"artifact_id": artifact_id}
+    body = {"artifact_id": artifact_id, "tracer": time.time_ns()}
 
     try:
       response = (

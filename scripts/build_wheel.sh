@@ -15,26 +15,62 @@
 
 # Fail on any error.
 set -e
+SAFARI_DIR="$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/..")"
+VENV_DIR="$(mktemp -d)"
+UPLOAD_TARGET=""
+UPLOAD_WHL=false
+RUN_SMOKE_TEST=true
 
-CMAKE_BUILD_DIR="${SAFARI_DIR}/build"  # cmake build directory
-mkdir -p "${CMAKE_BUILD_DIR}"
-cd "${CMAKE_BUILD_DIR}"
-cmake "${SAFARI_DIR}"
-make pip_wheel pip_install
+function _usage() {
+  echo "Usage: $0 [-h|--help] [--no-smoke-test] [--upload]"
+  echo "  -h|--help: Show this help message and exit."
+  echo "  --no-smoke-test: Skip the smoke test."
+  echo "  --repository-url: Upload the wheel to this repository URL."
+  echo "  --upload: Upload the wheel to PyPi."
+}
 
-# Smoke test generated package
-echo "Start smoke test"
-source "${CMAKE_BUILD_DIR}/safari_venv/bin/activate"
+while (( $# > 0 )) ; do
+  case "$1" in
+    -h|--help) _usage; exit 1 ;;
+    --upload) UPLOAD_WHL=true ; shift ;;
+    --repository-url) UPLOAD_TARGET="--repository-url $2"; UPLOAD_WHL=true; shift 2 ;;
+    --no-smoke-test) RUN_SMOKE_TEST=false; shift ;;
+    *) echo "Unknown option: $1"; _usage; exit 1 ;;
+  esac
+done
 
-flywheel-cli help
+echo "Building wheel in ${SAFARI_DIR} with venv: ${VENV_DIR}"
+python3 -m venv "${VENV_DIR}"
+source "${VENV_DIR}/bin/activate"
+pip install build
+python3 -m build ${SAFARI_DIR}
+echo Pip wheel is in ${SAFARI_DIR}/dist/*.whl
 
-python3 -c "from safari_sdk.logging.python import stream_logger"
-python3 -c "from safari_sdk.model import saved_model_policy"
-python3 -c "from safari_sdk.logging.python import mcap_episodic_logger"
+# Smoke test generated package if desired.
+if ${RUN_SMOKE_TEST}; then
+  echo "Start smoke test"
+  pip install ${SAFARI_DIR}/dist/*.whl
 
-deactivate
+  flywheel-cli help
+  python3 -c "from safari_sdk.logging.python import stream_logger"
+  python3 -c "from safari_sdk.ui import client"
+  python3 -c "from safari_sdk.logging.python import episodic_logger"
 
-echo "Smoke test done."
-echo Pip wheel is in ${SAFARI_DIR}/dist/safari_sdk-*-py3-none-any.whl
+  echo "Smoke test done."
+fi
 
-ln -fs `ls ${SAFARI_DIR}/dist/safari_sdk-*-py3-none-any.whl` /tmp/safari_sdk-lastbuild-py3-none-any.whl
+# Upload the wheel to gcloud or PyPI if desired.
+if [[ ${UPLOAD_TARGET} == *python.pkg.dev* ]]; then
+  # Install the keyrings to allow authentication with Artifact Registry.
+  pip install keyrings.google-artifactregistry-auth
+  echo "Uploading whl to gCloud (${UPLOAD_TARGET})."
+elif [[ -n "${UPLOAD_TARGET}" ]]; then
+  echo "Uploading whl to ${UPLOAD_TARGET}."
+elif ${UPLOAD_WHL}; then
+  echo "Uploading whl to PyPI."
+fi
+
+if ${UPLOAD_WHL}; then
+  pip install twine
+  twine upload --verbose ${SAFARI_DIR}/dist/*.whl ${UPLOAD_TARGET}
+fi

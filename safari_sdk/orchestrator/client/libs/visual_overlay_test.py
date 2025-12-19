@@ -83,6 +83,174 @@ class RendererTest(absltest.TestCase):
     self.assertEqual(renderer._overlay_image_np.shape, (200, 200, 3))
     self.assertEmpty(renderer._workunit_objects)
     self.assertEmpty(renderer._overlay_objects)
+    self.assertIsNone(renderer._custom_thickness)
+    self.assertIsNone(renderer._custom_font_size)
+
+  def test_custom_thickness_and_font_size(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    self.assertIsNone(renderer._custom_thickness)
+    self.assertIsNone(renderer._custom_font_size)
+
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawContainer(
+            object_id='test_object_id_1',
+            overlay_text_label='test_label_1',
+            rgb_hex_color_value='FF0000',
+            layer_order=1,
+            x=30,
+            y=30,
+            w=30,
+            h=30,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawTriangleIcon(
+            object_id='test_object_id_2',
+            overlay_text_label='test_label_2',
+            rgb_hex_color_value='FF0000',
+            layer_order=2,
+            x=50,
+            y=50,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawSquareIcon(
+            object_id='test_object_id_3',
+            overlay_text_label='test_label_3',
+            rgb_hex_color_value='FF0000',
+            layer_order=3,
+            x=50,
+            y=50,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawCircleIcon(
+            object_id='test_object_id_4',
+            overlay_text_label='test_label_4',
+            rgb_hex_color_value='FF0000',
+            layer_order=4,
+            x=50,
+            y=50,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawArrowIcon(
+            object_id='test_object_id_5',
+            overlay_text_label='test_label_5',
+            rgb_hex_color_value='FF0000',
+            layer_order=5,
+            x=50,
+            y=50,
+            rad=0.5,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawContainer(
+            object_id='test_object_id_6',
+            overlay_text_label='test_label_6',
+            rgb_hex_color_value='FF0000',
+            layer_order=6,
+            x=50,
+            y=50,
+            radius=5,
+        )
+    )
+    renderer.render_overlay()
+    response = renderer.get_image_as_np_array()
+    self.assertTrue(response.success)
+    image_with_default_overlay = response.visual_overlay_image
+
+    response = renderer.reset_all_object_settings()
+    self.assertTrue(response.success)
+    self.assertEqual(renderer._overlay_image.size, (200, 200))
+    self.assertEqual(renderer._overlay_image_np.shape, (200, 200, 3))
+    self.assertEmpty(renderer._workunit_objects)
+    self.assertEmpty(renderer._overlay_objects)
+    self.assertIsNone(renderer._custom_thickness)
+    self.assertIsNone(renderer._custom_font_size)
+
+    response = renderer.set_custom_thickness(thickness=2)
+    self.assertTrue(response.success)
+    self.assertEqual(renderer._custom_thickness, 2)
+    response = renderer.set_custom_font_size(font_size=0.5)
+    self.assertTrue(response.success)
+    self.assertEqual(renderer._custom_font_size, 0.5)
+
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawContainer(
+            object_id='test_object_id_1',
+            overlay_text_label='test_label_1',
+            rgb_hex_color_value='FF0000',
+            layer_order=1,
+            x=30,
+            y=30,
+            w=30,
+            h=30,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawTriangleIcon(
+            object_id='test_object_id_2',
+            overlay_text_label='test_label_2',
+            rgb_hex_color_value='FF0000',
+            layer_order=2,
+            x=50,
+            y=50,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawSquareIcon(
+            object_id='test_object_id_3',
+            overlay_text_label='test_label_3',
+            rgb_hex_color_value='FF0000',
+            layer_order=3,
+            x=50,
+            y=50,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawCircleIcon(
+            object_id='test_object_id_4',
+            overlay_text_label='test_label_4',
+            rgb_hex_color_value='FF0000',
+            layer_order=4,
+            x=50,
+            y=50,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawArrowIcon(
+            object_id='test_object_id_5',
+            overlay_text_label='test_label_5',
+            rgb_hex_color_value='FF0000',
+            layer_order=5,
+            x=50,
+            y=50,
+            rad=0.5,
+        )
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawContainer(
+            object_id='test_object_id_6',
+            overlay_text_label='test_label_6',
+            rgb_hex_color_value='FF0000',
+            layer_order=6,
+            x=50,
+            y=50,
+            radius=5,
+        )
+    )
+    renderer.render_overlay()
+    response = renderer.get_image_as_np_array()
+    self.assertTrue(response.success)
+    image_with_custom_overlay = response.visual_overlay_image
+
+    is_same_image = np.array_equal(
+        image_with_default_overlay, image_with_custom_overlay
+    )
+    self.assertFalse(is_same_image)
 
   def test_get_image_as_pil_image(self):
     renderer = visual_overlay.OrchestratorRenderer(
@@ -326,7 +494,9 @@ class RendererTest(absltest.TestCase):
         )
     )
     renderer.render_overlay()
-    image_with_overlay = renderer.get_image_as_np_array()
+    response = renderer.get_image_as_np_array()
+    self.assertTrue(response.success)
+    image_with_overlay = response.visual_overlay_image
 
     self.assertFalse(np.array_equal(empty_image, image_with_overlay))
 

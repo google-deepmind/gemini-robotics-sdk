@@ -20,39 +20,13 @@ import threading
 
 from safari_sdk.logging.python import base_logger
 from safari_sdk.logging.python import constants
-from safari_sdk.protos import image_pb2
-from safari_sdk.protos import joints_pb2
-from safari_sdk.protos import pose_pb2
-from safari_sdk.protos import sensor_calibration_pb2
-from safari_sdk.protos import transform_pb2
-from safari_sdk.protos import vector_pb2
-from safari_sdk.protos.logging import contact_surface_pb2
+from safari_sdk.logging.python import stream_logger_interface
 from safari_sdk.protos.logging import metadata_pb2
-from safari_sdk.protos.logging import robot_base_pb2
-from safari_sdk.protos.logging import tracker_pb2
-from tensorflow.core.example import example_pb2
 
 
-_LOG_MESSAGE_TYPE = (
-    contact_surface_pb2.ContactSurface
-    | image_pb2.Image
-    | joints_pb2.Joints
-    | joints_pb2.JointsTrajectory
-    | metadata_pb2.Session
-    | metadata_pb2.FileMetadata
-    | metadata_pb2.TimeSynchronization
-    | pose_pb2.Poses
-    | robot_base_pb2.RobotBase
-    | sensor_calibration_pb2.SensorCalibration
-    | tracker_pb2.Trackers
-    | transform_pb2.Transforms
-    | vector_pb2.NamedVectorDouble
-    | vector_pb2.NamedVectorInt64
-    | example_pb2.Example
-)
-
-
-class StreamLogger(base_logger.BaseLogger):
+class StreamLogger(
+    base_logger.BaseLogger, stream_logger_interface.StreamLoggerInterface
+):
   """Safari robot Stream Logger class."""
 
   def __init__(
@@ -83,7 +57,6 @@ class StreamLogger(base_logger.BaseLogger):
     self._have_all_required_topics: bool = False
 
   def has_received_all_required_topics(self) -> bool:
-    """True if we have seen at least one message on each rwquired topic."""
     if not self._have_all_required_topics:
       with self._sync_message_lock:
         for topic in self._required_topics:
@@ -120,17 +93,6 @@ class StreamLogger(base_logger.BaseLogger):
     self._session_started = False
 
   def write_sync_message(self, publish_time_nsec: int) -> None:
-    """Writes the sync message.
-
-    This must not be called unless we are recording (start_session or
-    start_outside_session_logging has been called).
-
-    This must not be called until we have seen at least one message on each
-    topic.
-
-    Args:
-      publish_time_nsec: The publish time of the sync message.
-    """
     if not self.has_received_all_required_topics():
       raise ValueError(
           'write_sync_message is called before all required topics have been'
@@ -156,21 +118,10 @@ class StreamLogger(base_logger.BaseLogger):
   def update_synchronization_and_maybe_write_message(
       self,
       topic: str,
-      message: _LOG_MESSAGE_TYPE,
+      message: stream_logger_interface.LOG_MESSAGE_TYPE,
       publish_time_nsec: int,
       log_time_nsec: int = 0,
   ) -> None:
-    """Updates the synchronization message and maybe writes the message.
-
-    Args:
-      topic: The safari_logging_topic of the message.
-      message: The proto message to be written.
-      publish_time_nsec: The timestamp of the message (this may be the time the
-        message was published, or the time the data in the  message was
-        sampled).
-      log_time_nsec: The time when the logger received the message. If 0, will
-        be set to the system's current time.
-    """
     if topic not in self._all_topics:
       raise ValueError(
           'Unknown topic not present in during initialization: %s' % topic

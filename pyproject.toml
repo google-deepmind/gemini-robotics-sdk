@@ -28,6 +28,7 @@ dependencies = [
   "dataclasses_json",
   "dm-env",
   "evdev",
+  "fastapi",
   "gdm-robotics",
   "google-api-python-client",
   "google-auth-httplib2",
@@ -48,6 +49,7 @@ dependencies = [
   "pytz",
   "scipy",
   "tensorflow",
+  "uvicorn",
   "watchdog",
   # go/keep-sorted end
   # copybara:strip_begin(for internal changes only)
@@ -91,6 +93,7 @@ dev = [
     "pyink",
     "pylint>=2.6.0",
     "pytest",
+    "pytest-asyncio",
     "pytest-xdist",
     # go/keep-sorted end
 ]
@@ -111,3 +114,6 @@ build-backend = "scikit_build_core.build"
 minversion = "8.0"
 addopts = "-ra -q"
 python_files = ["*_test.py"]
+# Use asyncio for async tests (eg safari_sdk/agent/framework/event_bus/event_stream_handler_test.py).
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

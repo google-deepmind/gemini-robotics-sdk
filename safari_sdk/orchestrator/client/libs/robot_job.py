@@ -16,6 +16,7 @@
 
 import enum
 import json
+import time
 
 from googleapiclient import discovery
 from googleapiclient import errors
@@ -50,6 +51,7 @@ class JobType(enum.Enum):
   ALL = 0  # All job types.
   COLLECTION = 1  # Collection job only.
   EVALUATION = 2  # Evaluation job only.
+  EVALUATION_HUMAN_ONLY = 3  # Evaluation job with human only.
 
 
 class OrchestratorRobotJob:
@@ -88,6 +90,7 @@ class OrchestratorRobotJob:
     body = {
         "robot_id": self._robot_id,
         "type": self._job_type.value,
+        "tracer": time.time_ns(),
     }
 
     try:

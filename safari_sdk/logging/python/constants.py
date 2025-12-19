@@ -23,3 +23,18 @@ TIMESTEP_TOPIC_NAME: str = '/timestep'
 ACTION_TOPIC_NAME: str = '/action'
 POLICY_EXTRA_TOPIC_NAME: str = '/policy_extra'
 DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES: int = 1 * 1024 * 1024 * 1024
+
+# Key prefixes used for the episode dictionary and metadata spec keys.
+OBSERVATION_KEY_PREFIX = 'observation'
+ACTION_KEY_PREFIX = 'action'
+STEP_TYPE_KEY = 'step_type'
+REWARD_KEY = 'reward'
+DISCOUNT_KEY = 'discount'
+POLICY_EXTRA_PREFIX = 'extra/policy_extra'
+
+# Key templates used for the episode dictionary and metadata spec keys.
+OBSERVATION_KEY_TEMPLATE = 'observation/{}'
+ACTION_KEY_TEMPLATE = 'action/{}'
+REWARD_KEY_TEMPLATE = 'reward/{}'
+DISCOUNT_KEY_TEMPLATE = 'discount/{}'
+POLICY_EXTRA_KEY_TEMPLATE = 'extra/policy_extra/{}'

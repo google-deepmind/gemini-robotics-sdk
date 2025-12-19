@@ -49,6 +49,9 @@ message Session {
 
   // Metadata related to the policy and environment.
   optional PolicyEnvironmentMetadata policy_environment_metadata = 6;
+
+  // Freeform tags for identifying and filtering sessions in orchestration.
+  repeated string tags = 7;
 }
 
 // Metadata of a log file. There should be one file metadata per log file.

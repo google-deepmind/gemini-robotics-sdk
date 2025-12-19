@@ -19,11 +19,11 @@ import datetime
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
-import textwrap
+import time
+from typing import Sequence
 import urllib
 
 from absl import app
@@ -185,6 +185,12 @@ _ARTIFACT_ID = flags.DEFINE_string(
     "Artifact id to download. This comes from the 'train' and 'list' commands.",
 )
 
+_USE_CPU = flags.DEFINE_bool(
+    "use_cpu",
+    False,
+    "Whether to use CPU for serving. If False, GPU will be used.",
+)
+
 _HELP_STRING = f"""Usage: flywheel-cli command --api_key=api_key <additional flags>
 
 Commands:
@@ -255,6 +261,7 @@ class FlywheelCli:
             "end_date": _END_DATE.value,
         },
         "training_type": _RECIPE_TO_TYPE_MAP[_TRAINING_RECIPE.value],
+        "tracer": time.time_ns(),
     }
     if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
       body |= {
@@ -273,25 +280,16 @@ class FlywheelCli:
   def handle_data_stats(self) -> None:
     """Handles the data stats commands."""
     body = copy.deepcopy(self._base_request_body)
+    body |= {"tracer": time.time_ns()}
     response = (
         self._service.orchestrator().trainingDataDetails(body=body).execute()
     )
 
-    def _print_row(col1, col2, col3, col4, col5):
-      print(f"{col1:40s}{col2:40s}{col3:20s}{col4:20s}{col5:20s}")
-
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
     elif response.get("taskDates"):
-      print("-" * 140)
-      _print_row(
-          "Robot id",
-          "Task id",
-          "Date",
-          "Count",
-          "Success count",
-      )
-      print("-" * 140)
+      headers = ["Robot id", "Task id", "Date", "Count", "Success count"]
+      rows = []
       for task_date in response.get("taskDates"):
         robot_id = task_date.get("robotId")
         task_id = task_date.get("taskId")
@@ -301,13 +299,14 @@ class FlywheelCli:
         for date, daily_count, success_count in zip(
             dates, daily_counts, success_counts
         ):
-          _print_row(
+          rows.append([
               str(robot_id),
               str(task_id),
               str(date),
               str(daily_count),
               str(success_count),
-          )
+          ])
+      _print_responsive_table(headers, rows)
     else:
       print("No data stats found.")
 
@@ -317,6 +316,7 @@ class FlywheelCli:
     List all training jobs.
     """
     body = copy.deepcopy(self._base_request_body)
+    body |= {"tracer": time.time_ns()}
     response = self._service.orchestrator().trainingJobs(body=body).execute()
 
     if _JSON_OUTPUT.value:
@@ -332,7 +332,6 @@ class FlywheelCli:
           "End date",
       ]
       # Relative weights for columns.
-      weights = [4, 2, 3, 4, 4, 2, 2]
       rows = []
       for training_job in response.get("trainingJobs"):
         training_data_filters = training_job.get("trainingDataFilters")
@@ -352,7 +351,7 @@ class FlywheelCli:
             str(start_date),
             str(end_date),
         ])
-      _print_responsive_table(headers, rows, weights)
+      _print_responsive_table(headers, rows)
     else:
       print("No training jobs found.")
 
@@ -362,6 +361,7 @@ class FlywheelCli:
     List all serving jobs.
     """
     body = copy.deepcopy(self._base_request_body)
+    body |= {"tracer": time.time_ns()}
     response = self._service.orchestrator().servingJobs(body=body).execute()
 
     if _JSON_OUTPUT.value:
@@ -378,7 +378,6 @@ class FlywheelCli:
           "End date",
       ]
       # Relative weights for columns.
-      weights = [4, 4, 2, 2, 4, 4, 2, 2]
       rows = []
       for serving_job in response.get("servingJobs"):
         training_job_id = serving_job.get("trainingJobId")
@@ -400,7 +399,7 @@ class FlywheelCli:
             str(start_date),
             str(end_date),
         ])
-      _print_responsive_table(headers, rows, weights)
+      _print_responsive_table(headers, rows)
     else:
       print("No serving jobs found.")
 
@@ -410,6 +409,7 @@ class FlywheelCli:
     body |= {
         "training_job_id": _TRAINING_JOB_ID.value,
         "model_checkpoint_number": _MODEL_CHECKPOINT_NUMBER.value,
+        "tracer": time.time_ns(),
     }
     response = self._service.orchestrator().serveModel(body=body).execute()
 
@@ -429,21 +429,32 @@ class FlywheelCli:
     file_name = os.path.basename(checkpoint_path)
     try:
       print(f"\nStarting serving docker with checkpoint: {checkpoint_path} ...")
-      commands = [
-          "docker",
-          "run",
-          "-it",
-          "--gpus",
-          "device=0",
+      commands = ["docker", "run", "-it"]
+
+      if not _USE_CPU.value:
+        commands.extend([
+            "--gpus",
+            "device=0",
+            "-e",
+            f"XLA_PYTHON_CLIENT_MEM_FRACTION={_GPU_MEM_FRACTION.value}",
+        ])
+
+      commands.extend([
           "-p",
           f"{_SERVE_PORT.value}:60061",
           "-v",
           f"{file_dir}:/checkpoint",
-          "-e",
-          f"XLA_PYTHON_CLIENT_MEM_FRACTION={_GPU_MEM_FRACTION.value}",
           "google-deepmind/gemini_robotics_on_device",
           f"--checkpoint_path=/checkpoint/{file_name}",
-      ]
+      ])
+
+      if _IMAGE_KEYS.value:
+        commands.append(f"--image_keys={','.join(_IMAGE_KEYS.value)}")
+      if _PROPRIOCEPTION_KEYS.value:
+        commands.append(
+            f"--proprio_keys={','.join(_PROPRIOCEPTION_KEYS.value)}"
+        )
+
       print(f"Running commands: {' '.join(commands)}")
       subprocess.run(
           commands,
@@ -489,6 +500,7 @@ class FlywheelCli:
     body = copy.deepcopy(self._base_request_body)
     body |= {
         "training_job_id": _TRAINING_JOB_ID.value,
+        "tracer": time.time_ns(),
     }
     response = (
         self._service.orchestrator().trainingArtifact(body=body).execute()
@@ -567,6 +579,7 @@ class FlywheelCli:
     body = copy.deepcopy(self._base_request_body)
     body |= {
         "artifact_id": _ARTIFACT_ID.value,
+        "tracer": time.time_ns(),
     }
     response = self._service.orchestrator().loadArtifact(body=body).execute()
     artifact = response.get("artifact")
@@ -689,60 +702,36 @@ class FlywheelCli:
 
 
 def _print_responsive_table(
-    headers: list[str], rows: list[list[str]], weights: list[int]
+    headers: Sequence[str],
+    rows: Sequence[Sequence[str]],
 ) -> None:
-  """Prints a table with column widths that adapt to the terminal size."""
-  try:
-    terminal_width = shutil.get_terminal_size().columns
-  except OSError:
-    # Default to a common terminal width if size can't be determined.
-    terminal_width = 120
+  """Prints a table with column widths that adapt to content."""
+  if not rows and not headers:
+    return
+  num_columns = len(headers)
+  col_widths = [len(h) for h in headers]
+  for row in rows:
+    for i, cell in enumerate(row):
+      col_widths[i] = max(col_widths[i], len(str(cell)))
 
   separator = "  "
-  num_columns = len(headers)
-  content_width = terminal_width - (num_columns - 1) * len(separator)
 
-  total_weight = sum(weights)
-  # Prevent division by zero if weights are empty or all zero.
-  if not total_weight:
-    total_weight = num_columns or 1
-    weights = [1] * num_columns
+  def _print_line(items, widths):
+    print(
+        separator.join(
+            [f"{str(item):<{widths[i]}}" for i, item in enumerate(items)]
+        )
+    )
 
-  col_widths = [int(w / total_weight * content_width) for w in weights]
+  def _print_hr(widths):
+    total_width = sum(widths) + len(separator) * (num_columns - 1)
+    print("-" * total_width)
 
-  # Fallback for very narrow terminals where a column might get 0 width.
-  if any(w <= 0 for w in col_widths):
-    print("  ".join(headers))
-    print("-" * terminal_width)
-    for row in rows:
-      print("  ".join(str(s) for s in row))
-    return
-
-  # Adjust for rounding errors.
-  current_total = sum(col_widths)
-  diff = content_width - current_total
-  for i in range(diff):
-    col_widths[i % len(col_widths)] += 1
-
-  def _print_row(columns: list[str]) -> None:
-    wrapped_cols = [
-        textwrap.wrap(str(columns[i]), width=col_widths[i]) or [""]
-        for i in range(len(columns))
-    ]
-    max_lines = max(len(col_lines) for col_lines in wrapped_cols)
-    for i in range(max_lines):
-      row_line = []
-      for j, col_lines in enumerate(wrapped_cols):
-        line = col_lines[i] if i < len(col_lines) else ""
-        row_line.append(f"{line:<{col_widths[j]}}")
-      print(separator.join(row_line))
-
-  total_width = sum(col_widths) + (num_columns - 1) * len(separator)
-  print("-" * total_width)
-  _print_row(headers)
-  print("-" * total_width)
+  _print_hr(col_widths)
+  _print_line(headers, col_widths)
+  _print_hr(col_widths)
   for row in rows:
-    _print_row(row)
+    _print_line(row, col_widths)
 
 
 def _reporthook(block_num: int, block_size: int, total_size: int) -> None:
@@ -801,7 +790,7 @@ def cli_main() -> None:
   app.run(main)
 
 
-def main(argv: list[str]) -> None:
+def main(argv: Sequence[str]) -> None:
   if len(argv) != 2 or argv[1] == "help" or argv[1] not in _COMMANDS_LIST:
     show_help()
     return

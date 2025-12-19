@@ -80,5 +80,58 @@ Supported commands are:
 *   `version`: Show the version of the SDK.
 *   `help`: Show this help message with all the available commands and flags.
 
+## Agent
+
+The Safari SDK includes a comprehensive agent framework for building interactive
+robotics agents powered by Gemini models. See
+[YouTube Video: Gemini Robotics 1.5: Using agentic capabilities](https://youtu.be/AMRxbIO04kQ?si=UFILQ9IOgfw7RTus).
+The framework is located in `safari/agent/framework` and provides a modular
+architecture for creating agents that can perceive their environment, reason
+about tasks, and control robot hardware.
+
+### Key Components
+
+**Agents** (`safari/agent/framework/agents/`): Base agent classes that integrate
+with the Gemini Live API to provide conversational interaction and tool use
+capabilities.
+
+**Embodiments** (`safari/agent/framework/embodiments/`): Hardware-specific
+interfaces that connect agents to physical robot systems (e.g., Aloha robot).
+Each embodiment provides tools for robot control.
+
+**Tools** (`safari/agent/framework/tools/`): Modular capabilities that agents
+can use, including:
+
+*   Run instruction
+*   Success detection
+*   Scene description
+*   etc.
+
+**Event Bus** (`safari/agent/framework/event_bus/`): Asynchronous
+publish-subscribe system for communication between agent components.
+
+**Configuration** (`safari/agent/framework/config.py`): Centralized
+configuration management using `AgentFrameworkConfig`, supporting both
+programmatic configuration and flag-based setup.
+
+### Aloha Agent Example
+
+The `examples/aloha/agent/` directory contains agent implementations for the
+Aloha robot platform.
+
+The primary example is `simple_agent.py`, which provides a conversational agent
+that can control the Aloha robot using natural language instructions.
+
+To run the Aloha agent, use the provided `run.py` script:
+
+```shell
+python examples/aloha/agent/run.py --agent_name=simple_agent
+```
+
+The Aloha agent demonstrates integration of vision-based robot control,
+multi-camera perception, and conversational interaction with Gemini models.
+
+Alternatively, you build your own agent using the agent framework.
+
 The codebase is still in active development. We will update our most updated
 user guide with Trusted Testers of Gemini Robotics.
