@@ -14,12 +14,21 @@
 # limitations under the License.
 
 # Fail on any error.
+
 set -e
-SAFARI_DIR="$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/..")"
+# Robustly determine SAFARI_DIR (works on Linux, macOS, Windows Git Bash)
+SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
+SAFARI_DIR="$SOURCE_DIR"
 VENV_DIR="$(mktemp -d)"
 UPLOAD_TARGET=""
 UPLOAD_WHL=false
 RUN_SMOKE_TEST=true
+
+# Check for CMakeLists.txt in SAFARI_DIR
+if [ ! -f "$SAFARI_DIR/CMakeLists.txt" ]; then
+  echo "Error: CMakeLists.txt not found in $SAFARI_DIR. Please check your source directory."
+  exit 1
+fi
 
 function _usage() {
   echo "Usage: $0 [-h|--help] [--no-smoke-test] [--upload]"
@@ -39,10 +48,19 @@ while (( $# > 0 )) ; do
   esac
 done
 
+
 echo "Building wheel in ${SAFARI_DIR} with venv: ${VENV_DIR}"
 python3 -m venv "${VENV_DIR}"
 source "${VENV_DIR}/bin/activate"
 pip install build
+
+# Run CMake in a separate build directory, always pointing to the source dir
+CMAKE_BUILD_DIR="${SAFARI_DIR}/build"
+mkdir -p "${CMAKE_BUILD_DIR}"
+cd "${CMAKE_BUILD_DIR}"
+cmake "${SAFARI_DIR}"
+cd "${SAFARI_DIR}"
+
 python3 -m build ${SAFARI_DIR}
 echo Pip wheel is in ${SAFARI_DIR}/dist/*.whl
 
