@@ -37,6 +37,9 @@ from safari_sdk.agent.framework.inference_handlers import nonstreaming_handler
 
 
 _DEFAULT_MODEL_NAME = "models/gemini-2.0-flash"
+# Number of retries for empty candidates in a single generate_content call.
+# Successful query with empty candidate retries will be treated as a single try.
+_EMPTY_CANDIDATES_INNER_RETRIES = 2
 
 
 @enum.unique
@@ -117,15 +120,50 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
   async def connect(self) -> None:
     """Activates the handler (no persistent session needed)."""
     logging.info("Activating UnaryGenAIHandler...")
-    self._loop = asyncio.get_event_loop()
+    self._loop = asyncio.get_running_loop()
     self._is_active = True
     self._conversation_history = []
     self._function_call_timestamp = None
+    self._pending_tool_results = asyncio.Queue()
     self._clear_image_state()
     self._start_image_stitching()
+    await self._bootup_test()
     await self._publish_session_metadata()
     await self._publish_health_status(GenAIOrchestratorHealth.NORMAL, None)
     logging.info("UnaryGenAIHandler activated.")
+
+  async def _bootup_test(self) -> None:
+    """Sends a simple message to verify client connectivity.
+
+    This is called during connect() to catch client failures early.
+    """
+    try:
+      logging.info("Calling generate with BOOTUP TEST")
+      bootup_response = await asyncio.wait_for(
+          self._client.aio.models.generate_content(
+              model=self._model_name,
+              contents=types.Content(
+                  role="user",
+                  parts=[types.Part.from_text(text="hi")],
+              ),
+              config=types.GenerateContentConfig(
+                  system_instruction=self._system_instruction,
+                  tools=self._tools,
+                  tool_config=self._tool_config,
+                  temperature=self._temperature,
+                  max_output_tokens=self._max_output_tokens,
+                  media_resolution=self._media_resolution,
+                  thinking_config=self._thinking_config,
+              ),
+          ),
+          timeout=15.0,
+      )
+      bootup_response_text = str(bootup_response.text)[:250]
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.error("Error generating BOOTUP TEST response: %s", e)
+      await self._maybe_publish_health_event(e)
+      raise e
+    logging.info("BOOTUP TEST Success: %s", bootup_response_text)
 
   async def disconnect(self) -> None:
     """Deactivates the handler."""
@@ -149,6 +187,8 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
 
     Args:
       user_text: The user's text input.
+    Raises:
+      Exception: If the model returns an error.
     """
     async with self._generate_lock:
       # Build user content (text + buffered images) and add to history.
@@ -157,44 +197,69 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
       self._trim_images_in_history()
 
       # Agentic loop: call model, handle tool calls, repeat until text-only.
+      # Empty candidates are handled with a separate retry counter since this
+      # is a different failure mode than transient network errors.
+      remaining_empty_candidates_retries = _EMPTY_CANDIDATES_INNER_RETRIES
       while True:
         try:
-          response = await self._call_model()
+          response = await self._retry_wrapper(self._call_model)
           await self._maybe_publish_health_event(None)
-
-          if not response.candidates:
-            logging.warning("No candidates in response.")
-            break
-
-          # Add model response to history.
-          # NOTE: We must keep the full response including thought_signature
-          # for Gemini 3 models, as it's required for function calling.
-          model_content = response.candidates[0].content
-          self._conversation_history.append(model_content)
-
-          # Publish the model turn so downstream listeners can process it.
-          await self._publish_event(
-              event_bus.EventType.MODEL_TURN,
-              model_content,
-          )
-
-          # Check for tool calls — if present, handle them and loop again.
-          tool_calls = self._extract_tool_calls(model_content)
-          if tool_calls:
-            await self._handle_tool_calls(tool_calls)
-            continue
-
-          # No tool calls — model returned final text, we're done.
-          await self._publish_event(
-              event_bus.EventType.MODEL_TURN_COMPLETE,
-              True,
-          )
-          break
-
-        except Exception as e:  # pylint: disable=broad-exception-caught
-          logging.error("Error generating response: %s", e)
+        except Exception as e:
+          logging.error("Error generating response: %s", e, exc_info=True)
           await self._maybe_publish_health_event(e)
-          break
+          raise
+
+        if not response.candidates:
+          logging.warning("No candidates in response.")
+          remaining_empty_candidates_retries -= 1
+          if remaining_empty_candidates_retries <= 0:
+            err = RuntimeError(
+                "No candidates in response after "
+                f"{_EMPTY_CANDIDATES_INNER_RETRIES} (empty-candidates) retries."
+            )
+            await self._maybe_publish_health_event(err)
+            raise err
+          logging.info(
+              "Retrying due to empty candidates (%d retries remaining)...",
+              remaining_empty_candidates_retries,
+          )
+          await asyncio.sleep(nonstreaming_handler.RETRY_INTERVAL_SECONDS)
+          continue
+
+        # Add model response to history.
+        # NOTE: We must keep the full response including thought_signature
+        # for Gemini 3 models, as it's required for function calling.
+        model_content = response.candidates[0].content
+        self._conversation_history.append(model_content)
+
+        # Publish the model turn so downstream listeners can process it.
+        await self._publish_event(
+            event_bus.EventType.MODEL_TURN,
+            model_content,
+        )
+
+        # Check for tool calls — if present, handle them and loop again.
+        tool_calls = self._extract_tool_calls(model_content)
+        if tool_calls:
+          if len(tool_calls) > 1:
+            logging.warning(
+                "!!! MULTIPLE FUNCTION CALLS DETECTED: %d calls in a single"
+                " turn: %s. The system prompt specifies ONLY ONE function call"
+                " at a time.",
+                len(tool_calls),
+                [tc.name for tc in tool_calls],
+            )
+          await self._handle_tool_calls(tool_calls)
+          # Reset empty candidates retries after successful tool handling.
+          remaining_empty_candidates_retries = _EMPTY_CANDIDATES_INNER_RETRIES
+          continue
+
+        # No tool calls — model returned final text, we're done.
+        await self._publish_event(
+            event_bus.EventType.MODEL_TURN_COMPLETE,
+            True,
+        )
+        break
 
   def _build_and_append_user_content(self, user_text: str) -> None:
     """Builds user content from text and buffered images, appends to history."""
@@ -211,6 +276,10 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
         stitched_frames = list(self._stitched_frames)
         if self._discard_images_after_turn:
           self._stitched_frames = []
+
+      if self._user_turn_latest_image_only and stitched_frames:
+        stitched_frames = [stitched_frames[-1]]
+
       stitched_frames_count = len(stitched_frames)
       for _, frame in stitched_frames:
         parts.append(frame)
@@ -223,6 +292,19 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
       images_to_add = list(self._image_buffer)
       if self._discard_images_after_turn:
         self._image_buffer = []
+
+      if self._user_turn_latest_image_only and len(images_to_add) > 1:
+        latest_per_stream: dict[
+            str, tuple[datetime.datetime, str, types.Blob]
+        ] = {}
+        for img_ts, sname, blob in images_to_add:
+          if (
+              sname not in latest_per_stream
+              or img_ts > latest_per_stream[sname][0]
+          ):
+            latest_per_stream[sname] = (img_ts, sname, blob)
+        images_to_add = list(latest_per_stream.values())
+
       images_added_count = len(images_to_add)
       for _, _, blob in images_to_add:
         if self._include_stream_names and blob.display_name:
@@ -252,16 +334,14 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
   async def _call_model(self) -> types.GenerateContentResponse:
     """Calls generate_content with the current conversation history."""
     self._log_conversation_history()
-    if self._config.non_streaming_enable_context_snapshot_logging:
-      await self._publish_event(
-          event_bus.EventType.CONTEXT_SNAPSHOT,
-          self._serialize_conversation_history(),
-      )
+    _, num_images, _, _ = self._count_content_parts()
     logging.info(
-        "Calling generate_content with model=%s, history_len=%d, tools=%s",
+        "Calling generate_content with model=%s, history_len=%d, tools=%s,"
+        " images=%d",
         self._model_name,
         len(self._conversation_history),
         len(self._tools) if self._tools else 0,
+        num_images,
     )
     inference_start = datetime.datetime.now()
     response = await asyncio.wait_for(
@@ -283,15 +363,51 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     inference_duration = (
         datetime.datetime.now() - inference_start
     ).total_seconds()
-    logging.info(
-        "generate_content response received in %.2fs", inference_duration
-    )
+    metadata: dict[str, int | float] = {
+        "inference_duration_seconds": round(inference_duration, 4)
+    }
+    if response.usage_metadata:
+      metadata["prompt_token_count"] = (
+          response.usage_metadata.prompt_token_count
+      )
+      metadata["candidates_token_count"] = (
+          response.usage_metadata.candidates_token_count
+      )
+      metadata["total_token_count"] = response.usage_metadata.total_token_count
+
+    if self._config.non_streaming_enable_context_snapshot_logging:
+      await self._publish_event(
+          event_bus.EventType.CONTEXT_SNAPSHOT,
+          self._serialize_conversation_history(),
+          metadata=metadata,
+      )
+
+    if response.usage_metadata:
+      logging.info(
+          "\n"
+          "=================================================================\n"
+          "generate_content response received in %.2fs\n"
+          "Tokens: Prompt=%s | Candidates=%s | Total=%s\n"
+          "=================================================================",
+          inference_duration,
+          response.usage_metadata.prompt_token_count,
+          response.usage_metadata.candidates_token_count,
+          response.usage_metadata.total_token_count,
+      )
+    else:
+      logging.info(
+          "\n"
+          "=================================================================\n"
+          "generate_content response received in %.2fs\n"
+          "=================================================================",
+          inference_duration,
+      )
     return response
 
   async def _handle_tool_calls(
       self, tool_calls: list[types.FunctionCall]
   ) -> None:
-    """Handles tool calls: publishes events, waits for results, updates history."""
+    """Handles tool calls, waits for results, and publishes/updates history."""
     # Record the wall-clock time of the function call so we can later
     # identify which images arrived during tool execution.
     fc_timestamp = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -312,24 +428,38 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
         (fr_timestamp - wait_start).total_seconds(),
     )
 
-    if len(tool_calls) > 1:
-      raise NotImplementedError(
-          "Multiple function calls with images attached to function_"
-          "response is not yet supported."
-      )
-
     # Collect any images that arrived during tool execution (FC→FR window)
     # and prepend them to the function response content.
     image_parts, _ = self._collect_images_for_fr(fc_timestamp, fr_timestamp)
 
     # Assemble the function response: images first, then tool results.
     tool_result_parts: list[types.Part] = list(image_parts)
+    # create a map of tool call IDs to determine which ones timed out
+    called_tool_names = {tc.name: tc for tc in tool_calls}
     for result in tool_results:
+      fr_kwargs = {"name": result.name, "response": result.response}
+      if result.id:
+        fr_kwargs["id"] = result.id
+
       tool_result_parts.append(
-          types.Part.from_function_response(
-              name=result.name,
-              response=result.response,
-          )
+          types.Part(function_response=types.FunctionResponse(**fr_kwargs))
+      )
+      if result.name in called_tool_names:
+        del called_tool_names[result.name]
+
+    # Handle timeouts by appending synthetic error responses
+    for missing_tool_name, tc in called_tool_names.items():
+      logging.warning(
+          "Tool %s timed out, sending synthetic error", missing_tool_name
+      )
+      fr_kwargs = {
+          "name": missing_tool_name,
+          "response": {"error": "Tool execution timed out or failed silently"},
+      }
+      if tc.id:
+        fr_kwargs["id"] = tc.id
+      tool_result_parts.append(
+          types.Part(function_response=types.FunctionResponse(**fr_kwargs))
       )
 
     # Add tool results to history as a user turn.
@@ -344,7 +474,7 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     self._trim_images_in_history()
 
   def _count_content_parts(self) -> tuple[int, int, int, int]:
-    """Counts text, image, function call, and function response parts in history.
+    """Counts text, image, function call and response parts in history.
 
     Returns:
       A tuple of (num_text, num_images, num_function_calls,
@@ -384,11 +514,15 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
           elif part.function_call:
             part_dict["function_call_name"] = part.function_call.name
             part_dict["function_call_args"] = str(part.function_call.args)
+            if part.function_call.id:
+              part_dict["function_call_id"] = part.function_call.id
           elif part.function_response:
             part_dict["function_response_name"] = part.function_response.name
             part_dict["function_response_response"] = str(
                 part.function_response.response
             )
+            if part.function_response.id:
+              part_dict["function_response_id"] = part.function_response.id
           if hasattr(part, "thought") and part.thought:
             part_dict["thought"] = True
           if hasattr(part, "thought_signature") and part.thought_signature:
@@ -412,7 +546,7 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     return tool_calls
 
   def _discard_old_images_in_history(self, latest_fr_content_idx: int) -> None:
-    """Removes all images from conversation history except those in the latest FR.
+    """Removes all images from conversation history except in the latest FR.
 
     Called when discard_images_after_turn is True. This aggressively strips
     images from ALL history entries except the one at latest_fr_content_idx,
@@ -450,6 +584,7 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
             preceding = content.parts[part_idx - 1]
             if (
                 preceding.text
+                and preceding.text in self._stream_name_to_camera_name.values()
                 and not preceding.function_call
                 and not preceding.function_response
                 and not preceding.inline_data
@@ -542,6 +677,7 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
           preceding = content.parts[part_idx - 1]
           if (
               preceding.text
+              and preceding.text in self._stream_name_to_camera_name.values()
               and not preceding.function_call
               and not preceding.function_response
               and not preceding.inline_data

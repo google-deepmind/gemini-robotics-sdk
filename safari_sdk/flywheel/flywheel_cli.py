@@ -20,6 +20,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -95,7 +96,7 @@ _GPU_MEM_FRACTION = flags.DEFINE_float(
 
 _TRAINING_RECIPE = flags.DEFINE_enum(
     name="training_recipe",
-    default="narrow",
+    default=None,
     enum_values=list(_RECIPE_TO_TYPE_MAP.keys()),
     help="The training recipe to use.",
 )
@@ -168,6 +169,16 @@ _JSON_OUTPUT = flags.DEFINE_bool(
     name="json_output",
     default=False,
     help="Whether to output the response in json format.",
+)
+
+_ONLY_SUCCESSFUL_EPISODES = flags.DEFINE_bool(
+    name="only_successful_episodes",
+    default=False,
+    help=(
+        "Whether to train only on successful episodes. Default false, which"
+        " means train on all episodes, whether it is marked success / failure"
+        " or not marked."
+    ),
 )
 
 _UPLOAD_DATA_API_ENDPOINT = flags.DEFINE_string(
@@ -284,13 +295,16 @@ class FlywheelCli:
     """
 
     body = copy.deepcopy(self._base_request_body)
+    training_data_filters = {
+        "robot_id": _ROBOT_ID.value,
+        "task_id": _TASK_ID.value,
+        "start_date": _START_DATE.value,
+        "end_date": _END_DATE.value,
+    }
+    if _ONLY_SUCCESSFUL_EPISODES.value:
+      training_data_filters["only_successful_episodes"] = True
     body |= {
-        "training_data_filters": {
-            "robot_id": _ROBOT_ID.value,
-            "task_id": _TASK_ID.value,
-            "start_date": _START_DATE.value,
-            "end_date": _END_DATE.value,
-        },
+        "training_data_filters": training_data_filters,
         "training_type": _RECIPE_TO_TYPE_MAP[_TRAINING_RECIPE.value],
         "tracer": time.time_ns(),
     }
@@ -333,7 +347,7 @@ class FlywheelCli:
           rows.append([
               str(robot_id),
               str(task_id),
-              str(date),
+              _format_date(date),
               str(daily_count),
               str(success_count),
           ])
@@ -757,23 +771,46 @@ def _print_responsive_table(
       col_widths[i] = max(col_widths[i], len(str(cell)))
 
   separator = "  "
+  terminal_width = shutil.get_terminal_size((120, 24)).columns
+  min_widths = [max(len(h), 10) for h in headers]
+  for i, h in enumerate(headers):
+    if "id" in h.lower():
+      min_widths[i] = col_widths[i]
 
-  def _print_line(items, widths):
-    print(
-        separator.join(
-            [f"{str(item):<{widths[i]}}" for i, item in enumerate(items)]
-        )
-    )
+  total_width = sum(col_widths) + len(separator) * (num_columns - 1)
+  while total_width > terminal_width:
+    shrinkable = [
+        i for i in range(num_columns) if col_widths[i] > min_widths[i]
+    ]
+    if not shrinkable:
+      break
+    widest_idx = max(shrinkable, key=lambda i: col_widths[i])
+    col_widths[widest_idx] -= 1
+    total_width = sum(col_widths) + len(separator) * (num_columns - 1)
+
+  def _truncate(text: str, width: int) -> str:
+    if len(text) <= width:
+      return text
+    return text[: width - 3] + "..." if width >= 4 else text[:width]
+
+  def _print_line(items, widths, pad_last=True):
+    parts = []
+    for i, item in enumerate(items):
+      cell = _truncate(str(item), widths[i])
+      if i < len(items) - 1 or pad_last:
+        cell = f"{cell:<{widths[i]}}"
+      parts.append(cell)
+    print(separator.join(parts))
 
   def _print_hr(widths):
-    total_width = sum(widths) + len(separator) * (num_columns - 1)
-    print("-" * total_width)
+    total = sum(widths) + len(separator) * (num_columns - 1)
+    print("-" * total)
 
   _print_hr(col_widths)
-  _print_line(headers, col_widths)
+  _print_line(headers, col_widths, pad_last=False)
   _print_hr(col_widths)
   for row in rows:
-    _print_line(row, col_widths)
+    _print_line(row, col_widths, pad_last=False)
 
 
 def _reporthook(block_num: int, block_size: int, total_size: int) -> None:
@@ -836,6 +873,16 @@ def _resolve_download_path(
 
   # Return as string for compatibility with other libraries (e.g., urllib).
   return str(resolved_path)
+
+
+def _format_date(date_str: str | None) -> str:
+  """Normalizes a date string to YYYY-MM-DD for display."""
+  if not date_str:
+    return str(date_str)
+  s = str(date_str)
+  if len(s) == 8 and s.isdigit():
+    return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+  return s
 
 
 def _is_valid_date(date: str) -> bool:

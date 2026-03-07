@@ -33,9 +33,13 @@ class CurrentRobotInfoResponse:
   workUnitId: str | None = None
   stage: work_unit.WorkUnitStage | None = None
   robotStage: str | None = None
+  latestRobotReleaseConfigs: list[work_unit.KvMsg] | None = None
 
   def __post_init__(self):
     if self.stage is None:
       self.stage = work_unit.WorkUnitStage.WORK_UNIT_STAGE_UNSPECIFIED
     elif isinstance(self.stage, str):
       self.stage = work_unit.WorkUnitStage(self.stage)
+
+    if self.latestRobotReleaseConfigs is None:
+      self.latestRobotReleaseConfigs = []

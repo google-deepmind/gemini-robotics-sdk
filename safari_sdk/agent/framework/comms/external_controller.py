@@ -355,7 +355,7 @@ class ExternalControllerFastAPIServer:
       Example usage (type in the browser's url bar):
       localhost:8887/get_framework_status/
       """
-      logging.info("EXTERNAL CONTROLLER: Get framework status.")
+      logging.debug("EXTERNAL CONTROLLER: Get framework status.")
       return {
           "framework_status": self.framework_status.value,
           "component_health_dict": self.component_health_dict,

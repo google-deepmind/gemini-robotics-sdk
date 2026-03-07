@@ -139,6 +139,7 @@ AGENTIC_AGENT_NAME = flags.DEFINE_string(
     "The name of the agent to use.",
 )
 
+
 AGENTIC_MEOW_MODE = flags.DEFINE_bool(
     "agent.meow",
     False,
@@ -350,6 +351,14 @@ AGENTIC_NON_STREAMING_FR_LATEST_IMAGE_ONLY = flags.DEFINE_bool(
     " response. When disabled, all images from the FC-FR window are attached.",
 )
 
+AGENTIC_NON_STREAMING_USER_TURN_LATEST_IMAGE_ONLY = flags.DEFINE_bool(
+    "agent.non_streaming_user_turn_latest_image_only",
+    False,
+    "When enabled, only the latest image per stream (or the latest stitched"
+    " frame) buffered before the user turn is attached to the user turn."
+    " When disabled, all buffered images are attached.",
+)
+
 AGENTIC_NON_STREAMING_INCLUDE_STREAM_NAMES = flags.DEFINE_bool(
     "agent.non_streaming_include_stream_names",
     True,
@@ -364,6 +373,14 @@ AGENTIC_NON_STREAMING_THINKING_LEVEL = flags.DEFINE_string(
     None,
     "The thinking level for the non-streaming handler"
     " (MINIMAL, LOW, MEDIUM, HIGH).",
+)
+
+AGENTIC_NON_STREAMING_TOOL_RESULT_TIMEOUT_SECONDS = flags.DEFINE_float(
+    "agent.non_streaming_tool_result_timeout_seconds",
+    300.0,
+    "The maximum amount of time in seconds to wait for tool results from the"
+    " event bus after the model emits a function call before producing an error"
+    " response.",
 )
 
 # Agent model generation parameters (for non-streaming handler).
@@ -397,7 +414,7 @@ AGENTIC_AGENT_MEDIA_RESOLUTION = flags.DEFINE_enum_class(
 
 AGENTIC_ORCHESTRATOR_HANDLER_TYPE = flags.DEFINE_enum_class(
     "agent.orchestrator_handler_type",
-    default=types.OrchestratorHandlerType.STREAMING,
+    default=types.OrchestratorHandlerType.NONSTREAMING_GENAI,
     enum_class=types.OrchestratorHandlerType,
     help=(
         "The type of orchestrator handler to use. STREAMING uses the Live API,"
@@ -414,6 +431,22 @@ AGENTIC_NON_STREAMING_ENABLE_CONTEXT_SNAPSHOT_LOGGING = flags.DEFINE_bool(
     " every model call. When enabled, the entire conversation history"
     " (including images, function calls, and thought signatures) is logged"
     " as a CONTEXT_SNAPSHOT event.",
+)
+
+# ------------------------
+# Tool flags.
+# ------------------------
+AGENTIC_TOOL_RUN_FOR_DURATION_SECOND = flags.DEFINE_float(
+    "run_for_duration.duration",
+    8.0,
+    "The default duration in seconds for the run_instruction_for_duration"
+    " tool.",
+)
+
+AGENTIC_RUN_UNTIL_DONE_TIME_LIMIT = flags.DEFINE_float(
+    "run_until_done.time_limit",
+    60.0,
+    "The time limit in seconds for the run_instruction_until_done tool.",
 )
 
 # ------------------------
@@ -549,7 +582,7 @@ AGENTIC_SD_TEMPERATURE = flags.DEFINE_float(
     "sd.temperature",
     0.0,
     "The model temperature to use for SD. Recommend to use higher temperature"
-    " for ensamble SD.",
+    " for ensemble SD.",
 )
 
 AGENTIC_SD_ENSEMBLE_SIZE = flags.DEFINE_integer(
@@ -695,4 +728,11 @@ AGENTIC_EXCLUDE_MODEL_IMAGE_INPUT_LOGGING = flags.DEFINE_bool(
     " event stream. These are the most frequent event type and are currently"
     " unused by downstream consumers. Enabling this reduces log size and"
     " improves logging performance.",
+)
+
+AGENTIC_LOGGING_AGENT_SESSION_ID = flags.DEFINE_string(
+    "logging.agent_session_id",
+    None,
+    "The agent session ID to use when starting the event bus. If not set, a"
+    " random UUID will be generated.",
 )

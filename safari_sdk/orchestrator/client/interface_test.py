@@ -30,7 +30,17 @@ class InterfaceTest(absltest.TestCase):
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
       return_value=interface.current_robot._RESPONSE(
-          success=True, robot_id="test_robot_id"
+          success=True,
+          robot_id="test_robot_id",
+          latest_robot_release_configs=[
+              interface.robot_job_work_unit.work_unit.KvMsg(
+                  key="test_key",
+                  type=interface.robot_job_work_unit.work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING,
+                  value=interface.robot_job_work_unit.work_unit.KvMsgValue(
+                      stringValue="test_value"
+                  ),
+              )
+          ],
       ),
   )
   def test_connect_robot_id_good(self, *_):
@@ -47,11 +57,17 @@ class InterfaceTest(absltest.TestCase):
       response = interface_lib.connect()
       self.assertTrue(response.success)
       self.assertEqual(response.robot_id, "test_robot_id")
+      self.assertLen(response.latest_robot_release_configs, 1)
+      self.assertEqual(
+          response.latest_robot_release_configs[0].key, "test_key"
+      )
 
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
       return_value=interface.current_robot._RESPONSE(
-          success=True, robot_id="test_robot_id"
+          success=True,
+          robot_id="test_robot_id",
+          latest_robot_release_configs=[],
       ),
   )
   def test_connect_hostname_good(self, *_):
@@ -69,6 +85,7 @@ class InterfaceTest(absltest.TestCase):
       response = interface_lib.connect()
       self.assertTrue(response.success)
       self.assertEqual(response.robot_id, "test_robot_id")
+      self.assertEqual(response.latest_robot_release_configs, [])
 
   def test_connect_bad_connect(self):
     FLAGS.api_key = None

@@ -63,6 +63,7 @@ class OrchestratorAPIResponse:
     workcell_state: Current RUI workcell state.
     robot_stage: Current Orca status of the robot.
     artifact_uri: Download URI for the specified artifact.
+    latest_robot_release_configs: Latest robot release configs for the fleet.
   """
 
   success: bool = False
@@ -87,3 +88,4 @@ class OrchestratorAPIResponse:
   workcell_state: str | None = None
   robot_stage: str | None = None
   artifact_uri: str | None = None
+  latest_robot_release_configs: list[work_unit_data.KvMsg] | None = None

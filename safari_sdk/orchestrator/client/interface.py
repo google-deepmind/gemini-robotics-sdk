@@ -183,7 +183,11 @@ class OrchestratorInterface:
             connection=self._connection,
         )
     )
-    return RESPONSE(success=True, robot_id=self._robot_id)
+    return RESPONSE(
+        success=True,
+        robot_id=self._robot_id,
+        latest_robot_release_configs=response.latest_robot_release_configs,
+    )
 
   def disconnect(self) -> None:
     """Disconnects from the orchestrator server."""

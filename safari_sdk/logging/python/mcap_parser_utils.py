@@ -315,7 +315,7 @@ def _parse_and_match_spec(
     values_spec: specs.Array | Mapping[str, specs.Array],
     prefix: str,
     values: Mapping[str, Any],
-) -> ...:
+):
   """Parses and matches a value to a spec."""
   if len(values) == 1 and list(values.keys())[0] == prefix:
     spec = cast(specs.Array, values_spec)

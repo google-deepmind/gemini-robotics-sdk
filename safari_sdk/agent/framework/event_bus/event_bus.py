@@ -161,7 +161,7 @@ class EventBus:
         event.timestamp.timestamp()
     )
     if isinstance(event.data, bytes):
-      # If you udpate any of the logging code, especially around images (e.g.
+      # If you update any of the logging code, especially around images (e.g.
       # MODEL_IMAGE_INPUT) which are logged as bytes, please also update the
       # SSOT agent video builder code. Note, any other changes around event
       # logging may also require updates to the SSOT video builder code.
@@ -199,10 +199,10 @@ class EventBus:
     await self._event_queue.put(event)
     if self._enable_logging:
       if event.type == EventType.CONTEXT_SNAPSHOT:
-        # Log CONTEXT_SNAPSHOT events asynchronously to avoid blocking the
+        # Log CONTEXT_SNAPSHOT events in a separate thread to avoid blocking the
         # event loop — these payloads can be large (full conversation
         # history with base64-encoded images).
-        asyncio.ensure_future(asyncio.to_thread(self._log_event, event))
+        await asyncio.to_thread(self._log_event, event)
       else:
         self._log_event(event)
 
@@ -210,7 +210,7 @@ class EventBus:
     """Start the event bus."""
     if self._main_task and not self._main_task.done():
       logging.info("Event queue task already exists and is not done.")
-    self._agent_session_id = str(uuid.uuid4())
+    self._agent_session_id = self._config.agent_session_id or str(uuid.uuid4())
     if self._enable_logging:
       episode_start = datetime.datetime.now()
       date_string = episode_start.strftime("date-%Y-%m-%d-time-%H-%M-%S")

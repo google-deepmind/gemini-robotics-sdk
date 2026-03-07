@@ -42,6 +42,7 @@ class CurrentRobotInfoTest(absltest.TestCase):
         response.stage,
         current_robot_info.work_unit.WorkUnitStage.WORK_UNIT_STAGE_QUEUED_TO_ROBOT,
     )
+    self.assertEqual(response.latestRobotReleaseConfigs, [])
 
   def test_response_post_init_as_enum(self):
     response = current_robot_info.CurrentRobotInfoResponse(
@@ -60,6 +61,7 @@ class CurrentRobotInfoTest(absltest.TestCase):
         response.stage,
         current_robot_info.work_unit.WorkUnitStage.WORK_UNIT_STAGE_QUEUED_TO_ROBOT,
     )
+    self.assertEqual(response.latestRobotReleaseConfigs, [])
 
   def test_response_post_init_as_none(self):
     response = current_robot_info.CurrentRobotInfoResponse(
@@ -76,6 +78,34 @@ class CurrentRobotInfoTest(absltest.TestCase):
     self.assertEqual(
         response.stage,
         current_robot_info.work_unit.WorkUnitStage.WORK_UNIT_STAGE_UNSPECIFIED,
+    )
+    self.assertEqual(response.latestRobotReleaseConfigs, [])
+
+  def test_response_post_init_with_release_configs(self):
+    kv_msg = current_robot_info.work_unit.KvMsg(
+        key="test_key",
+        type=current_robot_info.work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING,
+        value=current_robot_info.work_unit.KvMsgValue(stringValue="test_value"),
+    )
+    response = current_robot_info.CurrentRobotInfoResponse(
+        robotId="test_robot_id",
+        latestRobotReleaseConfigs=[kv_msg],
+    )
+    self.assertEqual(response.robotId, "test_robot_id")
+    self.assertFalse(response.isOperational)
+    self.assertIsNone(response.operatorId)
+    self.assertIsNone(response.robotJobId)
+    self.assertIsNone(response.workUnitId)
+    self.assertIsInstance(
+        response.stage, current_robot_info.work_unit.WorkUnitStage
+    )
+    self.assertEqual(
+        response.stage,
+        current_robot_info.work_unit.WorkUnitStage.WORK_UNIT_STAGE_UNSPECIFIED,
+    )
+    self.assertLen(response.latestRobotReleaseConfigs, 1)
+    self.assertEqual(
+        response.latestRobotReleaseConfigs[0].key, "test_key"
     )
 
 

@@ -533,6 +533,63 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
       np.testing.assert_equal(action, [1.0])
       remote_model_mock.query_model.assert_called_once()
 
+  def test_async_policy_increases_action_stall_count(self):
+    with mock.patch.object(
+        remote_model_interface, "RemoteModelInterface", autospec=True
+    ) as remote_model_mock_class:
+      # We mock the class so we need to get the mock instance.
+      remote_model_mock = remote_model_mock_class.return_value
+
+      policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+          serve_id="test_serve_id",
+          task_instruction_key="test_instruction_key",
+          image_observation_keys=("test_camera_1",),
+          proprioceptive_observation_keys=("test_joint_1",),
+          min_replan_interval=1,
+          inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+      )
+
+      # Action is size 1, with chunk of size 1.
+      remote_model_mock.query_model.return_value = np.array([[1.0]])
+
+      timestep_spec = gdmr_types.TimeStepSpec(
+          step_type=gdmr_types.STEP_TYPE_SPEC,
+          reward={},
+          discount={},
+          observation={
+              "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+              "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+              "test_instruction_key": specs.StringArray(()),
+          },
+      )
+
+      policy.step_spec(timestep_spec)
+      policy_state = policy.initial_state()
+
+      observation = {
+          "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+          "test_joint_1": np.array([0.0]),
+          "test_instruction_key": np.array(
+              "test_task_instruction", dtype=np.object_
+          ),
+      }
+
+      remote_model_mock.query_model.reset_mock()
+
+      # First step, should trigger a query, not increase action_stall_count.
+      policy.step(
+          dm_env.restart(observation=observation),
+          policy_state,
+      )
+      self.assertEqual(policy.episode_statistics.action_stall_count, 0)
+
+      # Second step, should trigger a query and increase action_stall_count.
+      policy.step(
+          dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+          policy_state,
+      )
+      self.assertEqual(policy.episode_statistics.action_stall_count, 1)
+
   def test_model_action_not_2d_raises_error(self):
     with mock.patch.object(
         remote_model_interface, "RemoteModelInterface", autospec=True

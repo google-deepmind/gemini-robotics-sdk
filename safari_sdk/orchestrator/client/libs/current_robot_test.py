@@ -34,6 +34,13 @@ class CurrentRobotTest(absltest.TestCase):
         "robotJobId": "test_robot_job_id",
         "workUnitId": "test_work_unit_id",
         "stage": "WORK_UNIT_STAGE_QUEUED_TO_ROBOT",
+        "latestRobotReleaseConfigs": [
+            {
+                "key": "test_key",
+                "type": "KV_MSG_VALUE_TYPE_STRING",
+                "value": {"stringValue": "test_value"},
+            }
+        ],
     }
 
     current_robot_lib = current_robot.OrchestratorCurrentRobotInfo(
@@ -51,6 +58,10 @@ class CurrentRobotTest(absltest.TestCase):
     )
     self.assertEqual(response.operator_id, "test_operator_id")
     self.assertTrue(response.is_operational)
+    self.assertLen(response.latest_robot_release_configs, 1)
+    self.assertEqual(
+        response.latest_robot_release_configs[0].key, "test_key"
+    )
 
     mock_connection.orchestrator().currentRobotInfo().execute.return_value = {
         "robotId": "test_robot_id",
@@ -63,6 +74,7 @@ class CurrentRobotTest(absltest.TestCase):
     response = current_robot_lib.get_current_robot_info()
     self.assertTrue(response.success)
     self.assertFalse(response.is_operational)
+    self.assertEqual(response.latest_robot_release_configs, [])
 
   def test_get_current_robot_info_with_hostname_good(self):
 

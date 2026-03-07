@@ -57,14 +57,14 @@ def main(_) -> None:
   agent_instance = None
   match config.agent_name:
     case "aloha_agent" | "run_for_duration_agent":
+      is_streaming = config.orchestrator_handler_type.name == "STREAMING"
       agent_instance = run_for_duration_agent.AlohaAgent(
           bus=bus,
           config=config,
-          use_streaming=config.use_streaming,
       )
       logging.info(
           "Creating AlohaAgent in %s mode",
-          "streaming" if config.use_streaming else "non-streaming",
+          "streaming" if is_streaming else "non-streaming",
       )
     case "simple_agent":
       agent_instance = simple_agent.SimpleAlohaAgent(

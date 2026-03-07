@@ -218,6 +218,12 @@ def main(argv: Sequence[str]) -> None:
     print(f"\n - ERROR: {response.error_message} -\n")
     return
 
+  if response.latest_robot_release_configs:
+    print(" - Latest robot release configs -\n")
+    for config in response.latest_robot_release_configs:
+      print(f"   {config.key}: {config.get_value()}")
+    print("")
+
   print(" - Running mock observer program -\n")
   run_mock_observer_mode_loop(
       orchestrator_client=orchestrator_client,

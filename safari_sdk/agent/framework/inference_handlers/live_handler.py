@@ -577,12 +577,23 @@ class GeminiLiveAPIHandler:
   async def _publish_live_config_to_event_bus(self):
     """Publishes the live config to the event bus."""
     logging.info("Publishing live config to event bus.")
+
+    session_config = {
+        "model_name": self._config.agent_model_name,
+        "is_streaming": True,
+        "system_instruction": str(
+            _get_attr_or_item(self._live_config, "system_instruction")
+        ),
+        "tools": str(_get_attr_or_item(self._live_config, "tools")),
+        "live_config_repr": str(self._live_config),
+    }
+
     await self._bus.publish(
         event=event_bus.Event(
             type=event_bus.EventType.LOG_SESSION_METADATA,
             source=event_bus.EventSource.MAIN_AGENT,
-            data=f"Live API Config (also in metadata): {self._live_config}",
-            metadata=self._live_config,
+            data=f"Live API Config (also in metadata): {session_config}",
+            metadata=session_config,
         )
     )
 

@@ -94,6 +94,10 @@ def upload_data_directory(
   if not api_key:
     raise ValueError('No API key found.')
 
+  uploaded_count = 0
+  failed_count = 0
+  already_uploaded_count = 0
+
   for root, dirs, files in os.walk(data_directory):
     del dirs
     for file in files:
@@ -116,6 +120,7 @@ def upload_data_directory(
         t_end = time.time()
 
         if status_code == 200:
+          uploaded_count += 1
           uploaded_file_path = file_path + '.uploaded'
           os.rename(file_path, uploaded_file_path)
 
@@ -126,4 +131,16 @@ def upload_data_directory(
               f' ({upload_speed_mb_s:.2f} MB/s)'
           )
         else:
+          failed_count += 1
           print(f'Failed to upload {file} ({file_size_mb:.2f} MB): {reason}')
+      elif file.endswith('.mcap.uploaded'):
+        already_uploaded_count += 1
+
+  if not uploaded_count and not failed_count:
+    if already_uploaded_count:
+      print(
+          f'No new .mcap files found in {data_directory}. '
+          f'{already_uploaded_count} file(s) were already uploaded.'
+      )
+    else:
+      print(f'No .mcap files found in {data_directory}.')

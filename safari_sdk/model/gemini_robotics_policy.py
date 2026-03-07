@@ -17,6 +17,7 @@
 from collections.abc import Iterable, Sequence
 from concurrent import futures
 import copy
+import dataclasses
 import logging
 import threading
 
@@ -31,6 +32,22 @@ from typing_extensions import override
 from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 from safari_sdk.model import remote_model_interface
+
+
+@dataclasses.dataclass(kw_only=True)
+class EpisodeStatistics:
+  """Statistics for an episode.
+
+  Attributes:
+    action_stall_count: The number of times during an episode the policy had to
+      wait for a new action chunk from the model because it had run out of
+      buffered actions. This metric is used to measure the performance of the
+      asynchronous inference, as ideally the policy should never have to wait
+      for the model. It is only incremented in ASYNCHRONOUS mode when
+      the policy needs to block execution to wait for the next action from
+      the model.
+  """
+  action_stall_count: int
 
 
 class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
@@ -136,6 +153,12 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     self._action_conditioning_chunk_length = action_conditioning_chunk_length
 
+    self._initialize_episode_statistics()
+
+  def _initialize_episode_statistics(self):
+    """Initializes the episode statistics."""
+    self._episode_statistics = EpisodeStatistics(action_stall_count=0)
+
   @property
   def additional_observations_providers(
       self,
@@ -162,6 +185,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._model_output = np.array([])
     for provider in self._additional_observations_providers:
       provider.reset()
+
+    self._initialize_episode_statistics()
 
     return self._dummy_state
 
@@ -200,9 +225,9 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     if 'thinking' in timestep.observation:
       logging.info('thinking: %s', str(timestep.observation['thinking']))
     if self._inference_mode == constants.InferenceMode.ASYNCHRONOUS:
-      action = self._step_async(timestep.observation)
+      action = self._step_async(timestep)
     else:
-      action = self._step_sync(timestep.observation)
+      action = self._step_sync(timestep)
 
     return (action, {}), self._dummy_state
 
@@ -336,8 +361,9 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       return True
     return False
 
-  def _step_sync(self, observation: dict[str, np.ndarray]) -> np.ndarray:
+  def _step_sync(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """Computes an action from observations."""
+    observation = timestep.observation
     if self._should_replan():
       self._model_output = self._query_model(observation, self._model_output)
       assert self._model_output.shape[0] > 0
@@ -346,7 +372,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._model_output = self._model_output[1:]
     return action
 
-  def _step_async(self, observation: dict[str, np.ndarray]) -> np.ndarray:
+  def _step_async(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """Computes an action from the given observation.
 
     Method:
@@ -362,7 +388,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     implementation.
 
     Args:
-        observation: A dictionary of observations from the environment.
+      timestep: An instance of environment `TimeStep`.
 
     Returns:
         The next action to take.
@@ -371,6 +397,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         ValueError: If no actions are available and no future to generate them
         is present.
     """
+    observation = timestep.observation
+    is_initial_step = timestep.step_type == dm_env.StepType.FIRST
     with self._model_output_lock:
       # If new model output is available, update the buffer.
       if self._future and self._future.done():
@@ -401,6 +429,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
             self._actions_executed_during_inference :
         ]
         self._future = None
+      if not is_initial_step:
+        self._episode_statistics.action_stall_count += 1
 
     # Consume the action.
     with self._model_output_lock:
@@ -435,3 +465,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
           model_output.tolist()
       )
     return self._model.query_model(observation)
+
+  @property
+  def episode_statistics(self) -> EpisodeStatistics:
+    return copy.deepcopy(self._episode_statistics)

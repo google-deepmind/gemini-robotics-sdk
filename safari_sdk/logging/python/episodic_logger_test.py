@@ -2929,6 +2929,130 @@ class EpisodicLoggerTest(parameterized.TestCase):
     session = sessions[0]
     self.assertSequenceEqual(session.tags, ["tag1", "tag2", "tag3", "tag4"])
 
+  @parameterized.named_parameters(
+      dict(testcase_name="success", is_success=True),
+      dict(testcase_name="failure", is_success=False),
+  )
+  def test_is_success_provider_writes_label(self, is_success):
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward=specs.Array(shape=(), dtype=np.float32),
+        discount=specs.Array(shape=(), dtype=np.float32),
+        observation={
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "instruction": specs.StringArray(shape=(), name="instruction"),
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+        },
+    )
+
+    action_spec = specs.BoundedArray(
+        shape=(5,),
+        dtype=np.float32,
+        minimum=np.array([-1.0, -2.0, -1.0, -2.0, 0.0], dtype=np.float32),
+        maximum=np.array([1.0, 1.0, 2.0, 3.0, 1.0], dtype=np.float32),
+    )
+
+    logger = episodic_logger.EpisodicLogger.create(
+        episodic_logger.EpisodicLoggerConfig(
+            agent_id=_TEST_AGENT_ID,
+            task_id=_TEST_TASK_ID,
+            proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+            output_directory=self._episode_path.full_path,
+            action_spec=action_spec,
+            timestep_spec=timestep_spec,
+            image_observation_keys=[],
+            policy_extra_spec={},
+            metadata_config=episodic_logger.EpisodeMetadataConfig(
+                is_success_provider=lambda: is_success,
+            ),
+        )
+    )
+
+    initial_timestep = self._generate_timestep(
+        timestep_spec, dm_env.StepType.FIRST
+    )
+    logger.reset(initial_timestep)
+
+    for _ in range(_DEFAULT_NUMBER_STEPS):
+      next_timestep = self._generate_timestep(
+          timestep_spec, dm_env.StepType.MID
+      )
+      action = specs_utils.valid_value_for_spec(action_spec)
+      logger.record_action_and_next_timestep(
+          action=action, next_timestep=next_timestep, policy_extra={}
+      )
+
+    logger.write()
+    logger.stop()
+
+    sessions = mcap_parser_utils.read_session_proto_data(
+        self._episode_path.full_path, constants.SESSION_TOPIC_NAME
+    )
+    self.assertLen(sessions, 1)
+    session = sessions[0]
+
+    success_labels = [l for l in session.labels if l.key == "success"]
+    self.assertLen(success_labels, 1)
+    self.assertEqual(success_labels[0].label_value.bool_value, is_success)
+
+  def test_no_success_label_when_provider_is_none(self):
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward=specs.Array(shape=(), dtype=np.float32),
+        discount=specs.Array(shape=(), dtype=np.float32),
+        observation={
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "instruction": specs.StringArray(shape=(), name="instruction"),
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+        },
+    )
+
+    action_spec = specs.BoundedArray(
+        shape=(5,),
+        dtype=np.float32,
+        minimum=np.array([-1.0, -2.0, -1.0, -2.0, 0.0], dtype=np.float32),
+        maximum=np.array([1.0, 1.0, 2.0, 3.0, 1.0], dtype=np.float32),
+    )
+
+    logger = episodic_logger.EpisodicLogger.create(
+        episodic_logger.EpisodicLoggerConfig(
+            agent_id=_TEST_AGENT_ID,
+            task_id=_TEST_TASK_ID,
+            proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+            output_directory=self._episode_path.full_path,
+            action_spec=action_spec,
+            timestep_spec=timestep_spec,
+            image_observation_keys=[],
+            policy_extra_spec={},
+        )
+    )
+
+    initial_timestep = self._generate_timestep(
+        timestep_spec, dm_env.StepType.FIRST
+    )
+    logger.reset(initial_timestep)
+
+    for _ in range(_DEFAULT_NUMBER_STEPS):
+      next_timestep = self._generate_timestep(
+          timestep_spec, dm_env.StepType.MID
+      )
+      action = specs_utils.valid_value_for_spec(action_spec)
+      logger.record_action_and_next_timestep(
+          action=action, next_timestep=next_timestep, policy_extra={}
+      )
+
+    logger.write()
+    logger.stop()
+
+    sessions = mcap_parser_utils.read_session_proto_data(
+        self._episode_path.full_path, constants.SESSION_TOPIC_NAME
+    )
+    self.assertLen(sessions, 1)
+    session = sessions[0]
+
+    success_labels = [l for l in session.labels if l.key == "success"]
+    self.assertEmpty(success_labels)
+
   def _generate_timestep(
       self, timestep_spec: gdmr_types.TimeStepSpec, step_type: dm_env.StepType
   ) -> dm_env.TimeStep:
@@ -2999,6 +3123,72 @@ class EpisodicLoggerTest(parameterized.TestCase):
         np.testing.assert_allclose(
             timestep.observation[key], expected_timestep.observation[key]
         )
+
+  def test_get_episode_start_and_end_time_ns(self):
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward=specs.Array(shape=(), dtype=np.float32),
+        discount=specs.Array(shape=(), dtype=np.float32),
+        observation={
+            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+        },
+    )
+    action_spec = specs.BoundedArray(
+        shape=(5,),
+        dtype=np.float32,
+        minimum=np.array([-1.0, -2.0, -1.0, -2.0, 0.0], dtype=np.float32),
+        maximum=np.array([1.0, 1.0, 2.0, 3.0, 1.0], dtype=np.float32),
+    )
+
+    logger = episodic_logger.EpisodicLogger.create(
+        episodic_logger.EpisodicLoggerConfig(
+            agent_id=_TEST_AGENT_ID,
+            task_id=_TEST_TASK_ID,
+            output_directory=self._episode_path.full_path,
+            action_spec=action_spec,
+            timestep_spec=timestep_spec,
+            image_observation_keys=[],
+            proprioceptive_observation_keys=[],
+            policy_extra_spec={},
+        )
+    )
+
+    # 1. Before reset
+    with self.assertRaisesRegex(ValueError, "Episode has not been started"):
+      logger.get_episode_start_and_end_time_ns()
+
+    initial_timestep = self._generate_timestep(
+        timestep_spec, dm_env.StepType.FIRST
+    )
+    logger.reset(initial_timestep)
+
+    # 2. After reset, before write (completed)
+    with self.assertRaisesRegex(ValueError, "Episode has not been completed"):
+      logger.get_episode_start_and_end_time_ns()
+
+    for _ in range(_DEFAULT_NUMBER_STEPS):
+      next_timestep = self._generate_timestep(
+          timestep_spec, dm_env.StepType.MID
+      )
+      action = specs_utils.valid_value_for_spec(action_spec)
+      logger.record_action_and_next_timestep(
+          action=action, next_timestep=next_timestep, policy_extra={}
+      )
+
+    last_timestep = self._generate_timestep(timestep_spec, dm_env.StepType.LAST)
+    action = specs_utils.valid_value_for_spec(action_spec)
+    logger.record_action_and_next_timestep(
+        action=action, next_timestep=last_timestep, policy_extra={}
+    )
+
+    logger.write()
+
+    # 3. After write
+    time_range = logger.get_episode_start_and_end_time_ns()
+    self.assertIsNotNone(time_range.start_time_ns)
+    self.assertIsNotNone(time_range.end_time_ns)
+    self.assertLess(time_range.start_time_ns, time_range.end_time_ns)
 
 
 if __name__ == "__main__":

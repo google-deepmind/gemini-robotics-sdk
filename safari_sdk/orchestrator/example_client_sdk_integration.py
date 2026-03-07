@@ -522,6 +522,12 @@ def main(argv: Sequence[str]) -> None:
     print(f"\n - ERROR: {response.error_message} -\n")
     return
 
+  if response.latest_robot_release_configs:
+    print(" - Latest robot release configs -\n")
+    for config in response.latest_robot_release_configs:
+      print(f"   {config.key}: {config.get_value()}")
+    print("")
+
   params = EvalPolicyParams(
       orchestrator_client=orchestrator_client,
       num_work_units_to_run=_NUM_WORK_UNITS_TO_RUN.value,

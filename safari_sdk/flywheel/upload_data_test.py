@@ -159,6 +159,49 @@ class UploadDataDirectoryTest(parameterized.TestCase):
           robot_id='test_agent_001',
       )
 
+  @mock.patch(
+      'safari_sdk.flywheel.upload_data.auth.get_api_key'
+  )
+  def test_upload_data_directory_already_uploaded_prints_message(
+      self, mock_get_api_key
+  ):
+    mock_get_api_key.return_value = 'test_api_key_123'
+    upload_data_dir = self.create_tempdir()
+    upload_data_dir.create_file(
+        'data1.mcap.uploaded', content='dummy file content 1'
+    )
+    upload_data_dir.create_file(
+        'data2.mcap.uploaded', content='dummy file content 2'
+    )
+
+    with mock.patch('builtins.print') as mock_print:
+      upload_data.upload_data_directory(
+          api_endpoint='https://example.com/upload',
+          data_directory=upload_data_dir.full_path,
+          robot_id='test_agent_001',
+      )
+      mock_print.assert_called_once()
+      printed_msg = mock_print.call_args[0][0]
+      self.assertIn('No new .mcap files found', printed_msg)
+      self.assertIn('2 file(s) were already uploaded', printed_msg)
+
+  @mock.patch(
+      'safari_sdk.flywheel.upload_data.auth.get_api_key'
+  )
+  def test_upload_data_directory_empty_prints_message(self, mock_get_api_key):
+    mock_get_api_key.return_value = 'test_api_key_123'
+    upload_data_dir = self.create_tempdir()
+
+    with mock.patch('builtins.print') as mock_print:
+      upload_data.upload_data_directory(
+          api_endpoint='https://example.com/upload',
+          data_directory=upload_data_dir.full_path,
+          robot_id='test_agent_001',
+      )
+      mock_print.assert_called_once_with(
+          f'No .mcap files found in {upload_data_dir.full_path}.'
+      )
+
 
 if __name__ == '__main__':
   absltest.main()

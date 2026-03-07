@@ -97,6 +97,7 @@ class OrchestratorCurrentRobotInfo:
         operator_id=info.operatorId,
         is_operational=info.isOperational,
         robot_stage=info.robotStage,
+        latest_robot_release_configs=info.latestRobotReleaseConfigs,
     )
 
   def set_current_robot_operator_id(self, operator_id: str) -> _RESPONSE:

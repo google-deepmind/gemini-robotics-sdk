@@ -60,6 +60,9 @@ class EpisodeMetadataConfig:
       to the session manager.
     dynamic_metadata_provider: A function that provides dynamic metadata to be
       logged as session labels. The function is called when `write` is called.
+    is_success_provider: An optional callable that returns whether the episode
+      was successful. If provided, it is called when `write` is called and the
+      result is written as a session label.
     orchestrator_info_provider: An optional callable that returns the current
       OrchestratorInfo proto. If provided, it is called when the session is
       stopped and the result is written to the Session proto.
@@ -73,9 +76,18 @@ class EpisodeMetadataConfig:
   fixed_tags: Sequence[str] = ()
   dynamic_episode_taggers: Sequence[Callable[[], Sequence[str]]] = ()
   dynamic_metadata_provider: Callable[[], Mapping[str, str]] | None = None
+  is_success_provider: Callable[[], bool] | None = None
   orchestrator_info_provider: (
       Callable[[], orchestrator_info_pb2.OrchestratorInfo] | None
   ) = None
+
+
+@dataclasses.dataclass(frozen=True)
+class EpisodeTimeRange:
+  """The start and end time of an episode in nanoseconds."""
+
+  start_time_ns: int
+  end_time_ns: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -255,6 +267,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
 
     self._current_batch_size = 0
     self._batch_number = 0
+    self._current_episode_step = 0
 
     self._timestep_batch = collections.defaultdict(list)
     self._action_batch = collections.defaultdict(list)
@@ -268,8 +281,9 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     self._action_publish_time_ns: list[int] = []
     self._last_timestep_publish_time_ns = 0
 
-    self._episode_start_time_ns = 0
-    self._current_episode_step = 0
+    self._episode_start_time_ns: int | None = None
+    self._episode_end_time_ns: int | None = None
+
     self._task_id = config.task_id
     self._image_observation_keys = config.image_observation_keys
     self._proprioceptive_observation_keys = (
@@ -284,6 +298,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     self._dynamic_metadata_provider = (
         config.metadata_config.dynamic_metadata_provider
     )
+    self._is_success_provider = config.metadata_config.is_success_provider
 
     self._episode_uuid: str = ""
 
@@ -341,17 +356,17 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     Args:
       timestep: The starting timestep of the episode.
     """
-
     # Call write to flush previous episode.
     if self._current_episode_step > 0:
       self.write()
 
     self._reset_saved_data()
-
+    self._episode_end_time_ns = None
     if self._timestamp_key:
       timestamp_ns = self._get_timestamp_ns_from_timestep(timestep)
     else:
       timestamp_ns = time.time_ns()
+    self._episode_start_time_ns = timestamp_ns
 
     # Try to start a new session.
     try:
@@ -570,7 +585,11 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     self._reset_batch_data()
 
   def write(self) -> None:
-    """Writes the current episode logged data by converting accumulated data to protos."""
+    """Writes the current episode logged data.
+
+    Converts accumulated data to protos.
+    """
+
     # If the logger is not recording data, we should not write.
     # This protects against cases where we try to call write() without calling
     # reset() first.
@@ -595,6 +614,30 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
         "Episode written to mcap. Episode steps: %d", self._current_episode_step
     )
     self._reset_saved_data()
+
+  def get_episode_start_and_end_time_ns(self) -> EpisodeTimeRange:
+    """Returns the start and end episode time in nanoseconds.
+
+    Returns:
+      A dataclass of the episode start and episode end time in nanoseconds.
+
+    Raises:
+      ValueError: If the episode has not been started or if the episode has not
+        been completed.
+    """
+    if self._episode_start_time_ns is None:
+      raise ValueError("Episode has not been started. Call reset() first.")
+
+    if self._episode_end_time_ns is None:
+      raise ValueError(
+          "Episode has not been completed. Call write() to finalize the"
+          " episode."
+      )
+
+    return EpisodeTimeRange(
+        start_time_ns=self._episode_start_time_ns,
+        end_time_ns=self._episode_end_time_ns,
+    )
 
   def set_task_id(self, task_id: str) -> None:
     """Sets the task ID of the logger.
@@ -651,6 +694,16 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
         )
     )
 
+    if self._is_success_provider is not None:
+      self._session_manager.add_session_label(
+          label_pb2.LabelMessage(
+              key="success",
+              label_value=struct_pb2.Value(
+                  bool_value=self._is_success_provider()
+              ),
+          )
+      )
+
     # TODO: Use standard metadata logging method.
     if self._dynamic_metadata_provider is not None:
       additional_metadata = self._dynamic_metadata_provider()
@@ -667,6 +720,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     session = self._session_manager.stop_session(
         stop_timestamp_nsec=episode_end_time_ns
     )
+    self._episode_end_time_ns = episode_end_time_ns
 
     self._writer.enqueue_session_data(
         session,

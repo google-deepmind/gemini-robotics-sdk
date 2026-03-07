@@ -68,6 +68,11 @@ _GUIDED_THINKING_SD_QUESTIONS = """
 class AbstractSuccessDetectionTool(tool.Tool, abc.ABC):
   """Abstract class for success signal tools."""
 
+  @property
+  def tool_name(self) -> str:
+    """The name of the tool."""
+    return self.__class__.__name__
+
   def __init__(
       self,
       bus: event_bus.EventBus,
@@ -140,11 +145,41 @@ class VisionSuccessDetectionTool(AbstractSuccessDetectionTool):
         declaration=declaration,
     )
     self._config = config
-    # Gemini client for success detection.
-    self._client = genai.Client(
-        api_key=api_key,
-        http_options=types.HttpOptions(base_url=config.base_url),
-    )
+
+    self._evergreen_url = None
+    self._evergreen_wrapper = None
+    if self._evergreen_url:
+      pass
+    else:
+      self._client = genai.Client(
+          api_key=api_key,
+          http_options=types.HttpOptions(base_url=config.base_url),
+      )
+      self._gemini_wrapper = genai_client.GeminiClientWrapper(
+          bus=bus,
+          client=self._client,
+          model_name=config.sd_model_name,
+          config=types.GenerateContentConfig(
+              temperature=config.sd_temperature,
+              max_output_tokens=config.sd_max_output_tokens,
+              media_resolution=config.sd_media_resolution,
+              thinking_config=types.ThinkingConfig(
+                  include_thoughts=False,
+                  thinking_level=(
+                      types.ThinkingLevel(config.sd_thinking_level)
+                      if config.sd_thinking_level
+                      else None
+                  ),
+                  thinking_budget=(
+                      config.sd_thinking_budget
+                      if not config.sd_thinking_level
+                      else None
+                  ),
+              ),
+          ),
+          print_raw_response=config.sd_print_raw_sd_response,
+          tool_name=self.tool_name,
+      )
 
     # Subscribe to the model input image events.
     self._image_buffer = image_buffer.ImageBuffer(camera_endpoint_names, config)
@@ -197,31 +232,7 @@ class SubtaskSuccessDetectorV4(VisionSuccessDetectionTool):
         api_key=api_key,
         camera_endpoint_names=sd_camera_endpoint_names,
     )
-    self._gemini_wrapper = genai_client.GeminiClientWrapper(
-        bus=bus,
-        client=self._client,
-        model_name=config.sd_model_name,
-        config=types.GenerateContentConfig(
-            temperature=config.sd_temperature,
-            max_output_tokens=config.sd_max_output_tokens,
-            media_resolution=config.sd_media_resolution,
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=False,
-                thinking_level=(
-                    types.ThinkingLevel(config.sd_thinking_level)
-                    if config.sd_thinking_level
-                    else None
-                ),
-                thinking_budget=(
-                    config.sd_thinking_budget
-                    if not config.sd_thinking_level
-                    else None
-                ),
-            ),
-        ),
-        print_raw_response=config.sd_print_raw_sd_response,
-        tool_name="SubtaskSuccessDetectorV4",
-    )
+
     self._task = None
     self._image_buffer.reset_start_images_map()
     self._image_buffer.reset_latest_images_map()
@@ -316,16 +327,24 @@ class SubtaskSuccessDetectorV4(VisionSuccessDetectionTool):
     query_success_signal_start_time = time.time()
     prompt = self._build_prompt(subtask=subtask)
     try:
-      response = await self._gemini_wrapper.generate_content(contents=prompt)
-      if response.text is None:
+      if self._evergreen_wrapper:
+        pass
+
+      else:
+        assert self._gemini_wrapper is not None
+        # Use GenAI
+        response = await self._gemini_wrapper.generate_content(contents=prompt)
+        response_text = response.text if (response and response.text) else ""
+
+      if not response_text:
         logging.warning("[SD] No response text from the model.")
         success_signal = False
       else:
         success_signal = (
-            "FINAL ANSWER: yes" in response.text
-            or "$\boxed{yes}$" in response.text
-            or "$\\boxed{yes}$" in response.text
-            or "**Final Answer:** yes" in response.text
+            "FINAL ANSWER: yes" in response_text
+            or "$\boxed{yes}$" in response_text
+            or "$\\boxed{yes}$" in response_text
+            or "**Final Answer:** yes" in response_text
         )
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception("[SD] Model failed to respond:\n%s", e)

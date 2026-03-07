@@ -14,8 +14,10 @@
 
 """GenAI client wrapper for Gemini-based tools."""
 
+import asyncio
 import datetime
 import enum
+import itertools
 import os
 import time
 from typing import Optional, TextIO
@@ -30,10 +32,10 @@ from safari_sdk.agent.framework.event_bus import event_bus
 from safari_sdk.agent.framework.utils import image_processing
 
 
-_LOG_DIR = "/tmp/genai_client_logs"
-_LOS_ANGELES_TIMEZONE = pytz.timezone("America/Los_Angeles")
 _COMPACT_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 _COMPACT_TIMESTAMP_FORMAT_WITH_MILLIS = "%Y%m%d_%H%M%S.%f"
+_LOG_DIR = "/tmp/genai_client_logs"
+_LOS_ANGELES_TIMEZONE = pytz.timezone("America/Los_Angeles")
 _RAW_RESPONSE_LOG_FREQUENCY_SECONDS = 5.0
 
 
@@ -118,6 +120,15 @@ class GeminiClientWrapper:
     self._logger = LocalFileLogger()
     self._gemini_client_health = GeminiClientHealth.NORMAL
     self._tool_name = tool_name
+    self._health_lock = asyncio.Lock()
+
+    # Sequence counter for thread-safe health status updates. Each generate()
+    # call gets a unique sequence number. Health status updates are only applied
+    # if the call's sequence is >= the last update's sequence, ensuring that
+    # out-of-order completions (e.g., an older call completing after a newer
+    # one) don't incorrectly overwrite the health status.
+    self._call_sequence = itertools.count()
+    self._last_health_update_sequence = -1
     logging.info("model: %s, config: %s", self._model_name, self._config)
 
   def set_config(self, config: types.GenerateContentConfigOrDict):
@@ -126,74 +137,63 @@ class GeminiClientWrapper:
   def get_config(self) -> types.GenerateContentConfigOrDict:
     return self._config
 
+  async def _maybe_publish(
+      self,
+      status: GeminiClientHealth,
+      exception_msg: str | None,
+      call_seq: int,
+  ):
+    """Publishes a health event if the status has changed.
+
+    Thread-safe: uses a lock and sequence numbers to ensure out-of-order
+    generate call completions don't incorrectly overwrite the health status.
+
+    Args:
+      status: The new health status to publish.
+      exception_msg: The exception message, if any.
+      call_seq: The sequence number of the generate call reporting this status.
+    """
+    async with self._health_lock:
+      if call_seq < self._last_health_update_sequence:
+        return
+      if self._gemini_client_health == status:
+        return
+      self._last_health_update_sequence = call_seq
+      self._gemini_client_health = status
+    await self._bus.publish(
+        event=event_bus.Event(
+            type=event_bus.EventType.TOOL_CLIENT_HEALTH,
+            source=event_bus.EventSource.AGENTIC_TOOL,
+            data={
+                "health_status": status.value,
+                "tool_name": self._tool_name,
+                "exception_message": exception_msg,
+            },
+        )
+    )
+
   async def _maybe_publish_gemini_client_health_event(
-      self, e: Exception | None
+      self, e: Exception | None, call_seq: int
   ):
     """Publishes a GEMINI_CLIENT_HEALTH event to the event bus if needed."""
     if e is None:
-      if self._gemini_client_health != GeminiClientHealth.NORMAL:
-        self._gemini_client_health = GeminiClientHealth.NORMAL
-        await self._bus.publish(
-            event=event_bus.Event(
-                type=event_bus.EventType.TOOL_CLIENT_HEALTH,
-                source=event_bus.EventSource.AGENTIC_TOOL,
-                data={
-                    "health_status": "NORMAL",
-                    "tool_name": self._tool_name,
-                    "exception_message": None,
-                },
-            )
-        )
+      await self._maybe_publish(GeminiClientHealth.NORMAL, None, call_seq)
     elif "429" in str(e):
-      if self._gemini_client_health != GeminiClientHealth.ERROR_QUOTA_EXCEEDED:
-        # If the Gemini client health is not already ERROR_QUOTA_EXCEEDED, then
-        # set it to ERROR_QUOTA_EXCEEDED and publish the event to the event bus.
-        self._gemini_client_health = GeminiClientHealth.ERROR_QUOTA_EXCEEDED
-        await self._bus.publish(
-            event=event_bus.Event(
-                type=event_bus.EventType.TOOL_CLIENT_HEALTH,
-                source=event_bus.EventSource.AGENTIC_TOOL,
-                data={
-                    "health_status": "ERROR_QUOTA_EXCEEDED",
-                    "tool_name": self._tool_name,
-                    "exception_message": str(e),
-                },
-            )
-        )
+      await self._maybe_publish(
+          GeminiClientHealth.ERROR_QUOTA_EXCEEDED, str(e), call_seq
+      )
     elif "503" in str(e):
-      if self._gemini_client_health != GeminiClientHealth.ERROR_OVERLOADED:
-        # If the Gemini client health is not already ERROR_OVERLOADED, then set
-        # it toERROR_OVERLOADED and publish the event to the event bus.
-        self._gemini_client_health = GeminiClientHealth.ERROR_OVERLOADED
-        await self._bus.publish(
-            event=event_bus.Event(
-                type=event_bus.EventType.TOOL_CLIENT_HEALTH,
-                source=event_bus.EventSource.AGENTIC_TOOL,
-                data={
-                    "health_status": "ERROR_OVERLOADED",
-                    "tool_name": self._tool_name,
-                    "exception_message": str(e),
-                },
-            )
-        )
-    elif self._gemini_client_health != GeminiClientHealth.ERROR_OTHER:
-      # If the Gemini client health is not already ERROR_OTHER, then set it to
-      # ERROR_OTHER and publish the event to the event bus.
-      self._gemini_client_health = GeminiClientHealth.ERROR_OTHER
-      await self._bus.publish(
-          event=event_bus.Event(
-              type=event_bus.EventType.TOOL_CLIENT_HEALTH,
-              source=event_bus.EventSource.AGENTIC_TOOL,
-              data={
-                  "health_status": "ERROR_OTHER",
-                  "tool_name": self._tool_name,
-                  "exception_message": str(e),
-              },
-          )
+      await self._maybe_publish(
+          GeminiClientHealth.ERROR_OVERLOADED, str(e), call_seq
+      )
+    else:
+      await self._maybe_publish(
+          GeminiClientHealth.ERROR_OTHER, str(e), call_seq
       )
 
   async def generate_content(self, contents):
     """Generates content using the genai client."""
+    call_seq = next(self._call_sequence)
     # Preprocess the contents to convert bytes to PIL image.
     converted_contents = image_processing.convert_bytes_to_image(contents)
     # Async Gemini query.
@@ -205,7 +205,7 @@ class GeminiClientWrapper:
           config=self._config,
       )
     except Exception as e:
-      await self._maybe_publish_gemini_client_health_event(e)
+      await self._maybe_publish_gemini_client_health_event(e, call_seq)
       raise e
     time_end = time.time()
     query_time = time_end - time_start
@@ -228,4 +228,5 @@ class GeminiClientWrapper:
           f"model: {self._model_name}\nconfig: {self._config}\ncontents:"
           f" {contents}\nresponse: {response}\nquery_time: {query_time}"
       )
+    await self._maybe_publish_gemini_client_health_event(None, call_seq)
     return response

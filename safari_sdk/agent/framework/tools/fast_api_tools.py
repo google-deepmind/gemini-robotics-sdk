@@ -193,6 +193,13 @@ class FastApiStream(metaclass=abc.ABCMeta):
       except asyncio.CancelledError:
         logging.info("Stream at %s cancelled by client.", self._url)
         break
+      except httpx.ConnectError as e:
+        logging.warning(
+            "Connection failed while connecting to %s: %r. Is the backend"
+            " running? Will reconnect.",
+            self._url,
+            e,
+        )
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.exception(
             "An unexpected error occurred in the stream at %s: %r. Will"

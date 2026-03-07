@@ -68,6 +68,10 @@ def _print_robot_info_response(response: orchestrator_helper.RESPONSE) -> None:
   print(f" Robot job ID: {response.robot_job_id}")
   print(f" Work unit ID: {response.work_unit_id}")
   print(f" Work unit stage: {response.work_unit_stage}")
+  if response.latest_robot_release_configs:
+    print(" Latest robot release configs:")
+    for config in response.latest_robot_release_configs:
+      print(f"   {config.key}: {config.get_value()}")
   print(" ----------------------------------------------------------------\n")
 
 

@@ -52,6 +52,7 @@ class JobType(enum.Enum):
   COLLECTION = 1  # Collection job only.
   EVALUATION = 2  # Evaluation job only.
   EVALUATION_HUMAN_ONLY = 3  # Evaluation job with human only.
+  DAGGER = 4  # Dagger job only.
 
 
 class OrchestratorRobotJob:
@@ -110,6 +111,13 @@ class OrchestratorRobotJob:
               _ERROR_GET_ROBOT_JOB
               + f"{error_id} Reason: {e.reason}\nDetail: {e.error_details}"
           )
+      )
+
+    if not response:
+      return _RESPONSE(
+          success=True,
+          no_more_robot_job=True,
+          error_message=_ERROR_EMPTY_RESPONSE + error_id
       )
 
     as_json = json.dumps(response)

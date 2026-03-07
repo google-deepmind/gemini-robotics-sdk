@@ -14,6 +14,7 @@
 
 """Logger for LeRobot data."""
 
+from collections.abc import Callable
 import concurrent.futures
 
 from absl import logging
@@ -69,6 +70,7 @@ class LeRobotEpisodicLogger:
       proprioceptive_observation_keys: list[str] | None = None,
       generate_episode_timestamps: bool = True,
       features: dict | None = None,
+      is_success_provider: Callable[[], bool] | None = None,
   ):
     """Initializes the logger.
 
@@ -85,12 +87,16 @@ class LeRobotEpisodicLogger:
         by the lerobot dataset should be mapped to the _TIMESTAMP_KEY.
       features: A dictionary of dataset features, used to generate specs for
         validation.
+      is_success_provider: An optional callable that returns whether the episode
+        was successful.
     """
+
     self._task_id = task_id
     self._output_directory = output_directory
     self._image_observation_keys = image_observation_keys or []
     self._proprioceptive_observation_keys = proprioceptive_observation_keys
     self._generate_episode_timestamps = generate_episode_timestamps
+    self._is_success_provider = is_success_provider
     self._timestep_spec = None
     self._action_spec = None
 
@@ -246,6 +252,9 @@ class LeRobotEpisodicLogger:
         policy_extra_spec={},
         timestamp_key=_TIMESTAMP_KEY,
         validate_data_with_spec=True,
+        metadata_config=episodic_logger.EpisodeMetadataConfig(
+            is_success_provider=self._is_success_provider,
+        ),
     )
     self._episodic_logger = episodic_logger.EpisodicLogger.create(config)
     self._previous_action = None

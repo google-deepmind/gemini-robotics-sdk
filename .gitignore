@@ -1,0 +1,7 @@
+# Warning: anything ignored here will also be excluded from the pip package. To
+# exclude something from git but *include* it in the pip package, add it here
+# AND in the `tool.scikit-build.sdist.include` section in pyproject.toml.
+safari_sdk/**/*_pb2.py
+safari_sdk/revision_info.txt
+dist/
+scripts/build_wheel_with_cibuildwheel.sh

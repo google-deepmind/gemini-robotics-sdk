@@ -250,6 +250,64 @@ class OrchestratorHelperTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       helper_lib.set_current_robot_operator_id(operator_id="test_operator_id")
 
+  def test_add_operator_event_battery_level(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.add_operator_event.return_value = (
+        orchestrator_helper.interface.RESPONSE(success=True)
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.add_operator_event(
+        operator_event_str="Battery Level",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="85",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_operator_event.assert_called_once_with(
+        operator_event_str="Battery Level",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="85",
+    )
+
+  def test_add_operator_event_battery_level_default_unknown_level(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.add_operator_event.return_value = (
+        orchestrator_helper.interface.RESPONSE(success=True)
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+    # Default battery level is 0.
+    response = helper_lib.add_operator_event(
+        operator_event_str="Battery Level",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="0",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_operator_event.assert_called_once_with(
+        operator_event_str="Battery Level",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="0",
+    )
+
   def test_add_operator_event_good(self):
     mock_interface = mock.create_autospec(
         spec=orchestrator_helper.interface.OrchestratorInterface, instance=True

@@ -28,12 +28,72 @@ import enum
 import threading
 
 from absl import logging
+from google.api_core import exceptions as api_exceptions
 from google.genai import types
+import grpc
 
 from safari_sdk.agent.framework import config as framework_config
 from safari_sdk.agent.framework import constants
 from safari_sdk.agent.framework.event_bus import event_bus
 from safari_sdk.agent.framework.utils import image_processing
+
+
+NUM_RETRIES = 3
+RETRY_INTERVAL_SECONDS = 1.0
+
+# Exceptions that are always retriable (no code check needed).
+_ALWAYS_RETRIABLE_EXCEPTIONS = (
+    asyncio.TimeoutError,
+    ConnectionError,
+    # GenAI/api_core exceptions that are explicitly transient.
+    api_exceptions.ServiceUnavailable,  # 503: Server temporarily down.
+    api_exceptions.InternalServerError,  # 500: Transient server error.
+    api_exceptions.DeadlineExceeded,  # Timeout.
+)
+
+# Evergreen canonical codes that are retriable.
+# - DEADLINE_EXCEEDED: Request took too long, likely transient.
+# - RESOURCE_EXHAUSTED: Rate limiting (per-minute quota), retriable.
+# Note: UNAVAILABLE is NOT included because Evergreen reports it for
+# permanent failures like invalid model URLs or server shutdown.
+
+# gRPC status codes that are retriable.
+_RETRIABLE_GRPC_STATUS_CODES = frozenset([
+    grpc.StatusCode.DEADLINE_EXCEEDED,
+    grpc.StatusCode.RESOURCE_EXHAUSTED,
+])
+
+
+def is_retriable_exception(e: Exception) -> bool:
+  """Determines if an exception is retriable.
+
+  Args:
+    e: The exception to check.
+
+  Returns:
+    True if the exception is transient and should be retried.
+  """
+  # Always-retriable exception types.
+  if isinstance(e, _ALWAYS_RETRIABLE_EXCEPTIONS):
+    return True
+
+  # ResourceExhausted can be per-minute rate limiting (retriable) or
+  # daily quota exceeded (not retriable). We retry it by default but
+  # the loop will eventually exhaust retries for quota issues.
+  if isinstance(e, api_exceptions.ResourceExhausted):
+    return True
+
+  # Evergreen client errors: check the canonical code.
+
+  # Raw gRPC errors: check the status code.
+  if isinstance(e, grpc.RpcError):
+    try:
+      return e.code() in _RETRIABLE_GRPC_STATUS_CODES  # pytype: disable=attribute-error
+    except AttributeError:
+      # If we can't get the code, don't retry.
+      return False
+
+  return False
 
 
 class NonstreamingOrchestratorHealth(enum.Enum):
@@ -110,10 +170,23 @@ class NonStreamingHandler(abc.ABC):
         if prune_to > 0
         else max(1, self._image_pruning_trigger_amount // 2)
     )
+    # Image retention policy — these three flags are independent:
+    #   _discard_images_after_turn: when True, clears ALL buffered images
+    #     after each inference turn (user message or FC-FR cycle). Treats
+    #     visual context as ephemeral. When False, images accumulate.
+    #   _fr_latest_image_only: when True, only the latest image per camera
+    #     stream is attached to a Function Response (reduces tokens during
+    #     long-running tool execution).
+    #   _user_turn_latest_image_only: when True, only the latest image per
+    #     camera stream is included in the user turn message (reduces tokens
+    #     for the initial observation).
     self._discard_images_after_turn = (
         config.non_streaming_discard_images_after_turn
     )
     self._fr_latest_image_only = config.non_streaming_fr_latest_image_only
+    self._user_turn_latest_image_only = (
+        config.non_streaming_user_turn_latest_image_only
+    )
     self._include_stream_names = config.non_streaming_include_stream_names
     self._enable_image_stitching = config.enable_image_stitching
     self._show_camera_name_in_stitched_image = (
@@ -123,20 +196,72 @@ class NonStreamingHandler(abc.ABC):
         config.non_streaming_image_buffering_interval_seconds
     )
 
+    # Background stitching thread infrastructure. When image stitching is
+    # enabled, a daemon thread (_stitch_thread) runs _stitch_loop() at
+    # _stitch_interval_seconds. It reads per-camera blobs from
+    # _latest_images, composites them into a single grid frame, and
+    # appends the result to _stitched_frames. All access to these
+    # structures is serialized through _stitch_lock. _loop is captured
+    # from the main asyncio loop so the stitch thread can publish
+    # REAL_TIME_IMAGE_SENT events back to the event bus.
     self._latest_images: dict[str, types.Blob] = {}
     self._stitched_frames: list[tuple[datetime.datetime, types.Part]] = []
     self._stitch_lock = threading.Lock()
     self._stitch_thread: threading.Thread | None = None
     self._stitch_stop_event = threading.Event()
     self._loop: asyncio.AbstractEventLoop | None = None
+    self._tool_result_timeout: float = (
+        config.non_streaming_tool_result_timeout_seconds
+    )
 
-  @abc.abstractmethod
   async def connect(self) -> None:
     ...
 
   @abc.abstractmethod
   async def disconnect(self) -> None:
     ...
+
+  async def _retry_wrapper(
+      self,
+      generate_fn,
+      *args,
+      **kwargs,
+  ):
+    """Wraps a generate function with retry logic.
+
+    Args:
+      generate_fn: The async generate function to call.
+      *args: Positional arguments to pass to generate_fn.
+      **kwargs: Keyword arguments to pass to generate_fn.
+
+    Returns:
+      The generated response.
+
+    Raises:
+      The last exception if all retries are exhausted.
+    """
+    last_exception = None
+
+    for attempt in range(NUM_RETRIES):
+      try:
+        return await generate_fn(*args, **kwargs)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        if not is_retriable_exception(e):
+          logging.error("Generate failed with non-retriable error: %s", e)
+          raise
+        last_exception = e
+        logging.warning(
+            "Generate attempt %d/%d failed with retriable error: %s. "
+            "Retrying in %.1fs...",
+            attempt + 1,
+            NUM_RETRIES,
+            type(e).__name__,
+            RETRY_INTERVAL_SECONDS,
+        )
+        if attempt < NUM_RETRIES - 1:
+          await asyncio.sleep(RETRY_INTERVAL_SECONDS)
+
+    raise last_exception
 
   def _clear_image_state(self) -> None:
     self._image_buffer = []
@@ -162,7 +287,7 @@ class NonStreamingHandler(abc.ABC):
     self._stitch_thread = None
 
   async def _publish_session_metadata(self) -> None:
-    """Publishes session config to the event bus as a LOG_SESSION_METADATA event."""
+    """Publishes session config to the bus as a LOG_SESSION_METADATA event."""
 
     session_config = {
         "system_instruction": getattr(self, "_system_instruction", None),
@@ -440,13 +565,10 @@ class NonStreamingHandler(abc.ABC):
       for img_ts, stream_name, blob in self._image_buffer:
         if fc_timestamp <= img_ts <= fr_timestamp:
           images_for_fr.append((img_ts, stream_name, blob))
-        else:
+        elif img_ts > fr_timestamp or not self._discard_images_after_turn:
           remaining_images.append((img_ts, stream_name, blob))
 
-      if self._discard_images_after_turn:
-        self._image_buffer = []
-      else:
-        self._image_buffer = remaining_images
+      self._image_buffer = remaining_images
 
       if self._fr_latest_image_only and len(images_for_fr) > 1:
         latest_per_stream: dict[
@@ -553,7 +675,7 @@ class NonStreamingHandler(abc.ABC):
   ) -> list[types.FunctionResponse]:
     """Waits for the expected number of tool results."""
     results = []
-    timeout = 300  # 5 minute timeout per tool result.
+    timeout = self._tool_result_timeout
     for _ in range(expected_count):
       try:
         result = await asyncio.wait_for(
@@ -570,9 +692,12 @@ class NonStreamingHandler(abc.ABC):
       event_type: event_bus.EventType,
       data: object,
       source: event_bus.EventSource = event_bus.EventSource.MAIN_AGENT,
+      metadata: dict[str, object] | None = None,
   ) -> None:
     await self._bus.publish(
-        event=event_bus.Event(type=event_type, source=source, data=data)
+        event=event_bus.Event(
+            type=event_type, source=source, data=data, metadata=metadata or {}
+        )
     )
 
   async def _publish_health_status(

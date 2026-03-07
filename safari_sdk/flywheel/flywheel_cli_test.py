@@ -36,7 +36,7 @@ _DATA_STATS_TEST_DATA = {
         {
             "robotId": "test_robot_id",
             "taskId": "test_task_id",
-            "dates": ["2024-12-01", "2024-12-02"],
+            "dates": ["20241201", "20241202"],
             "dailyCounts": [100, 200],
             "successCounts": [50, 150],
         },
@@ -512,7 +512,10 @@ class FlywheelCliTest(parameterized.TestCase):
       mock_input.assert_not_called()
       mock_download.assert_not_called()
 
-  def test_print_responsive_table(self):
+  @mock.patch(
+      "shutil.get_terminal_size", return_value=os.terminal_size((200, 24))
+  )
+  def test_print_responsive_table(self, _):
     mock_stdout = io.StringIO()
     headers = ["H1", "Header2"]
     rows = [["d1", "data2"], ["data1-long", "d2"]]
@@ -523,8 +526,28 @@ class FlywheelCliTest(parameterized.TestCase):
         "-------------------\n"
         "H1          Header2\n"
         "-------------------\n"
-        "d1          data2  \n"
-        "data1-long  d2     \n"
+        "d1          data2\n"
+        "data1-long  d2\n"
+    )
+    self.assertEqual(mock_stdout.getvalue(), expected)
+
+  @mock.patch(
+      "shutil.get_terminal_size", return_value=os.terminal_size((30, 24))
+  )
+  def test_print_responsive_table_truncation(self, _):
+    mock_stdout = io.StringIO()
+    headers = ["Col1", "Col2"]
+    rows = [
+        ["short", "this_is_a_very_long_cell_value_that_should_be_truncated"]
+    ]
+    with mock.patch("sys.stdout", mock_stdout):
+      flywheel_cli._print_responsive_table(headers, rows)
+
+    expected = (
+        "------------------------------\n"
+        "Col1   Col2\n"
+        "------------------------------\n"
+        "short  this_is_a_very_long_...\n"
     )
     self.assertEqual(mock_stdout.getvalue(), expected)
 
@@ -1089,6 +1112,24 @@ class ResolveDownloadPathTest(parameterized.TestCase):
     )
 
     self.assertEqual(result, "/default/path/flywheel_checkpoint.ckpt")
+
+
+class FormatDateTest(absltest.TestCase):
+
+  def test_yyyymmdd_format(self):
+    self.assertEqual(flywheel_cli._format_date("20241201"), "2024-12-01")
+
+  def test_yyyy_mm_dd_passthrough(self):
+    self.assertEqual(flywheel_cli._format_date("2024-12-01"), "2024-12-01")
+
+  def test_none_input(self):
+    self.assertEqual(flywheel_cli._format_date(None), "None")
+
+  def test_empty_string(self):
+    self.assertEqual(flywheel_cli._format_date(""), "")
+
+  def test_malformed_string(self):
+    self.assertEqual(flywheel_cli._format_date("not-a-date"), "not-a-date")
 
 
 if __name__ == "__main__":

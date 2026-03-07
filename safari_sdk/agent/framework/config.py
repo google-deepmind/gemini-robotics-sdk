@@ -67,6 +67,8 @@ class AgentFrameworkConfig:
   # Agent configuration
   # The name of the agent to use.
   agent_name: str = 'simple_agent'
+  tool_run_for_duration_second: float = 8.0
+  run_until_done_time_limit: float = 60.0
   # Whether to meow.
   meow_mode: bool = False
   # The name of the model to use for the Gemini Live agent.
@@ -156,8 +158,10 @@ class AgentFrameworkConfig:
   # images are cleared after being used. When False, images accumulate.
   non_streaming_discard_images_after_turn: bool = True
   non_streaming_fr_latest_image_only: bool = True
+  non_streaming_user_turn_latest_image_only: bool = False
   non_streaming_include_stream_names: bool = True
   non_streaming_thinking_level: str | None = None
+  non_streaming_tool_result_timeout_seconds: float = 300.0
 
   # Agent model generation parameters (for non-streaming handler).
   # Temperature for the agent model (0.0-2.0). None uses server default.
@@ -227,7 +231,7 @@ class AgentFrameworkConfig:
   # success detector returns True.
   stop_on_success: bool = True
   # The model temperature to use for SD. Recommend to use higher temperature
-  # for ensamble SD.
+  # for ensemble SD.
   sd_temperature: float = 0.0
   # The number of parallel SD runs to use.
   sd_ensemble_size: int = 1
@@ -280,6 +284,7 @@ class AgentFrameworkConfig:
   # them from policy logs.
   logging_session_log_type_value: str = 'agent'
   exclude_model_image_input_logging: bool = False
+  agent_session_id: str | None = None
   non_streaming_enable_context_snapshot_logging: bool = True
 
   def __post_init__(self):
@@ -308,6 +313,8 @@ class AgentFrameworkConfig:
       publish_logging_events: bool | None = None,
       external_ui_type: types.ExternalUIType | None = None,
       agent_name: str | None = None,
+      tool_run_for_duration_second: float | None = None,
+      run_until_done_time_limit: float | None = None,
       meow_mode: bool | None = None,
       agent_model_name: str | None = None,
       enable_audio_input: bool | None = None,
@@ -341,8 +348,10 @@ class AgentFrameworkConfig:
       non_streaming_image_pruning_target_amount: int | None = None,
       non_streaming_discard_images_after_turn: bool | None = None,
       non_streaming_fr_latest_image_only: bool | None = None,
+      non_streaming_user_turn_latest_image_only: bool | None = None,
       non_streaming_include_stream_names: bool | None = None,
       non_streaming_thinking_level: str | None = None,
+      non_streaming_tool_result_timeout_seconds: float | None = None,
       agent_temperature: float | None = None,
       agent_max_output_tokens: int | None = None,
       agent_thinking_budget: int | None = None,
@@ -386,6 +395,7 @@ class AgentFrameworkConfig:
       logging_session_log_type_key: str | None = None,
       logging_session_log_type_value: str | None = None,
       exclude_model_image_input_logging: bool | None = None,
+      agent_session_id: str | None = None,
   ) -> 'AgentFrameworkConfig':
     """Creates an AgentFrameworkConfig from flags with optional overrides."""
     if (control_mode == types.ControlMode.TERMINAL_ONLY) and (
@@ -418,6 +428,16 @@ class AgentFrameworkConfig:
             external_ui_type or agentic_flags.AGENTIC_EXTERNAL_UI_TYPE.value
         ),
         agent_name=agent_name or agentic_flags.AGENTIC_AGENT_NAME.value,
+        tool_run_for_duration_second=(
+            tool_run_for_duration_second
+            if tool_run_for_duration_second is not None
+            else agentic_flags.AGENTIC_TOOL_RUN_FOR_DURATION_SECOND.value
+        ),
+        run_until_done_time_limit=(
+            run_until_done_time_limit
+            if run_until_done_time_limit is not None
+            else agentic_flags.AGENTIC_RUN_UNTIL_DONE_TIME_LIMIT.value
+        ),
         meow_mode=meow_mode or agentic_flags.AGENTIC_MEOW_MODE.value,
         agent_model_name=(
             agent_model_name or agentic_flags.AGENTIC_AGENT_MODEL_NAME.value
@@ -535,6 +555,11 @@ class AgentFrameworkConfig:
             if non_streaming_fr_latest_image_only is not None
             else agentic_flags.AGENTIC_NON_STREAMING_FR_LATEST_IMAGE_ONLY.value
         ),
+        non_streaming_user_turn_latest_image_only=(
+            non_streaming_user_turn_latest_image_only
+            if non_streaming_user_turn_latest_image_only is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_USER_TURN_LATEST_IMAGE_ONLY.value
+        ),
         non_streaming_include_stream_names=(
             non_streaming_include_stream_names
             if non_streaming_include_stream_names is not None
@@ -543,6 +568,11 @@ class AgentFrameworkConfig:
         non_streaming_thinking_level=(
             non_streaming_thinking_level
             or agentic_flags.AGENTIC_NON_STREAMING_THINKING_LEVEL.value
+        ),
+        non_streaming_tool_result_timeout_seconds=(
+            non_streaming_tool_result_timeout_seconds
+            if non_streaming_tool_result_timeout_seconds is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_TOOL_RESULT_TIMEOUT_SECONDS.value
         ),
         agent_temperature=(
             agent_temperature
@@ -699,6 +729,10 @@ class AgentFrameworkConfig:
         exclude_model_image_input_logging=(
             exclude_model_image_input_logging
             or agentic_flags.AGENTIC_EXCLUDE_MODEL_IMAGE_INPUT_LOGGING.value
+        ),
+        agent_session_id=(
+            agent_session_id
+            or agentic_flags.AGENTIC_LOGGING_AGENT_SESSION_ID.value
         ),
         non_streaming_enable_context_snapshot_logging=(
             non_streaming_enable_context_snapshot_logging

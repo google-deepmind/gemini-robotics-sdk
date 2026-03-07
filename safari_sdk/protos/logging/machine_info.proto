@@ -197,6 +197,36 @@ message MachineInfo {
     optional float memory_percent = 21;
   }
 
+  message USBInfo {
+    message Interface {
+      optional int32 class_id = 1;
+      optional int32 subclass_id = 2;
+      optional int32 protocol_id = 3;
+      optional string driver = 4;
+    }
+    message Device {
+      optional int32 bus_number = 1;
+      optional int32 device_address = 2;
+      optional string vendor_id = 3;   // e.g. "1d6b"
+      optional string product_id = 4;  // e.g. "0003"
+      optional string manufacturer = 5;
+      optional string product_name = 6;
+      optional string serial_number = 7;
+      repeated Interface interfaces = 8;
+    }
+    repeated Device devices = 1;
+  }
+
+  message InputInfo {
+    message InputDevice {
+      optional string name = 1;
+      optional string phys = 2;
+      optional string uniq = 3;
+      repeated string handlers = 4;
+    }
+    repeated InputDevice devices = 1;
+  }
+
   optional LinuxInfo linux = 1;
   optional CPUInfo cpu = 2;
   optional VirtualMemoryInfo virtual_memory = 3;
@@ -207,4 +237,6 @@ message MachineInfo {
   optional NetworkInfo network = 8;
   optional SensorInfo sensors = 9;
   repeated ProcessInfo processes = 10;
+  optional USBInfo usb = 11;
+  optional InputInfo input = 12;
 }
