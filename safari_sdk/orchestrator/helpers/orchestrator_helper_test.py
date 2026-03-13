@@ -1353,6 +1353,186 @@ class OrchestratorHelperTest(absltest.TestCase):
     )
     helper_lib._interface = mock_interface
 
+    response = helper_lib.get_artifact_uri(artifact_id="test_artifact_id")
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact_uri, "test_artifact_uri")
+
+  def test_get_artifact_uri_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.get_artifact_uri(artifact_id="test_artifact_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_get_artifact_uri_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.get_artifact_uri(artifact_id="test_artifact_id")
+
+  def test_disconnect(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    helper_lib.disconnect()
+    mock_interface.disconnect.assert_called_once()
+    self.assertIsNone(helper_lib._interface)
+
+  def test_upload_text_log_artifact_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.upload_text_log_artifact.return_value = (
+        orchestrator_helper.interface.RESPONSE(
+            success=True,
+            artifact_id="test_uploaded_artifact_id",
+        )
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.upload_text_log_artifact(
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact_id, "test_uploaded_artifact_id")
+
+  def test_upload_text_log_artifact_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.upload_text_log_artifact(
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_upload_text_log_artifact_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.upload_text_log_artifact(
+          source_file_name="test_log.txt",
+          text_file_bytes=b"test log content",
+      )
+
+  def test_load_rui_workcell_state_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.load_rui_workcell_state.return_value = (
+        orchestrator_helper.interface.RESPONSE(
+            success=True,
+            workcell_state="RUI_WORKCELL_STATE_AVAILABLE",
+        )
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.load_rui_workcell_state(robot_id="test_robot_id")
+    self.assertTrue(response.success)
+    self.assertEqual(response.workcell_state, "RUI_WORKCELL_STATE_AVAILABLE")
+
+  def test_load_rui_workcell_state_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.load_rui_workcell_state(robot_id="test_robot_id")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_load_rui_workcell_state_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.load_rui_workcell_state(robot_id="test_robot_id")
+
+  def test_set_rui_workcell_state_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.set_rui_workcell_state.return_value = (
+        orchestrator_helper.interface.RESPONSE(success=True)
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.set_rui_workcell_state(
+        robot_id="test_robot_id",
+        workcell_state="Available",
+    )
+    self.assertTrue(response.success)
+
+  def test_set_rui_workcell_state_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.set_rui_workcell_state(
+        robot_id="test_robot_id",
+        workcell_state="Available",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_set_rui_workcell_state_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.set_rui_workcell_state(
+          robot_id="test_robot_id",
+          workcell_state="Available",
+      )
+
 
 class OrchestratorHelperTestWithMockInterface(absltest.TestCase):
   """Tests for OrchestratorHelper with an overridden interface."""

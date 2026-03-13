@@ -15,7 +15,7 @@
 """Logger for Episodic data."""
 
 import collections
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 import copy
 import dataclasses
 import time
@@ -33,53 +33,9 @@ import tree
 from google.protobuf import struct_pb2
 from safari_sdk.logging.cc.python import log_writer
 from safari_sdk.logging.python import constants
-from safari_sdk.logging.python import metadata_utils
 from safari_sdk.logging.python import session_manager as session_manager_lib
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 from safari_sdk.protos import label_pb2
-from safari_sdk.protos.logging import orchestrator_info_pb2
-from safari_sdk.protos.logging import policy_type_pb2
-
-
-@dataclasses.dataclass(frozen=True)
-class EpisodeMetadataConfig:
-  """Configuration for episode metadata.
-
-  The episode metadata will be written to the Session proto by the
-  SessionManager.
-
-  Attributes:
-    policy_type: The type of the policy used to generate the data. This can be a
-      PolicyType or a Callable that returns a PolicyType. Using a callable can
-      be useful if the policy type changes between episodes. If provided, it is
-      called when `write` is called and the result is set in the session.
-    embodiment_version: A string that represents the version of the embodiment.
-    control_timestep_seconds: The control timestep in seconds.
-    fixed_tags: Fixed tags to be added to all episodes.
-    dynamic_episode_taggers: A Sequence of Callables each returning a Sequence
-      of strings. These are called when `write` is called and the tags are added
-      to the session manager.
-    dynamic_metadata_provider: A function that provides dynamic metadata to be
-      logged as session labels. The function is called when `write` is called.
-    is_success_provider: An optional callable that returns whether the episode
-      was successful. If provided, it is called when `write` is called and the
-      result is written as a session label.
-    orchestrator_info_provider: An optional callable that returns the current
-      OrchestratorInfo proto. If provided, it is called when the session is
-      stopped and the result is written to the Session proto.
-  """
-
-  policy_type: metadata_utils.PolicyConfigType = (
-      policy_type_pb2.PolicyType.POLICY_TYPE_UNSPECIFIED
-  )
-  embodiment_version: str = ""
-  control_timestep_seconds: float = 0.0
-  fixed_tags: Sequence[str] = ()
-  dynamic_episode_taggers: Sequence[Callable[[], Sequence[str]]] = ()
-  dynamic_metadata_provider: Callable[[], Mapping[str, str]] | None = None
-  is_success_provider: Callable[[], bool] | None = None
-  orchestrator_info_provider: (
-      Callable[[], orchestrator_info_pb2.OrchestratorInfo] | None
-  ) = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -107,7 +63,7 @@ class EpisodicLoggerConfig:
     timestep_spec: The timestep spec.
     action_spec: The action spec.
     policy_extra_spec: The policy extra spec.
-    metadata_config: The configuration for the episode metadata.
+    metadata_config: The configuration for the session metadata.
     validate_data_with_spec: Whether to validate the data with the spec.
     timestamp_key: The observation key that maps to the timestamps of each step
       in an episode. This is used to set the publish time of each MCAP message.
@@ -130,8 +86,10 @@ class EpisodicLoggerConfig:
   timestep_spec: gdmr_types.TimeStepSpec
   action_spec: gdmr_types.ActionSpec  # pytype: disable=invalid-annotation
   policy_extra_spec: gdmr_types.ExtraOutputSpec
-  metadata_config: EpisodeMetadataConfig = dataclasses.field(
-      default_factory=EpisodeMetadataConfig
+  metadata_config: session_metadata_lib.SessionMetadataConfig = (
+      dataclasses.field(
+          default_factory=session_metadata_lib.SessionMetadataConfig
+      )
   )
   validate_data_with_spec: bool = True
   timestamp_key: str | None = None
@@ -194,7 +152,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     session_manager = session_manager_lib.SessionManager(
         topics=topics,
         required_topics=required_topics,
-        policy_environment_metadata_params=metadata_utils.PolicyEnvironmentMetadataParams(
+        policy_environment_metadata_params=session_metadata_lib.PolicyEnvironmentMetadataParams(
             jpeg_compression_keys=config.image_observation_keys,
             observation_spec=config.timestep_spec.observation,
             reward_spec=config.timestep_spec.reward,
@@ -205,9 +163,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
             control_timestep=config.metadata_config.control_timestep_seconds,
             embodiment_version=config.metadata_config.embodiment_version,
         ),
-        fixed_tags=config.metadata_config.fixed_tags,
-        dynamic_episode_taggers=config.metadata_config.dynamic_episode_taggers,
-        orchestrator_info_provider=config.metadata_config.orchestrator_info_provider,
+        session_metadata_config=config.metadata_config,
     )
 
     max_num_workers = (
@@ -295,10 +251,6 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     self._policy_extra_spec = config.policy_extra_spec
     self._validate_data_with_spec = config.validate_data_with_spec
     self._timestamp_key = config.timestamp_key
-    self._dynamic_metadata_provider = (
-        config.metadata_config.dynamic_metadata_provider
-    )
-    self._is_success_provider = config.metadata_config.is_success_provider
 
     self._episode_uuid: str = ""
 
@@ -693,27 +645,6 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
             ),
         )
     )
-
-    if self._is_success_provider is not None:
-      self._session_manager.add_session_label(
-          label_pb2.LabelMessage(
-              key="success",
-              label_value=struct_pb2.Value(
-                  bool_value=self._is_success_provider()
-              ),
-          )
-      )
-
-    # TODO: Use standard metadata logging method.
-    if self._dynamic_metadata_provider is not None:
-      additional_metadata = self._dynamic_metadata_provider()
-      for key, value in additional_metadata.items():
-        self._session_manager.add_session_label(
-            label_pb2.LabelMessage(
-                key=key,
-                label_value=struct_pb2.Value(string_value=value),
-            )
-        )
 
     episode_end_time_ns = self._last_timestep_publish_time_ns
     logging.info("Episode end time ns: %d", episode_end_time_ns)

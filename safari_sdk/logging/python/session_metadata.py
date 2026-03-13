@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-"""Utils for managing metadata."""
+"""Classes and utility functions for populating the metadata of a Session."""
 
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
@@ -21,16 +21,110 @@ import sys
 from dm_env import specs
 import numpy as np
 
+from google.protobuf import struct_pb2
 from safari_sdk.logging.python import constants
+from safari_sdk.protos import label_pb2
 from safari_sdk.protos.logging import codec_pb2
 from safari_sdk.protos.logging import dtype_pb2
 from safari_sdk.protos.logging import feature_specs_pb2
+from safari_sdk.protos.logging import metadata_pb2
+from safari_sdk.protos.logging import orchestrator_info_pb2
 from safari_sdk.protos.logging import policy_type_pb2
 from safari_sdk.protos.logging import spec_pb2
 
 
 PolicyProviderType = Callable[[], policy_type_pb2.PolicyType]
 PolicyConfigType = policy_type_pb2.PolicyType | PolicyProviderType
+
+
+@dataclasses.dataclass(frozen=True)
+class SessionMetadataConfig:
+  """Configuration for session metadata.
+
+  The session metadata will be written to the Session proto.
+
+  Attributes:
+    policy_type: The type of the policy used to generate the data. This can be a
+      PolicyType or a Callable that returns a PolicyType. Using a callable can
+      be useful if the policy type changes between episodes. If provided, it is
+      called when `write` is called and the result is set in the session.
+    embodiment_version: A string that represents the version of the embodiment.
+    control_timestep_seconds: The control timestep in seconds.
+    fixed_tags: Fixed tags to be added to all episodes.
+    dynamic_episode_taggers: A Sequence of Callables each returning a Sequence
+      of strings. These are called when `write` is called and the tags are added
+      to the session manager.
+    dynamic_metadata_provider: A function that provides dynamic metadata to be
+      logged as session labels. The function is called when `write` is called.
+    is_success_provider: An optional callable that returns whether the episode
+      was successful. If provided, it is called when `write` is called and the
+      result is written as a session label.
+    orchestrator_info_provider: An optional callable that returns the current
+      OrchestratorInfo proto. If provided, it is called when the session is
+      stopped and the result is written to the Session proto.
+  """
+
+  policy_type: PolicyConfigType = (
+      policy_type_pb2.PolicyType.POLICY_TYPE_UNSPECIFIED
+  )
+  embodiment_version: str = ""
+  control_timestep_seconds: float = 0.0
+  fixed_tags: Sequence[str] = ()
+  dynamic_episode_taggers: Sequence[Callable[[], Sequence[str]]] = ()
+  dynamic_metadata_provider: Callable[[], Mapping[str, str]] | None = None
+  is_success_provider: Callable[[], bool] | None = None
+  orchestrator_info_provider: (
+      Callable[[], orchestrator_info_pb2.OrchestratorInfo] | None
+  ) = None
+
+
+def add_or_overwrite_session_metadata(
+    session: metadata_pb2.Session,
+    config: SessionMetadataConfig,
+) -> None:
+  """Adds or overwrites session metadata from a SessionMetadataConfig.
+
+  Args:
+    session: The Session proto to update.
+    config: The session metadata configuration.
+  """
+  policy_type = config.policy_type
+  if callable(policy_type):
+    policy_type = policy_type()
+  session.policy_environment_metadata.policy_type = policy_type
+
+  session.policy_environment_metadata.embodiment_version = (
+      config.embodiment_version
+  )
+  session.policy_environment_metadata.control_timestep = (
+      config.control_timestep_seconds
+  )
+
+  session.tags.extend(config.fixed_tags)
+  for tagger in config.dynamic_episode_taggers:
+    session.tags.extend(tagger())
+
+  if config.is_success_provider is not None:
+    session.labels.append(
+        label_pb2.LabelMessage(
+            key="success",
+            label_value=struct_pb2.Value(
+                bool_value=config.is_success_provider()
+            ),
+        )
+    )
+
+  if config.dynamic_metadata_provider is not None:
+    for key, value in config.dynamic_metadata_provider().items():
+      session.labels.append(
+          label_pb2.LabelMessage(
+              key=key,
+              label_value=struct_pb2.Value(string_value=value),
+          )
+      )
+
+  if config.orchestrator_info_provider is not None:
+    session.orchestrator_info.CopyFrom(config.orchestrator_info_provider())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,7 +203,6 @@ def create_feature_specs_proto(
           create_spec_proto(spec)
       )
 
-  # Process the policy extra spec
   for key, spec in params.policy_extra_spec.items():
     policy_extra_spec[constants.POLICY_EXTRA_KEY_TEMPLATE.format(key)] = (
         create_spec_proto(spec)
@@ -179,7 +272,7 @@ def convert_spec_bound(bound: float | int | np.ndarray) -> list[float]:
   elif isinstance(bound, np.ndarray):
     values = np.asarray(bound).flatten().tolist()
   else:
-    raise ValueError(f'Unsupported bound type {type(bound)}')
+    raise ValueError(f"Unsupported bound type {type(bound)}")
 
   processed_values = []
   for val in values:
@@ -223,4 +316,4 @@ def create_dtype_proto(
   elif dtype == np.str_ or dtype == np.object_:
     return dtype_pb2.DTYPE_STRING
 
-  raise ValueError(f'Unsupported dtype {dtype} used in spec.')
+  raise ValueError(f"Unsupported dtype {dtype} used in spec.")

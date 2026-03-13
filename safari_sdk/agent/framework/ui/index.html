@@ -211,6 +211,9 @@
 
     .filter-container {
       position: relative;
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
     }
 
     .filter-dropdown {
@@ -437,6 +440,64 @@
       box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
     }
 
+    .connection-banner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 10px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      transition: opacity 0.6s ease, max-height 0.6s ease, padding 0.6s ease, border-width 0.6s ease;
+      overflow: hidden;
+      max-height: 60px;
+      opacity: 1;
+    }
+
+    .connection-banner.connected {
+      background: linear-gradient(90deg, rgba(0, 200, 83, 0.15) 0%, rgba(0, 200, 83, 0.05) 100%);
+      color: #00c853;
+      border-bottom: 2px solid rgba(0, 200, 83, 0.4);
+    }
+
+    .connection-banner.hidden {
+      opacity: 0;
+      max-height: 0;
+      padding: 0 24px;
+      border-bottom-width: 0;
+    }
+
+    .connection-banner.disconnected {
+      background: linear-gradient(90deg, rgba(255, 23, 68, 0.25) 0%, rgba(255, 23, 68, 0.10) 100%);
+      color: #ff1744;
+      border-bottom: 2px solid rgba(255, 23, 68, 0.6);
+      animation: pulse-disconnect 1.5s ease-in-out infinite;
+    }
+
+    .connection-banner .banner-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .connection-banner.connected .banner-dot {
+      background: #00c853;
+      box-shadow: 0 0 8px rgba(0, 200, 83, 0.6);
+    }
+
+    .connection-banner.disconnected .banner-dot {
+      background: #ff1744;
+      box-shadow: 0 0 12px rgba(255, 23, 68, 0.8);
+    }
+
+    @keyframes pulse-disconnect {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
     .status-bar {
       padding: 8px 16px;
       background: var(--bg-secondary);
@@ -446,25 +507,6 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-    }
-
-    .status-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent-cyan);
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
     }
 
     ::-webkit-scrollbar {
@@ -494,6 +536,11 @@
     <button class="menu-btn" title="More options">⋮</button>
   </header>
 
+  <div class="connection-banner disconnected" id="connectionBanner">
+    <span class="banner-dot"></span>
+    <span id="connectionText">DISCONNECTED</span>
+  </div>
+
   <div class="main-container">
     <div class="image-panel" id="imagePanel">
       <div class="image-toolbar">
@@ -514,6 +561,7 @@
       <div class="events-header">
         <h2>◈ Events</h2>
         <div class="filter-container">
+          <button class="btn" id="clearLogsBtn">🗑 Clear</button>
           <button class="btn" id="filterBtn">Filter</button>
           <div class="filter-dropdown" id="filterDropdown"></div>
         </div>
@@ -529,10 +577,7 @@
   </div>
 
   <div class="status-bar">
-    <div class="status-indicator">
-      <span class="status-dot"></span>
-      <span id="statusBar">Initializing systems...</span>
-    </div>
+    <span id="statusBar">Initializing systems...</span>
     <span id="timestamp"></span>
   </div>
 
@@ -622,6 +667,29 @@
       }
     };
 
+    let connectionState = 'disconnected';
+    let connectionFadeTimer = null;
+
+    function setConnectionState(state) {
+      connectionState = state;
+      const banner = document.getElementById('connectionBanner');
+      const text = document.getElementById('connectionText');
+      if (connectionFadeTimer) {
+        clearTimeout(connectionFadeTimer);
+        connectionFadeTimer = null;
+      }
+      if (state === 'connected') {
+        banner.className = 'connection-banner connected';
+        text.textContent = 'CONNECTED';
+        connectionFadeTimer = setTimeout(() => {
+          banner.classList.add('hidden');
+        }, 2000);
+      } else {
+        banner.className = 'connection-banner disconnected';
+        text.textContent = 'DISCONNECTED';
+      }
+    }
+
     async function init() {
       setupFilterDropdown();
       startEventStream();
@@ -705,7 +773,8 @@
       eventSource = new EventSource(url);
       eventSource.onopen = () => {
         console.log('Event stream connected');
-        updateStatus('Connected - streaming ' + selectedEventTypes.size + ' event types');
+        setConnectionState('connected');
+        updateStatus('Streaming ' + selectedEventTypes.size + ' event types');
       };
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -713,6 +782,7 @@
       };
       eventSource.onerror = (err) => {
         console.error('Event stream error:', err);
+        setConnectionState('disconnected');
         updateStatus('Event stream error - retrying...');
       };
     }
@@ -1336,6 +1406,10 @@
     document.getElementById('overridesBtn').addEventListener('click', () => alert('Overrides: Not implemented yet'));
     document.getElementById('addFileBtn').addEventListener('click', () => alert('Add file: Not implemented yet'));
     document.getElementById('micBtn').addEventListener('click', toggleRecording);
+    document.getElementById('clearLogsBtn').addEventListener('click', () => {
+      document.getElementById('eventsLog').innerHTML = '';
+      transcriptBuffer.clear();
+    });
 
 
 

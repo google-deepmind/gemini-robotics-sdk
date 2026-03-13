@@ -65,3 +65,11 @@ class LoadArtifactResponse:
   """Orchestrator artifact information."""
 
   artifact: Artifact
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class UploadTextLogArtifactResponse:
+  """Artifact ID after uploading a text log artifact to Orchestrator."""
+
+  artifactId: str | None = None  # pylint: disable=invalid-name

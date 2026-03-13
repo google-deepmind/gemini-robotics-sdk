@@ -33,6 +33,7 @@ from safari_sdk.logging.python import constants
 from safari_sdk.logging.python import mcap_parser_utils
 from safari_sdk.logging.python import episodic_logger
 from safari_sdk.logging.python import session_manager
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 
 _TEST_AGENT_ID = "fake_agent_id_for_test"
 _TEST_TASK_ID = "fake_task_id_for_test"
@@ -2893,7 +2894,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
             policy_extra_spec={},
             # Test with multiple dynamic tagger to ensure that the returned tags
             # lists are correctly merged.
-            metadata_config=episodic_logger.EpisodeMetadataConfig(
+            metadata_config=session_metadata_lib.SessionMetadataConfig(
                 dynamic_episode_taggers=[
                     lambda: ["tag1", "tag2"],
                     lambda: ["tag3", "tag4"],
@@ -2962,7 +2963,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
             timestep_spec=timestep_spec,
             image_observation_keys=[],
             policy_extra_spec={},
-            metadata_config=episodic_logger.EpisodeMetadataConfig(
+            metadata_config=session_metadata_lib.SessionMetadataConfig(
                 is_success_provider=lambda: is_success,
             ),
         )

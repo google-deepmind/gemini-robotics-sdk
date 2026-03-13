@@ -20,6 +20,7 @@ import threading
 
 from safari_sdk.logging.python import base_logger
 from safari_sdk.logging.python import constants
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 from safari_sdk.logging.python import stream_logger_interface
 from safari_sdk.protos.logging import metadata_pb2
 
@@ -37,6 +38,12 @@ class StreamLogger(
       optional_topics: Collection[str] | None = None,
       file_shard_size_limit_bytes: int = constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES,
       message_queue_size_limit: int = 0,
+      session_metadata_config: (
+          session_metadata_lib.SessionMetadataConfig | None
+      ) = None,
+      policy_environment_metadata_params: (
+          session_metadata_lib.PolicyEnvironmentMetadataParams | None
+      ) = None,
   ):
     super().__init__(
         agent_id=agent_id,
@@ -55,6 +62,10 @@ class StreamLogger(
     )
     self._sync_message_lock: threading.Lock = threading.Lock()
     self._have_all_required_topics: bool = False
+    self._session_metadata_config = session_metadata_config
+    self._policy_environment_metadata_params = (
+        policy_environment_metadata_params
+    )
 
   def has_received_all_required_topics(self) -> bool:
     if not self._have_all_required_topics:
@@ -68,6 +79,23 @@ class StreamLogger(
       # because the sync_message is never cleared.
       self._have_all_required_topics = True
     return True
+
+  def _add_metadata_to_session(self) -> None:
+    if self._session is None:
+      return
+
+    if self._session_metadata_config is not None:
+      session_metadata_lib.add_or_overwrite_session_metadata(
+          self._session, self._session_metadata_config
+      )
+
+    if self._policy_environment_metadata_params is not None:
+      feature_specs = session_metadata_lib.create_feature_specs_proto(
+          self._policy_environment_metadata_params
+      )
+      self._session.policy_environment_metadata.feature_specs.CopyFrom(
+          feature_specs
+      )
 
   def start_session(
       self,
@@ -86,9 +114,11 @@ class StreamLogger(
         output_file_prefix=output_file_prefix,
     ):
       return False
+
     return True
 
   def stop_session(self, stop_nsec: int) -> None:
+    self._add_metadata_to_session()
     super().stop_session(stop_nsec=stop_nsec)
     self._session_started = False
 

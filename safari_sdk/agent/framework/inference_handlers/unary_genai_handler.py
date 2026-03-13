@@ -26,6 +26,7 @@ from collections.abc import Sequence
 import datetime
 import enum
 import os
+import time
 
 from absl import logging
 from google import genai
@@ -202,7 +203,19 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
       remaining_empty_candidates_retries = _EMPTY_CANDIDATES_INNER_RETRIES
       while True:
         try:
-          response = await self._retry_wrapper(self._call_model)
+          query_start_time = time.time()
+          response, num_retries = await self._retry_wrapper(self._call_model)
+          query_elapsed = time.time() - query_start_time
+
+          # Count thinking words before recording result.
+          num_thinking_words = 0
+          if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts or []:
+              if hasattr(part, "thought") and part.thought and part.text:
+                num_thinking_words += len(part.text.split())
+          self._record_query_result(
+              num_retries, query_elapsed, num_thinking_words
+          )
           await self._maybe_publish_health_event(None)
         except Exception as e:
           logging.error("Error generating response: %s", e, exc_info=True)

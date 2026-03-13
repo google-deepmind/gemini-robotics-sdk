@@ -18,7 +18,7 @@ import numpy as np
 from absl.testing import absltest
 from absl.testing import parameterized
 from safari_sdk.logging.python import constants
-from safari_sdk.logging.python import metadata_utils
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 from safari_sdk.protos.logging import codec_pb2
 from safari_sdk.protos.logging import dtype_pb2
 from safari_sdk.protos.logging import policy_type_pb2
@@ -69,7 +69,9 @@ class MetadataUtilsTest(parameterized.TestCase):
       ),
   )
   def test_create_dtype_proto_for_valid_dtypes(self, dtype, expected_dtype):
-    self.assertEqual(metadata_utils.create_dtype_proto(dtype), expected_dtype)
+    self.assertEqual(
+        session_metadata_lib.create_dtype_proto(dtype), expected_dtype
+    )
 
   @parameterized.named_parameters(
       dict(
@@ -95,7 +97,7 @@ class MetadataUtilsTest(parameterized.TestCase):
   )
   def test_create_dtype_proto_raises_error_for_invalid_dtype(self, dtype):
     with self.assertRaises(ValueError):
-      metadata_utils.create_dtype_proto(dtype)
+      session_metadata_lib.create_dtype_proto(dtype)
 
   @parameterized.named_parameters(
       dict(
@@ -120,7 +122,9 @@ class MetadataUtilsTest(parameterized.TestCase):
       ),
   )
   def test_convert_spec_bound_for_scalar_value(self, bound, expected_values):
-    self.assertEqual(metadata_utils.convert_spec_bound(bound), expected_values)
+    self.assertEqual(
+        session_metadata_lib.convert_spec_bound(bound), expected_values
+    )
 
   @parameterized.named_parameters(
       dict(
@@ -135,11 +139,13 @@ class MetadataUtilsTest(parameterized.TestCase):
       ),
   )
   def test_convert_spec_bound_for_numpy_array(self, bound, expected_values):
-    self.assertEqual(metadata_utils.convert_spec_bound(bound), expected_values)
+    self.assertEqual(
+        session_metadata_lib.convert_spec_bound(bound), expected_values
+    )
 
   def test_creates_spec_proto_for_array_spec(self):
     array_spec = specs.Array(shape=(1, 2, 3), dtype=np.float32)
-    spec_proto = metadata_utils.create_spec_proto(
+    spec_proto = session_metadata_lib.create_spec_proto(
         array_spec, codec_pb2.CODEC_NONE
     )
     self.assertSequenceEqual(spec_proto.shape, array_spec.shape)
@@ -155,7 +161,7 @@ class MetadataUtilsTest(parameterized.TestCase):
         minimum=np.array([1.0, 2.0, 3.0]),
         maximum=np.array([4.0, 5.0, 6.0]),
     )
-    spec_proto = metadata_utils.create_spec_proto(
+    spec_proto = session_metadata_lib.create_spec_proto(
         bounded_array_spec, codec_pb2.CODEC_NONE
     )
     self.assertSequenceEqual(spec_proto.shape, bounded_array_spec.shape)
@@ -166,7 +172,7 @@ class MetadataUtilsTest(parameterized.TestCase):
 
   def test_create_feature_specs_proto_with_array_specs(self):
 
-    params = metadata_utils.PolicyEnvironmentMetadataParams(
+    params = session_metadata_lib.PolicyEnvironmentMetadataParams(
         jpeg_compression_keys=["observation1"],
         observation_spec={
             "observation1": specs.Array(shape=(1, 2, 3), dtype=np.uint8),
@@ -189,7 +195,7 @@ class MetadataUtilsTest(parameterized.TestCase):
         embodiment_version="v1",
     )
 
-    spec_proto = metadata_utils.create_feature_specs_proto(params)
+    spec_proto = session_metadata_lib.create_feature_specs_proto(params)
 
     self.assertSequenceEqual(
         spec_proto.observation[
@@ -300,7 +306,7 @@ class MetadataUtilsTest(parameterized.TestCase):
     )
 
   def test_create_feature_specs_proto_with_mapping_of_array_specs(self):
-    params = metadata_utils.PolicyEnvironmentMetadataParams(
+    params = session_metadata_lib.PolicyEnvironmentMetadataParams(
         jpeg_compression_keys=["observation1"],
         observation_spec={
             "observation1": specs.Array(shape=(1, 2, 3), dtype=np.float32),
@@ -322,7 +328,7 @@ class MetadataUtilsTest(parameterized.TestCase):
         control_timestep=0.04,
         embodiment_version="v1",
     )
-    spec_proto = metadata_utils.create_feature_specs_proto(params)
+    spec_proto = session_metadata_lib.create_feature_specs_proto(params)
 
     self.assertSequenceEqual(
         spec_proto.reward[

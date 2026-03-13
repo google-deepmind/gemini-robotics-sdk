@@ -170,7 +170,145 @@ class ArtifactTest(absltest.TestCase):
     artifact_lib = artifact.OrchestratorArtifact(connection=mock_connection)
     response = artifact_lib.get_artifact_uri(artifact_id="")
     self.assertFalse(response.success)
-    self.assertEqual("Artifact ID is empty.", response.error_message)
+    self.assertEqual(artifact._ERROR_EMPTY_ARTIFACT_ID, response.error_message)
+
+  def test_upload_text_log_artifact_success(self):
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().uploadTextLogArtifact().execute.return_value = {
+        "artifactId": "test_uploaded_artifact_id",
+    }
+
+    artifact_lib = artifact.OrchestratorArtifact(connection=mock_connection)
+
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact_id, "test_uploaded_artifact_id")
+
+  def test_upload_text_log_artifact_bad_server_call(self):
+
+    class MockHttpError:
+
+      def __init__(self):
+        self.status = "Mock status"
+        self.reason = "Mock reason"
+        self.error_details = "Mock error details"
+
+    def raise_error_side_effect():
+      raise errors.HttpError(MockHttpError(), "Mock failed HTTP call.".encode())
+
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().uploadTextLogArtifact().execute.side_effect = (
+        raise_error_side_effect
+    )
+
+    artifact_lib = artifact.OrchestratorArtifact(connection=mock_connection)
+
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+
+    self.assertFalse(response.success)
+    self.assertIn(
+        artifact._ERROR_UPLOAD_TEXT_LOG_ARTIFACT, response.error_message
+    )
+
+  @mock.patch("time.time_ns")
+  def test_upload_text_log_artifact_empty_response(self, mock_time):
+    mock_time.return_value = 123456789
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().uploadTextLogArtifact().execute.return_value = (
+        None
+    )
+    artifact_lib = artifact.OrchestratorArtifact(connection=mock_connection)
+
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        artifact._ERROR_EMPTY_RESPONSE + "[Error ID: 123456789]",
+        response.error_message,
+    )
+
+  def test_upload_text_log_artifact_bad_connection(self):
+    artifact_lib = artifact.OrchestratorArtifact(connection=None)
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        artifact._ERROR_NO_ORCHESTRATOR_CONNECTION, response.error_message
+    )
+
+  def test_upload_text_log_artifact_empty_robot_job_id(self):
+    artifact_lib = artifact.OrchestratorArtifact(
+        connection=self.mock_connection
+    )
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(artifact._ERROR_EMPTY_ROBOT_JOB_ID, response.error_message)
+
+  def test_upload_text_log_artifact_empty_robot_id(self):
+    artifact_lib = artifact.OrchestratorArtifact(
+        connection=self.mock_connection
+    )
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(artifact._ERROR_EMPTY_ROBOT_ID, response.error_message)
+
+  def test_upload_text_log_artifact_empty_source_file_name(self):
+    artifact_lib = artifact.OrchestratorArtifact(
+        connection=self.mock_connection
+    )
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="",
+        text_file_bytes=b"test log content",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        artifact._ERROR_EMPTY_SOURCE_FILE_NAME, response.error_message
+    )
+
+  def test_upload_text_log_artifact_empty_text_file_bytes(self):
+    artifact_lib = artifact.OrchestratorArtifact(
+        connection=self.mock_connection
+    )
+    response = artifact_lib.upload_text_log_artifact(
+        robot_job_id="test_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        artifact._ERROR_EMPTY_TEXT_FILE_BYTES, response.error_message
+    )
 
 
 if __name__ == "__main__":

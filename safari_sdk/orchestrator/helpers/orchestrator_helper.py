@@ -546,6 +546,22 @@ class OrchestratorHelper:
 
     return self._interface.get_artifact(artifact_id=artifact_id)
 
+  def upload_text_log_artifact(
+      self,
+      source_file_name: str,
+      text_file_bytes: bytes,
+  ) -> RESPONSE:
+    """Uploads a text log artifact."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.upload_text_log_artifact(
+        source_file_name=source_file_name,
+        text_file_bytes=text_file_bytes,
+    )
+
   def load_rui_workcell_state(self, robot_id: str) -> RESPONSE:
     """Loads the RUI workcell state for the given robot."""
     if self._interface is None:

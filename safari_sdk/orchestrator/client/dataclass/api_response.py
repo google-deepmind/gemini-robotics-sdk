@@ -64,6 +64,7 @@ class OrchestratorAPIResponse:
     robot_stage: Current Orca status of the robot.
     artifact_uri: Download URI for the specified artifact.
     latest_robot_release_configs: Latest robot release configs for the fleet.
+    artifact_id: Artifact ID for the uploaded text log artifact.
   """
 
   success: bool = False
@@ -89,3 +90,4 @@ class OrchestratorAPIResponse:
   robot_stage: str | None = None
   artifact_uri: str | None = None
   latest_robot_release_configs: list[work_unit_data.KvMsg] | None = None
+  artifact_id: str | None = None

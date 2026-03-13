@@ -19,6 +19,7 @@ import base64
 import enum
 import json
 import logging
+import pathlib
 from typing import Any
 
 import fastapi
@@ -106,11 +107,18 @@ class ExternalControllerFastAPIServer:
   """
 
   def __init__(
-      self, bus: event_bus.EventBus, host: str = "127.0.0.1", port: int = 8887
+      self,
+      bus: event_bus.EventBus,
+      host: str = "127.0.0.1",
+      port: int = 8887,
+      ui_path: pathlib.Path | None = None,
   ):
     self._bus = bus
     self._host = host
     self._port = port
+    if ui_path is None:
+      ui_path = pathlib.Path(__file__).parent.parent / "ui" / "index.html"
+    self._ui_path = ui_path
     self._external_controller_server = fastapi.FastAPI()
     self._server_task = None
     self.framework_status = EARFrameworkStatus.NOT_READY
@@ -157,10 +165,9 @@ class ExternalControllerFastAPIServer:
               proc.wait(timeout=self._PROCESS_TERMINATE_TIMEOUT_SECS)
               logging.warning(
                   "\n"
-                  "╔══════════════════════════════════════════════════════════════╗\n"
-                  "║  🛑 TERMINATED PROCESS ON PORT %s (PID: %s, %s)           "
-                  "  ║\n"
-                  "╚══════════════════════════════════════════════════════════════╝",
+                  "╔══════════════════════════════════════════════════════╗\n"
+                  "║  🛑 TERMINATED PROCESS ON PORT %s (PID: %s, %s)\n"
+                  "╚══════════════════════════════════════════════════════╝",
                   self._port,
                   conn.pid,
                   proc_name,
@@ -169,12 +176,10 @@ class ExternalControllerFastAPIServer:
               proc.kill()
               logging.warning(
                   "\n"
-                  "╔══════════════════════════════════════════════════════════════╗\n"
-                  "║  🔪 KILLED PROCESS ON PORT %s (PID: %s, %s)               "
-                  "  ║\n"
-                  "║  (Process did not respond to SIGTERM after %s seconds)    "
-                  "  ║\n"
-                  "╚══════════════════════════════════════════════════════════════╝",
+                  "╔══════════════════════════════════════════════════════╗\n"
+                  "║  🔪 KILLED PROCESS ON PORT %s (PID: %s, %s)\n"
+                  "║  (Process did not respond to SIGTERM after %s seconds)\n"
+                  "╚══════════════════════════════════════════════════════╝",
                   self._port,
                   conn.pid,
                   proc_name,
@@ -205,6 +210,14 @@ class ExternalControllerFastAPIServer:
 
   def _setup_endpoints(self) -> None:
     """Sets up the external controller FastAPI endpoints."""
+
+    @self._external_controller_server.get(
+        "/", response_class=fastapi.responses.HTMLResponse
+    )
+    async def serve_ui():
+      if self._ui_path.exists():
+        return fastapi.responses.HTMLResponse(content=self._ui_path.read_text())
+      raise fastapi.HTTPException(status_code=404, detail="UI not found")
 
     @self._external_controller_server.get("/execute_lh_task/")
     async def execute_lh_task(  # pylint: disable=unused-variable
@@ -655,8 +668,7 @@ class ExternalControllerFastAPIServer:
         )
 
   async def _handle_framework_status_events(
-      self,
-      event: event_bus.Event
+      self, event: event_bus.Event
   ) -> None:
     """Callback for framework status events."""
     logging.warning(
@@ -666,23 +678,28 @@ class ExternalControllerFastAPIServer:
     self.framework_status = EARFrameworkStatus(event.data)
 
   async def _handle_orchestrator_health_events(
-      self,
-      event: event_bus.Event
+      self, event: event_bus.Event
   ) -> None:
     """Callback for orchestrator health events from any orchestrator type."""
-    logging.warning(
-        "Health status for orchestrator changed. Status transitioning to: %s",
-        event.data["health_status"],
-    )
+    new_health_status = event.data["health_status"]
+    current_health = self.component_health_dict.get("orchestrator", {})
+    if current_health.get("health_status") != new_health_status:
+      logging.warning(
+          "Health status for orchestrator changed. Status transitioning to: %s",
+          new_health_status,
+      )
     self.component_health_dict["orchestrator"] = {
-        "health_status": event.data["health_status"],
+        "health_status": new_health_status,
         "exception_message": event.data["exception_message"],
+        "latency_and_retries_per_query": event.data.get(
+            "latency_and_retries_per_query", []
+        ),
+        "num_thinking_words_per_query": event.data.get(
+            "num_thinking_words_per_query", []
+        ),
     }
 
-  async def _handle_tool_health_events(
-      self,
-      event: event_bus.Event
-  ) -> None:
+  async def _handle_tool_health_events(self, event: event_bus.Event) -> None:
     """Callback for tool health events."""
     logging.warning(
         "Health status for tool %s changed. Status transitioning to: %s",

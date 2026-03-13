@@ -14,7 +14,6 @@
 
 """Logger for LeRobot data."""
 
-from collections.abc import Callable
 import concurrent.futures
 
 from absl import logging
@@ -24,6 +23,7 @@ from gdm_robotics.interfaces import types as gdmr_types
 import numpy as np
 
 from safari_sdk.logging.python import episodic_logger
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 
 
 # LeRobot step keys.
@@ -70,7 +70,9 @@ class LeRobotEpisodicLogger:
       proprioceptive_observation_keys: list[str] | None = None,
       generate_episode_timestamps: bool = True,
       features: dict | None = None,
-      is_success_provider: Callable[[], bool] | None = None,
+      session_metadata_config: (
+          session_metadata_lib.SessionMetadataConfig | None
+      ) = None,
   ):
     """Initializes the logger.
 
@@ -87,8 +89,8 @@ class LeRobotEpisodicLogger:
         by the lerobot dataset should be mapped to the _TIMESTAMP_KEY.
       features: A dictionary of dataset features, used to generate specs for
         validation.
-      is_success_provider: An optional callable that returns whether the episode
-        was successful.
+      session_metadata_config: An optional configuration for the session
+        metadata.
     """
 
     self._task_id = task_id
@@ -96,7 +98,9 @@ class LeRobotEpisodicLogger:
     self._image_observation_keys = image_observation_keys or []
     self._proprioceptive_observation_keys = proprioceptive_observation_keys
     self._generate_episode_timestamps = generate_episode_timestamps
-    self._is_success_provider = is_success_provider
+    self._session_metadata_config = (
+        session_metadata_config or session_metadata_lib.SessionMetadataConfig()
+    )
     self._timestep_spec = None
     self._action_spec = None
 
@@ -252,9 +256,7 @@ class LeRobotEpisodicLogger:
         policy_extra_spec={},
         timestamp_key=_TIMESTAMP_KEY,
         validate_data_with_spec=True,
-        metadata_config=episodic_logger.EpisodeMetadataConfig(
-            is_success_provider=self._is_success_provider,
-        ),
+        metadata_config=self._session_metadata_config,
     )
     self._episodic_logger = episodic_logger.EpisodicLogger.create(config)
     self._previous_action = None

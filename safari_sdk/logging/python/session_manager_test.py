@@ -12,16 +12,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import dataclasses
-
 from dm_env import specs
 import numpy as np
 
 from google.protobuf import struct_pb2
 from absl.testing import absltest
 from safari_sdk.logging.python import constants
-from safari_sdk.logging.python import metadata_utils
 from safari_sdk.logging.python import session_manager
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 from safari_sdk.protos import label_pb2
 from safari_sdk.protos.logging import codec_pb2
 from safari_sdk.protos.logging import dtype_pb2
@@ -47,7 +45,7 @@ class SessionManagerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self._policy_environment_metadata_params = metadata_utils.PolicyEnvironmentMetadataParams(
+    self._policy_environment_metadata_params = session_metadata_lib.PolicyEnvironmentMetadataParams(
         jpeg_compression_keys=[],
         observation_spec={
             "observation1": specs.Array(shape=(1, 2, 3), dtype=np.float32)
@@ -63,6 +61,11 @@ class SessionManagerTest(absltest.TestCase):
         policy_extra_spec={},
         policy_type=policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_TELEOPERATION,
         control_timestep=0.04,
+        embodiment_version="test_version",
+    )
+    self._session_metadata_config = session_metadata_lib.SessionMetadataConfig(
+        policy_type=policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_TELEOPERATION,
+        control_timestep_seconds=0.04,
         embodiment_version="test_version",
     )
 
@@ -157,11 +160,14 @@ class SessionManagerTest(absltest.TestCase):
         scene_preset_id="test_scene_preset",
         task_instruction="pick up the block",
     )
+    config = session_metadata_lib.SessionMetadataConfig(
+        orchestrator_info_provider=lambda: orchestrator_info,
+    )
     manager = session_manager.SessionManager(
         topics={"topic1"},
         required_topics={"topic1"},
         policy_environment_metadata_params=self._policy_environment_metadata_params,
-        orchestrator_info_provider=lambda: orchestrator_info,
+        session_metadata_config=config,
     )
     manager.start_session(start_timestamp_nsec=123, task_id=_TEST_TASK_ID)
     session = manager.stop_session(stop_timestamp_nsec=456)
@@ -192,33 +198,37 @@ class SessionManagerTest(absltest.TestCase):
     policy_type_provider = TestPolicyTypeProvider(
         policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_TELEOPERATION
     )
-    params = dataclasses.replace(
-        self._policy_environment_metadata_params,
+    config = session_metadata_lib.SessionMetadataConfig(
         policy_type=policy_type_provider,
     )
     manager = session_manager.SessionManager(
         topics={"topic1"},
         required_topics={"topic1"},
-        policy_environment_metadata_params=params,
+        policy_environment_metadata_params=self._policy_environment_metadata_params,
+        session_metadata_config=config,
     )
     manager.start_session(start_timestamp_nsec=123, task_id=_TEST_TASK_ID)
-    # Update the policy type before stop_session.
     policy_type_provider.set_policy_type(
         policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_EVALUATION
     )
     session = manager.stop_session(stop_timestamp_nsec=456)
-    # The policy type is updated to the value from the provider.
     self.assertEqual(
         session.policy_environment_metadata.policy_type,
         policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_EVALUATION,
     )
 
   def test_stop_session(self):
+    config = session_metadata_lib.SessionMetadataConfig(
+        policy_type=policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_TELEOPERATION,
+        control_timestep_seconds=0.04,
+        embodiment_version="test_version",
+        fixed_tags=["tag1", "tag2"],
+    )
     manager = session_manager.SessionManager(
         topics={"topic1", "topic2"},
         required_topics={"topic1"},
         policy_environment_metadata_params=self._policy_environment_metadata_params,
-        fixed_tags=["tag1", "tag2"],
+        session_metadata_config=config,
     )
     start_nsec = 123
     stop_nsec = 456
@@ -232,7 +242,6 @@ class SessionManagerTest(absltest.TestCase):
     for stream in session.streams:
       self.assertEqual(stream.key_range.interval.stop_nsec, stop_nsec)
 
-    # Check the session feature specs.
     feature_specs = session.policy_environment_metadata.feature_specs
     self.assertSequenceEqual(
         feature_specs.observation[
@@ -299,15 +308,18 @@ class SessionManagerTest(absltest.TestCase):
     )
 
   def test_stop_session_with_fixed_and_dynamic_tags(self):
-    manager = session_manager.SessionManager(
-        topics={"topic1", "topic2"},
-        required_topics={"topic1"},
-        policy_environment_metadata_params=self._policy_environment_metadata_params,
+    config = session_metadata_lib.SessionMetadataConfig(
         fixed_tags=["tag1", "tag2"],
         dynamic_episode_taggers=[
             lambda: ["tag3", "tag4"],
             lambda: ["tag5", "tag6"],
         ],
+    )
+    manager = session_manager.SessionManager(
+        topics={"topic1", "topic2"},
+        required_topics={"topic1"},
+        policy_environment_metadata_params=self._policy_environment_metadata_params,
+        session_metadata_config=config,
     )
     manager.start_session(start_timestamp_nsec=123, task_id=_TEST_TASK_ID)
     session = manager.stop_session(stop_timestamp_nsec=456)

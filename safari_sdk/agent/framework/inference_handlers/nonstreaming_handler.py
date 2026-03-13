@@ -214,6 +214,11 @@ class NonStreamingHandler(abc.ABC):
         config.non_streaming_tool_result_timeout_seconds
     )
 
+    # Query history: list of (num_retries, total_time_seconds) for each query
+    self._latency_and_retries_per_query: list[tuple[int, float]] = []
+    # Number of words in thinking/thought tokens per query
+    self._num_thinking_words_per_query: list[int] = []
+
   async def connect(self) -> None:
     ...
 
@@ -235,7 +240,7 @@ class NonStreamingHandler(abc.ABC):
       **kwargs: Keyword arguments to pass to generate_fn.
 
     Returns:
-      The generated response.
+      A tuple of (response, num_retries) if the generate function succeeds.
 
     Raises:
       The last exception if all retries are exhausted.
@@ -244,7 +249,8 @@ class NonStreamingHandler(abc.ABC):
 
     for attempt in range(NUM_RETRIES):
       try:
-        return await generate_fn(*args, **kwargs)
+        response = await generate_fn(*args, **kwargs)
+        return response, attempt
       except Exception as e:  # pylint: disable=broad-exception-caught
         if not is_retriable_exception(e):
           logging.error("Generate failed with non-retriable error: %s", e)
@@ -269,6 +275,18 @@ class NonStreamingHandler(abc.ABC):
     with self._stitch_lock:
       self._latest_images = {}
       self._stitched_frames = []
+
+  def _record_query_result(
+      self,
+      num_retries: int,
+      total_time_seconds: float,
+      num_thinking_words: int = 0,
+  ) -> None:
+    """Records retry count, elapsed time, and thinking words."""
+    self._latency_and_retries_per_query.append(
+        (num_retries, total_time_seconds)
+    )
+    self._num_thinking_words_per_query.append(num_thinking_words)
 
   def _start_image_stitching(self) -> None:
     if self._enable_image_stitching:
@@ -703,15 +721,18 @@ class NonStreamingHandler(abc.ABC):
   async def _publish_health_status(
       self, status: NonstreamingOrchestratorHealth, exception: Exception | None
   ) -> None:
-    if self._api_health != status:
-      self._api_health = status
-      await self._publish_event(
-          event_bus.EventType.ORCHESTRATOR_CLIENT_HEALTH,
-          {
-              "health_status": status.value,
-              "exception_message": str(exception) if exception else None,
-          },
-      )
+    self._api_health = status
+    await self._publish_event(
+        event_bus.EventType.ORCHESTRATOR_CLIENT_HEALTH,
+        {
+            "health_status": status.value,
+            "exception_message": str(exception) if exception else None,
+            "latency_and_retries_per_query": (
+                self._latency_and_retries_per_query
+            ),
+            "num_thinking_words_per_query": self._num_thinking_words_per_query,
+        },
+    )
 
   @abc.abstractmethod
   async def _maybe_publish_health_event(self, e: Exception | None) -> None:

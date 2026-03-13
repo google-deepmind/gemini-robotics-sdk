@@ -15,8 +15,13 @@
 from unittest import mock
 import numpy as np
 from absl.testing import absltest
+from absl.testing import parameterized
+from safari_sdk.logging.python import constants
 from safari_sdk.logging.python import episodic_logger
 from safari_sdk.logging.python import mcap_lerobot_logger
+from safari_sdk.logging.python import mcap_parser_utils
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
+from safari_sdk.protos.logging import policy_type_pb2
 
 _TEST_TASK_ID = "test_task"
 _TEST_IMAGE_KEY = "image"
@@ -149,6 +154,63 @@ class McapLerobotLoggerTest(absltest.TestCase):
       self.assertEqual(
           mock_logger.return_value.finish_episode.call_count, _NUM_EPISODES
       )
+
+
+class McapLerobotLoggerMetadataTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.output_dir = self.create_tempdir().full_path
+
+  def _create_logger_and_record_episode(self, session_metadata_config=None):
+    logger = mcap_lerobot_logger.LeRobotEpisodicLogger(
+        task_id=_TEST_TASK_ID,
+        output_directory=self.output_dir,
+        image_observation_keys=[_TEST_IMAGE_KEY],
+        proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+        features=FakeLeRobotDataset(1, 3).features,
+        generate_episode_timestamps=True,
+        session_metadata_config=session_metadata_config,
+    )
+    dataset = FakeLeRobotDataset(1, 3)
+    logger.start_episode(0)
+    for i in range(3):
+      step = dataset[i]
+      step_np = {k: np.array(v) for k, v in step.items()}
+      logger.record_step(step_np, timestamp_ns=i * 100_000_000)
+    logger.finish_episode()
+    return logger
+
+  def test_policy_type_is_written_to_session(self):
+    config = session_metadata_lib.SessionMetadataConfig(
+        policy_type=policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_EVALUATION,
+    )
+    self._create_logger_and_record_episode(session_metadata_config=config)
+    sessions = mcap_parser_utils.read_session_proto_data(
+        self.output_dir, constants.SESSION_TOPIC_NAME
+    )
+    self.assertLen(sessions, 1)
+    self.assertEqual(
+        sessions[0].policy_environment_metadata.policy_type,
+        policy_type_pb2.PolicyType.POLICY_TYPE_ROBOT_EVALUATION,
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name="success", is_success=True),
+      dict(testcase_name="failure", is_success=False),
+  )
+  def test_is_success_provider_writes_label(self, is_success):
+    config = session_metadata_lib.SessionMetadataConfig(
+        is_success_provider=lambda: is_success,
+    )
+    self._create_logger_and_record_episode(session_metadata_config=config)
+    sessions = mcap_parser_utils.read_session_proto_data(
+        self.output_dir, constants.SESSION_TOPIC_NAME
+    )
+    self.assertLen(sessions, 1)
+    success_labels = [l for l in sessions[0].labels if l.key == "success"]
+    self.assertLen(success_labels, 1)
+    self.assertEqual(success_labels[0].label_value.bool_value, is_success)
 
 
 if __name__ == "__main__":
