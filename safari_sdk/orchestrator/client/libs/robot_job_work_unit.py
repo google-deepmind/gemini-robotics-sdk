@@ -396,8 +396,10 @@ class OrchestratorRobotJobWorkUnit:
       session_start_time_ns: int | None,
       session_end_time_ns: int | None,
       session_log_type: str | None,
+      session_note: str | None,
       response_to_questions: list[work_unit.Question] | None,
       note: str,
+      request_retry_bypass: bool,
   ) -> _RESPONSE:
     """Set the current work unit's stage as completed."""
     if self._connection is None:
@@ -445,6 +447,9 @@ class OrchestratorRobotJobWorkUnit:
       body["session_end_time_ns"] = session_end_time_ns
     if session_log_type is not None:
       body["session_log_type"] = session_log_type
+    if session_note is not None:
+      body["session_note"] = session_note
+    body["request_retry_bypass"] = request_retry_bypass
 
     if response_to_questions is not None:
       assert self._current_work_unit is not None

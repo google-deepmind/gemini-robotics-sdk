@@ -22,8 +22,10 @@ from googleapiclient import errors
 
 from safari_sdk.orchestrator.client.dataclass import api_response
 from safari_sdk.orchestrator.client.dataclass import current_robot_info
+from safari_sdk.orchestrator.client.dataclass import robot_hardware_component
 
 _RESPONSE = api_response.OrchestratorAPIResponse
+ROBOT_HARDWARE_COMPONENT = robot_hardware_component.RobotHardwareComponent
 
 _ERROR_NO_ORCHESTRATOR_CONNECTION = (
     "OrchestratorCurrentRobotInfo: Orchestrator connection is invalid."
@@ -33,6 +35,12 @@ _ERROR_GET_CURRENT_ROBOT_INFO = (
 )
 _ERROR_SET_CURRENT_ROBOT_OPERATOR_ID = (
     "OrchestratorCurrentRobotInfo: Error in setting robot operator ID.\n"
+)
+_ERROR_UPDATE_ROBOT_HARDWARE_CONFIG = (
+    "OrchestratorCurrentRobotInfo: Error in updating robot hardware config.\n"
+)
+_ERROR_EMPTY_COMPONENTS_LIST = (
+    "OrchestratorCurrentRobotInfo: Empty components list is not allowed.\n"
 )
 
 
@@ -132,3 +140,40 @@ class OrchestratorCurrentRobotInfo:
         robot_id=self._robot_id,
         operator_id=operator_id,
     )
+
+  def update_robot_hardware_config(
+      self, components: list[robot_hardware_component.RobotHardwareComponent]
+  ) -> _RESPONSE:
+    """Update the robot hardware configuration."""
+
+    if self._connection is None:
+      return _RESPONSE(error_message=_ERROR_NO_ORCHESTRATOR_CONNECTION)
+
+    tracer = time.time_ns()
+    error_id = f"[Error ID: {tracer}]"
+
+    if not components:
+      return _RESPONSE(error_message=_ERROR_EMPTY_COMPONENTS_LIST + error_id)
+
+    body = {
+        "robot_id": self._robot_id,
+        "components": [c.to_dict() for c in components],
+        "tracer": tracer,
+    }
+
+    try:
+      (
+          self._connection.orchestrator()
+          .mergeRobotHardwareComponents(body=body)
+          .execute()
+      )
+    except errors.HttpError as e:
+      error_details = getattr(e, "error_details", "")
+      return _RESPONSE(
+          error_message=(
+              _ERROR_UPDATE_ROBOT_HARDWARE_CONFIG
+              + f"{error_id} Reason: {e.reason}\nDetail: {error_details}"
+          )
+      )
+
+    return _RESPONSE(success=True)

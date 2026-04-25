@@ -18,6 +18,7 @@ import base64
 import functools
 import json
 import logging
+import os
 import time
 from typing import Any, Callable, Optional, Union
 
@@ -135,6 +136,7 @@ class Client:
       method_name: str = 'sample_actions_json_flat',
       image_compression_jpeg_quality: int = 95,
       num_retries: int = 1,
+      grpc_url: str | None = None,
       **kwargs,
   ):
     """Initializes the GenAI Robotics Client.
@@ -151,6 +153,9 @@ class Client:
         `_CONNECTION.LOCAL`.
       num_retries: The number of times to retry HTTP calls to the cloud if it
         fails. Only used for `_CONNECTION.CLOUD`.
+      grpc_url: The gRPC URL to connect to when using `_CONNECTION.LOCAL`.
+        If None, the default `_LOCAL_GRPC_URL` is used. Example:
+        'grpc://10.0.0.5:10100'.
       **kwargs: Additional keyword arguments to pass to the `genai.Client` when
         using `_CONNECTION.CLOUD_GENAI`.
     """
@@ -167,7 +172,12 @@ class Client:
             image_compression_jpeg_quality=image_compression_jpeg_quality,
         )
       case _CONNECTION.LOCAL:
-        self._client = _connect_to_grpc(_LOCAL_GRPC_URL)
+        url = grpc_url or os.environ.get('GOOGLE_GEMINI_BASE_URL')
+        if url is None:
+          url = _LOCAL_GRPC_URL
+        if not url.startswith('grpc://'):
+          url = 'grpc://' + url
+        self._client = _connect_to_grpc(url)
         self.models: Any = lambda: None
         self.models.generate_content = functools.partial(
             self._robotics_generate_content,

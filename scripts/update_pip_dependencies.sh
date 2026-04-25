@@ -20,18 +20,19 @@
 #   bash scripts/update_pip_dependencies.sh
 
 set -e
-SAFARI_DIR="$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/..")"
+SCRIPTS_DIR="$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+SAFARI_DIR="$(realpath "${SCRIPTS_DIR}/..")"
 
 # Setup virtual environment and install pip-tools.
 VENV_DIR="$(mktemp -d)"
 echo "Creating virtual environment and installing pip-tools in ${VENV_DIR}."
 python3 -m venv "${VENV_DIR}"
 source "${VENV_DIR}/bin/activate"
-pip install pip-tools
+pip install --require-hashes -r "${SCRIPTS_DIR}/base_tooling_requirements.txt"
 
 # Update requirements.txt file from pyproject.toml.
 echo -e "\e[36mGenerating requirements file... (This may take a few minutes.)\e[0m"
-pip-compile --generate-hashes --allow-unsafe --all-extras \
+pip-compile --upgrade --generate-hashes --allow-unsafe --all-extras \
   ${SAFARI_DIR}/pyproject.toml --output-file=${SAFARI_DIR}/requirements.txt
 # Remove any index-url lines from requirements.txt.
 sed -i '/^--index-url/d' "${SAFARI_DIR}/requirements.txt"

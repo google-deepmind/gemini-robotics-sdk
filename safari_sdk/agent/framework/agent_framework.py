@@ -110,6 +110,23 @@ class AgentFramework:
 
   async def run(self):
     """Runs the framework."""
+    if self._config.show_system_prompt_then_exit:
+      banner_len = 80
+      print("\n" + "=" * banner_len)
+      print(" " * 33 + "SYSTEM PROMPT")
+      print("=" * banner_len)
+      print(self._agent.system_prompt)
+      print("\n" + "=" * banner_len)
+      print(" " * 33 + "EXPOSED TOOLS")
+      print("=" * banner_len)
+      for tool in self._agent.exposed_tools:
+        header = f"[Tool: {tool.declaration.name}]"
+        print(f"\n{header}")
+        print("-" * len(header))
+        print(tool.declaration)
+      print("\n" + "=" * banner_len)
+      return
+
     await self._start_framework()
     try:
       while True:
@@ -145,6 +162,17 @@ class AgentFramework:
       await asyncio.sleep(2.0)
       logging.info("Agent connected.")
 
+      # Publish all active framework configuration flags as a single event.
+      # Placed after agent connection to ensure all subscribers are ready.
+      await self._bus.publish(
+          event=event_bus.Event(
+              type=event_bus.EventType.LOG_SESSION_METADATA,
+              source=event_bus.EventSource.MAIN_AGENT,
+              data="Global active configuration flags.",
+              metadata={"ear_flags": self._config.to_dict()},
+          )
+      )
+
       for component in self._components:
         logging.info("Connecting component %s.", component)
         await component.connect()
@@ -161,11 +189,14 @@ class AgentFramework:
   async def _shutdown(self, shutdown_event_bus: bool = False):
     """Shuts down the framework and any running components."""
     logging.info("Shutting down framework...")
-    await self._agent.disconnect()
+
+    # Disconnect agent and components concurrently.
+    tasks = [self._agent.disconnect()]
     for component in self._components:
-      await component.disconnect()
+      tasks.append(component.disconnect())
+    await asyncio.gather(*tasks, return_exceptions=True)
     if shutdown_event_bus:
-      self._bus.shutdown()
+      await self._bus.shutdown()
     self._has_been_shutdown = True
     logging.info("Framework shutdown complete.")
 

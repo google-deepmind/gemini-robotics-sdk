@@ -847,6 +847,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=1764547200000000001,
         session_end_time_ns=1764547210000000002,
         session_log_type="test_session_log_type",
+        session_note="test_session_note",
         response_to_questions=[
             robot_job_work_unit.work_unit.Question(
                 question="test_question_1",
@@ -855,12 +856,14 @@ class RobotJobWorkUnitTest(absltest.TestCase):
                 ],
                 answerFormat=robot_job_work_unit.work_unit.AnswerType.ANSWER_TYPE_SINGLE_CHOICE,
                 allowedAnswers=[
-                    "test_allowed_answer_1", "test_allowed_answer_2"
+                    "test_allowed_answer_1",
+                    "test_allowed_answer_2",
                 ],
                 userAnswers=["test_user_answer_1"],
                 wasDisplayed=True,
             ),
         ],
+        request_retry_bypass=False,
     )
     self.assertTrue(response.success)
     self.assertEqual(response.robot_id, "test_robot_id")
@@ -889,7 +892,9 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=None,
         session_end_time_ns=1764547210000000002,
         session_log_type="test_session_log_type",
+        session_note=None,
         response_to_questions=None,
+        request_retry_bypass=False,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -916,7 +921,9 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=1764547210000000002,
         session_end_time_ns=None,
         session_log_type="test_session_log_type",
+        session_note=None,
         response_to_questions=None,
+        request_retry_bypass=False,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -943,7 +950,9 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=1764547200000000001,
         session_end_time_ns=1764547210000000002,
         session_log_type=None,
+        session_note=None,
         response_to_questions=None,
+        request_retry_bypass=False,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -970,7 +979,9 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=123456789,
         session_end_time_ns=1764547210000000002,
         session_log_type="test_session_log_type",
+        session_note="test_session_note",
         response_to_questions=None,
+        request_retry_bypass=False,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -997,7 +1008,9 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=1764547200000000001,
         session_end_time_ns=987654321,
         session_log_type="test_session_log_type",
+        session_note="test_session_note",
         response_to_questions=None,
+        request_retry_bypass=False,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -1073,6 +1086,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_start_time_ns=1764547200000000001,
         session_end_time_ns=1764547210000000002,
         session_log_type="test_session_log_type",
+        session_note="test_session_note",
         response_to_questions=[
             robot_job_work_unit.work_unit.Question(
                 question="test_question_1",
@@ -1081,12 +1095,14 @@ class RobotJobWorkUnitTest(absltest.TestCase):
                 ],
                 answerFormat=robot_job_work_unit.work_unit.AnswerType.ANSWER_TYPE_SINGLE_CHOICE,
                 allowedAnswers=[
-                    "test_allowed_answer_1", "test_allowed_answer_2"
+                    "test_allowed_answer_1",
+                    "test_allowed_answer_2",
                 ],
                 userAnswers=["test_user_answer_1"],
                 wasDisplayed=True,
             ),
         ],
+        request_retry_bypass=False,
     )
     self.assertFalse(response.success)
     self.assertIn(

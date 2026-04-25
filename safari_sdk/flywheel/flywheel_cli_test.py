@@ -18,6 +18,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 from unittest import mock
 import urllib.error
@@ -27,7 +28,6 @@ from absl.testing import flagsaver
 from absl.testing import parameterized
 
 from absl.testing import absltest
-from safari_sdk import __version__  # pylint: disable=g-importing-member
 from safari_sdk.flywheel import flywheel_cli
 
 
@@ -121,27 +121,43 @@ class FlywheelCliTest(parameterized.TestCase):
       mock_build.assert_called_once()
 
   @parameterized.named_parameters(
-      ("narrow", None, "narrow", "TRAINING_TYPE_NARROW"),
+      (
+          "narrow",
+          None,
+          "narrow",
+          "TRAINING_TYPE_NARROW",
+          None,
+      ),
       (
           "gemini_robotics_v1",
           None,
           "gemini_robotics_v1",
           "TRAINING_TYPE_GEMINI_ROBOTICS_V1",
+          None,
       ),
       (
           "narrow_with_robot_id",
           "test_robot_id",
           "narrow",
           "TRAINING_TYPE_NARROW",
+          None,
       ),
       (
           "gemini_robotics_on_device_v1",
           "test_robot_id",
           "gemini_robotics_on_device_v1",
           "TRAINING_TYPE_GEMINI_ROBOTICS_ON_DEVICE_V1",
+          None,
+      ),
+      (
+          "narrow_with_max_episodes",
+          None,
+          "narrow",
+          "TRAINING_TYPE_NARROW",
+          50,
       ),
   )
-  def test_train(self, robot_id, recipe, training_type):
+  def test_train(self, robot_id, recipe, training_type, max_episodes):
     self.service_mock.startTraining.return_value.execute.return_value = {
         "training_job_id": "test_training_job_id"
     }
@@ -158,6 +174,8 @@ class FlywheelCliTest(parameterized.TestCase):
     }
     if robot_id:
       req_flags["robot_id"] = robot_id
+    if max_episodes is not None:
+      req_flags["max_episodes"] = max_episodes
 
     expected_body = {
         "training_data_filters": {
@@ -169,6 +187,10 @@ class FlywheelCliTest(parameterized.TestCase):
         "training_type": training_type,
         "tracer": mock.ANY,
     }
+    if max_episodes is not None:
+      expected_body["training_data_filters"].update(
+          max_episode_count=max_episodes
+      )
     if recipe == "gemini_robotics_on_device_v1":
       expected_body["training_config"] = {
           "max_training_steps": 12345,
@@ -185,8 +207,34 @@ class FlywheelCliTest(parameterized.TestCase):
       )
       self.service_mock.startTraining.return_value.execute.assert_called_once_with()
 
+  def test_train_small_run_auto_default_checkpoint(self):
+    """Verifies auto-default checkpoint is 0 when max_steps < 100."""
+    self.service_mock.startTraining.return_value.execute.return_value = {
+        "training_job_id": "test_training_job_id"
+    }
+    req_flags = {
+        "task_id": "test_task_id",
+        "start_date": "20240101",
+        "end_date": "20240102",
+        "training_recipe": "gemini_robotics_on_device_v1",
+        "max_training_steps": 50,
+        # checkpoint_every_n_steps intentionally not set (None default).
+    }
+
+    with flagsaver.flagsaver(**req_flags):
+      self._cli.handle_train()
+      call_body = self.service_mock.startTraining.call_args[1]["body"]
+      self.assertEqual(
+          call_body["training_config"]["checkpoint_every_n_steps"], 0
+      )
+
   @parameterized.named_parameters(
-      ("text_output_no_data", False, {}, "No data stats found.\n"),
+      (
+          "text_output_no_data",
+          False,
+          {},
+          "No data stats found.\n",
+      ),
       (
           "json_output_with_data",
           True,
@@ -210,7 +258,12 @@ class FlywheelCliTest(parameterized.TestCase):
         self.assertEqual(mock_stdout.getvalue(), expected_output)
 
   @parameterized.named_parameters(
-      ("text_output_no_jobs", False, {}, "No training jobs found.\n"),
+      (
+          "text_output_no_jobs",
+          False,
+          {},
+          "No training jobs found.\n",
+      ),
       (
           "json_output_with_filters",
           True,
@@ -270,6 +323,31 @@ class FlywheelCliTest(parameterized.TestCase):
       )
       self.service_mock.servingJobs.return_value.execute.assert_called_once()
       self.assertEqual(mock_stdout.getvalue(), expected_output)
+
+  @parameterized.named_parameters(
+      (
+          "json_output_with_data",
+          True,
+          {"status": "RUNNING"},
+          '{\n    "status": "RUNNING"\n}\n',
+      ),
+      ("json_output_no_data", True, {}, "{}\n"),
+  )
+  def test_status(self, json_output, return_value, expected_output):
+    mock_stdout = io.StringIO()
+    self.service_mock.trainingJobStatus.return_value.execute.return_value = (
+        return_value
+    )
+    with flagsaver.flagsaver(
+        json_output=json_output, training_job_id="test_job_id"
+    ):
+      with mock.patch("sys.stdout", mock_stdout):
+        self._cli.handle_status()
+        self.service_mock.trainingJobStatus.assert_called_once_with(
+            body={"trainingJobId": "test_job_id", "tracer": mock.ANY}
+        )
+        self.service_mock.trainingJobStatus.return_value.execute.assert_called_once()
+        self.assertEqual(mock_stdout.getvalue(), expected_output)
 
   def test_serve_gemini_robotics_v1(self):
     self.service_mock.serveModel.return_value.execute.return_value = {
@@ -355,7 +433,10 @@ class FlywheelCliTest(parameterized.TestCase):
           "handle_download_training_artifacts",
           return_value=checkpoint_path,
       ) as mock_download:
-        self._cli.handle_serve()
+        with mock.patch("pathlib.Path.exists", return_value=True), mock.patch(
+            "pathlib.Path.is_file", return_value=True
+        ):
+          self._cli.handle_serve()
         if expect_download:
           mock_download.assert_called_once()
         else:
@@ -376,7 +457,7 @@ class FlywheelCliTest(parameterized.TestCase):
             f"{port}:60061",
             "-v",
             f"{file_dir}:/checkpoint",
-            "google-deepmind/gemini_robotics_on_device",
+            "google-deepmind/gemini_robotics_on_device:latest",
             f"--checkpoint_path=/checkpoint/{file_name}",
         ])
         if image_keys:
@@ -555,10 +636,21 @@ class FlywheelCliTest(parameterized.TestCase):
     mock_stdout = io.StringIO()
     with mock.patch("sys.stdout", mock_stdout):
       flywheel_cli.show_help()
-      self.assertEqual(
-          mock_stdout.getvalue().rstrip(),
-          flywheel_cli._HELP_STRING,
-      )
+      output = mock_stdout.getvalue()
+      self.assertIn(flywheel_cli._HELP_STRING, output)
+      # Verify show_help includes argparse usage info (consistent with --help).
+      self.assertIn("usage:", output)
+
+  def test_cli_main_help(self):
+    mock_stdout = io.StringIO()
+    with mock.patch("sys.argv", ["flywheel-cli", "--help"]):
+      with mock.patch("sys.stdout", mock_stdout):
+        with self.assertRaises(SystemExit):
+          flywheel_cli.cli_main()
+        self.assertIn(
+            flywheel_cli._HELP_STRING,
+            mock_stdout.getvalue(),
+        )
 
   @parameterized.named_parameters(
       (
@@ -571,6 +663,17 @@ class FlywheelCliTest(parameterized.TestCase):
           "train_missing_project_id",
           "train",
           {"api_key": "test_api_key"},
+          ValueError,
+      ),
+      (
+          "train_missing_training_recipe",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+          },
           ValueError,
       ),
       (
@@ -717,6 +820,30 @@ class FlywheelCliTest(parameterized.TestCase):
           ValueError,
       ),
       (
+          "train_max_episodes_zero",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "max_episodes": 0,
+          },
+          ValueError,
+      ),
+      (
+          "train_max_episodes_negative",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "max_episodes": -5,
+          },
+          ValueError,
+      ),
+      (
           "serve_unsupported_recipe",
           "serve",
           {
@@ -786,6 +913,14 @@ class FlywheelCliTest(parameterized.TestCase):
           ValueError,
       ),
       (
+          "status_missing_training_job_id",
+          "status",
+          {
+              "api_key": "test_api_key",
+          },
+          ValueError,
+      ),
+      (
           "download_bad_artifact_id_with_period",
           "download",
           {
@@ -841,7 +976,81 @@ class FlywheelCliTest(parameterized.TestCase):
           },
           flags.IllegalFlagValueError,
       ),
+      (
+          "train_missing_proprioception_keys",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "training_recipe": "gemini_robotics_on_device_v1",
+          },
+          ValueError,
+      ),
+      (
+          "train_bad_max_training_steps",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "max_training_steps": 100000,
+          },
+          flags.IllegalFlagValueError,
+      ),
+      (
+          "train_bad_checkpoint_every_n_steps",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "checkpoint_every_n_steps": 1,
+          },
+          flags.IllegalFlagValueError,
+      ),
+      (
+          "train_negative_max_training_steps",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "max_training_steps": -1,
+          },
+          flags.IllegalFlagValueError,
+      ),
+      (
+          "train_negative_checkpoint_every_n_steps",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "checkpoint_every_n_steps": -1,
+          },
+          flags.IllegalFlagValueError,
+      ),
+      (
+          "train_small_run_with_custom_checkpoint",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "max_training_steps": 50,
+              "checkpoint_every_n_steps": 100,
+          },
+          flags.IllegalFlagValueError,
+      ),
   )
+
   def test_parse_flags_errors(self, command, params, expected_exception):
     with self.assertRaises(expected_exception):
       with flagsaver.flagsaver(**params):
@@ -857,6 +1066,18 @@ class FlywheelCliTest(parameterized.TestCase):
               "start_date": "20240101",
               "end_date": "20240102",
               "training_recipe": "narrow",
+          },
+      ),
+      (
+          "train_with_max_episodes",
+          "train",
+          {
+              "api_key": "test_api_key",
+              "task_id": "test_task_id",
+              "start_date": "20240101",
+              "end_date": "20240102",
+              "training_recipe": "narrow",
+              "max_episodes": 50,
           },
       ),
       (
@@ -965,7 +1186,10 @@ class FlywheelCliTest(parameterized.TestCase):
           "handle_download_training_artifacts",
           return_value="/fake/path.chkpt",
       ), mock.patch.object(self._cli, "handle_download_artifact_id"):
-        self._cli.parse_flag(command)
+        with mock.patch("pathlib.Path.exists", return_value=True), mock.patch(
+            "pathlib.Path.is_file", return_value=True
+        ):
+          self._cli.parse_flag(command)
 
     if (
         command == "serve"
@@ -974,6 +1198,54 @@ class FlywheelCliTest(parameterized.TestCase):
       mock_subprocess_run.assert_called_once()
     else:
       mock_subprocess_run.assert_not_called()
+
+  def test_strip_whitespace_from_flags_strips_task_id(self):
+    """Verifies task_id whitespace is stripped and a warning is printed."""
+    self.service_mock.startTraining.return_value.execute.return_value = {
+        "training_job_id": "test_training_job_id"
+    }
+    mock_stdout = io.StringIO()
+    with flagsaver.flagsaver(
+        task_id=[" test_task_id "],
+        start_date="20240101",
+        end_date="20240102",
+        training_recipe="narrow",
+    ):
+      with mock.patch("sys.stdout", mock_stdout):
+        self._cli.parse_flag("train")
+
+      # Verify the request body has the stripped task_id.
+      call_args = self.service_mock.startTraining.call_args
+      actual_task_id = call_args[1]["body"]["training_data_filters"]["task_id"]
+      self.assertEqual(actual_task_id, ["test_task_id"])
+
+    self.assertIn("WARNING", mock_stdout.getvalue())
+    self.assertIn("task_id", mock_stdout.getvalue())
+
+  def test_strip_whitespace_from_flags_strips_training_job_id(self):
+    """Verifies training_job_id whitespace is stripped."""
+    mock_stdout = io.StringIO()
+    with flagsaver.flagsaver(
+        training_job_id=" test_job_id ",
+    ):
+      with mock.patch("sys.stdout", mock_stdout):
+        flywheel_cli._strip_whitespace_from_flags()
+
+      self.assertEqual(flags.FLAGS["training_job_id"].value, "test_job_id")
+    self.assertIn("WARNING", mock_stdout.getvalue())
+    self.assertIn("training_job_id", mock_stdout.getvalue())
+
+  def test_strip_whitespace_from_flags_no_warning_for_clean_flags(self):
+    """Verifies no warning is printed when flags have no whitespace."""
+    mock_stdout = io.StringIO()
+    with flagsaver.flagsaver(
+        task_id=["clean_task_id"],
+        robot_id=["clean_robot_id"],
+    ):
+      with mock.patch("sys.stdout", mock_stdout):
+        flywheel_cli._strip_whitespace_from_flags()
+
+    self.assertEqual(mock_stdout.getvalue(), "")
 
   @parameterized.named_parameters(
       ("with_directory", "/tmp/test_dir/test_file.txt", True),
@@ -1026,6 +1298,230 @@ class FlywheelCliTest(parameterized.TestCase):
         " error>",
         mock_stdout.getvalue(),
     )
+
+  @mock.patch("subprocess.run")
+  def test_download_artifact_id_docker_load_success(self, mock_subprocess_run):
+    with flagsaver.flagsaver(artifact_id="test_docker_artifact"):
+      self.service_mock.loadArtifact.return_value.execute.return_value = {
+          "artifact": {"uri": "test_uri_1"}
+      }
+      mock_stdout = io.StringIO()
+      with mock.patch("builtins.input", return_value="y") as mock_input:
+        with mock.patch("sys.stdout", mock_stdout):
+          with mock.patch.object(flywheel_cli, "_download_url_to_file"):
+            self._cli.handle_download_artifact_id()
+
+        self.assertEqual(mock_input.call_count, 2)
+      self.service_mock.loadArtifact.assert_called_once()
+      mock_subprocess_run.assert_called_once_with(
+          ["docker", "load", "-i", mock.ANY],
+          capture_output=True,
+          check=True,
+          text=True,
+      )
+
+  @mock.patch("subprocess.run")
+  def test_download_artifact_id_docker_load_failure(self, mock_subprocess_run):
+    with flagsaver.flagsaver(artifact_id="test_docker_artifact"):
+      self.service_mock.loadArtifact.return_value.execute.return_value = {
+          "artifact": {"uri": "test_uri_1"}
+      }
+      mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+          1, "docker load", stderr="error loading image"
+      )
+      mock_stdout = io.StringIO()
+      with mock.patch("builtins.input", return_value="y"):
+        with mock.patch("sys.stdout", mock_stdout):
+          with mock.patch.object(flywheel_cli, "_download_url_to_file"):
+            self._cli.handle_download_artifact_id()
+
+      self.assertIn(
+          "[ERROR] Failed to load docker image",
+          mock_stdout.getvalue(),
+      )
+
+  def test_train_with_only_successful_episodes(self):
+    with flagsaver.flagsaver(
+        training_recipe="narrow",
+        task_id=["task1"],
+        start_date="20240101",
+        end_date="20240102",
+        only_successful_episodes=True,
+        api_key="test_key",
+    ):
+      self.service_mock.startTraining.return_value.execute.return_value = {
+          "job_id": "job_1"
+      }
+      self._cli.handle_train()
+
+      self.service_mock.startTraining.assert_called_once()
+      call_args = self.service_mock.startTraining.call_args[1]["body"]
+      self.assertTrue(
+          call_args["training_data_filters"]["only_successful_episodes"]
+      )
+
+  def test_train_auto_checkpoint_calculation(self):
+    with flagsaver.flagsaver(
+        training_recipe="gemini_robotics_on_device_v1",
+        task_id=["task1"],
+        start_date="20240101",
+        end_date="20240102",
+        max_training_steps=5000,
+        checkpoint_every_n_steps=0,
+        api_key="test_key",
+        proprioception_keys=["proprio1"],
+    ):
+      self.service_mock.startTraining.return_value.execute.return_value = {
+          "job_id": "job_1"
+      }
+      self._cli.handle_train()
+
+      self.service_mock.startTraining.assert_called_once()
+      call_args = self.service_mock.startTraining.call_args[1]["body"]
+      self.assertEqual(
+          call_args["training_config"]["checkpoint_every_n_steps"],
+          200,
+      )
+
+  def test_download_training_artifacts_file_exists_no_overwrite(self):
+    with flagsaver.flagsaver(training_job_id="job_1", json_output=False):
+      self.service_mock.trainingArtifact.return_value.execute.return_value = {
+          "uris": ["http://example.com/checkpoint_1.ckpt"]
+      }
+      mock_stdout = io.StringIO()
+      with mock.patch("builtins.input", side_effect=["0", "", "n"]):
+        with mock.patch("os.path.exists", return_value=True):
+          with mock.patch("sys.stdout", mock_stdout):
+            self._cli.handle_download_training_artifacts()
+
+      self.assertIn("Download cancelled.", mock_stdout.getvalue())
+
+  def test_download_training_artifacts_invalid_input(self):
+    with flagsaver.flagsaver(training_job_id="job_1", json_output=False):
+      self.service_mock.trainingArtifact.return_value.execute.return_value = {
+          "uris": ["http://example.com/checkpoint_1.ckpt"]
+      }
+      mock_stdout = io.StringIO()
+      with mock.patch("builtins.input", return_value="invalid"):
+        with mock.patch("sys.stdout", mock_stdout):
+          self._cli.handle_download_training_artifacts()
+
+      self.assertIn(
+          "Invalid input. Please enter a number.",
+          mock_stdout.getvalue(),
+      )
+
+  @mock.patch("subprocess.run")
+  def test_serve_on_device_docker_failure_latest_hint(
+      self, mock_subprocess_run
+  ):
+    with flagsaver.flagsaver(
+        training_recipe="gemini_robotics_on_device_v1",
+        training_job_id="job_1",
+        docker_tag="latest",
+        json_output=False,
+        model_checkpoint_path="/tmp/fake.chkpt",
+    ):
+      self.service_mock.trainingArtifact.return_value.execute.return_value = {
+          "uris": ["http://example.com/checkpoint_1.ckpt"]
+      }
+      mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+          1, "docker run", stderr="image not found"
+      )
+      mock_stdout = io.StringIO()
+      with mock.patch.object(flywheel_cli, "_download_url_to_file"):
+        with mock.patch("pathlib.Path.exists", return_value=True):
+          with mock.patch("sys.stdout", mock_stdout):
+            self._cli.handle_serve()
+
+      self.assertIn(
+          "Did you forget to load the docker image?",
+          mock_stdout.getvalue(),
+      )
+
+  @mock.patch("subprocess.run")
+  def test_serve_on_device_docker_failure_versioned_hint(
+      self, mock_subprocess_run
+  ):
+    with flagsaver.flagsaver(
+        training_recipe="gemini_robotics_on_device_v1",
+        training_job_id="job_1",
+        docker_tag="1.0.0",
+        json_output=False,
+        model_checkpoint_path="/tmp/fake.chkpt",
+    ):
+      self.service_mock.trainingArtifact.return_value.execute.return_value = {
+          "uris": ["http://example.com/checkpoint_1.ckpt"]
+      }
+      mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+          1, "docker run", stderr="image not found"
+      )
+      mock_stdout = io.StringIO()
+      with mock.patch.object(flywheel_cli, "_download_url_to_file"):
+        with mock.patch("pathlib.Path.exists", return_value=True):
+          with mock.patch("sys.stdout", mock_stdout):
+            self._cli.handle_serve()
+
+      self.assertIn(
+          "To use a versioned docker image, be sure to load it first.",
+          mock_stdout.getvalue(),
+      )
+
+  def test_strip_whitespace_from_flags_strips_robot_id(self):
+    with flagsaver.flagsaver(robot_id=[" robot1 ", "robot2 "]):
+      mock_stdout = io.StringIO()
+      with mock.patch("sys.stdout", mock_stdout):
+        flywheel_cli._strip_whitespace_from_flags()
+
+      self.assertEqual(flywheel_cli._ROBOT_ID.value, ["robot1", "robot2"])
+
+  def test_strip_whitespace_from_flags_strips_artifact_id(self):
+    with flagsaver.flagsaver(artifact_id=" art1 "):
+      mock_stdout = io.StringIO()
+      with mock.patch("sys.stdout", mock_stdout):
+        flywheel_cli._strip_whitespace_from_flags()
+
+      self.assertEqual(flywheel_cli._ARTIFACT_ID.value, "art1")
+
+  def test_data_stats_table_output(self):
+    """Covers the table-printing branch in handle_data_stats."""
+    mock_stdout = io.StringIO()
+    self.service_mock.trainingDataDetails.return_value.execute.return_value = (
+        _DATA_STATS_TEST_DATA
+    )
+    with flagsaver.flagsaver(json_output=False):
+      with mock.patch("sys.stdout", mock_stdout):
+        self._cli.handle_data_stats()
+
+    output = mock_stdout.getvalue()
+    self.assertIn("test_robot_id", output)
+    self.assertIn("test_task_id", output)
+    self.assertIn("2024-12-01", output)
+    self.assertIn("2024-12-02", output)
+
+  @parameterized.named_parameters(
+      (
+          "with_filters",
+          _TRAINING_JOB_WITH_FILTERS,
+      ),
+      (
+          "no_filters",
+          _TRAINING_JOB_NO_FILTERS,
+      ),
+  )
+  def test_list_training_jobs_table_output(self, return_value):
+    """Covers the table-printing branch in handle_list_training_jobs."""
+    mock_stdout = io.StringIO()
+    self.service_mock.trainingJobs.return_value.execute.return_value = (
+        return_value
+    )
+    with flagsaver.flagsaver(json_output=False):
+      with mock.patch("sys.stdout", mock_stdout):
+        self._cli.handle_list_training_jobs()
+
+    output = mock_stdout.getvalue()
+    self.assertIn("test_training_job_id", output)
+    self.assertIn("COMPLETED", output)
 
 
 class ResolveDownloadPathTest(parameterized.TestCase):

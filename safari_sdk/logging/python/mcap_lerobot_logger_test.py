@@ -122,6 +122,40 @@ class McapLerobotLoggerTest(absltest.TestCase):
         timestep.observation["image"].shape, (224, 224, 3)
     )
 
+  def test_lerobot_episodic_logger_missing_shape_raises_error(self):
+    features = FakeLeRobotDataset(1, 1).features
+    del features["action"]["shape"]
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r"Feature 'action' must specify a non-empty 'shape' list",
+    ):
+      mcap_lerobot_logger.LeRobotEpisodicLogger(
+          task_id=_TEST_TASK_ID,
+          output_directory=self.output_dir,
+          image_observation_keys=[_TEST_IMAGE_KEY],
+          proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+          features=features,
+          generate_episode_timestamps=True,
+      )
+
+    features = FakeLeRobotDataset(1, 1).features
+    features[f"observation.{_TEST_PROPRIO_KEY}"]["shape"] = []
+
+    with self.assertRaisesRegex(
+        ValueError,
+        rf"Feature 'observation\.{_TEST_PROPRIO_KEY}' must specify a non-empty "
+        r"'shape' list",
+    ):
+      mcap_lerobot_logger.LeRobotEpisodicLogger(
+          task_id=_TEST_TASK_ID,
+          output_directory=self.output_dir,
+          image_observation_keys=[_TEST_IMAGE_KEY],
+          proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+          features=features,
+          generate_episode_timestamps=True,
+      )
+
   def test_convert_lerobot_data_to_mcap(self):
     dataset = FakeLeRobotDataset(
         num_episodes=_NUM_EPISODES, steps_per_episode=_NUM_STEPS_PER_EPISODE
@@ -137,7 +171,6 @@ class McapLerobotLoggerTest(absltest.TestCase):
           dataset=dataset,
           task_id=_TEST_TASK_ID,
           output_directory=self.output_dir,
-          proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
           episodes_limit=0,
           max_workers=1,
           episode_start_timestamps_ns=episode_start_timestamps_ns,
@@ -153,6 +186,46 @@ class McapLerobotLoggerTest(absltest.TestCase):
       )
       self.assertEqual(
           mock_logger.return_value.finish_episode.call_count, _NUM_EPISODES
+      )
+
+  def test_convert_lerobot_data_to_mcap_missing_shape_raises_error(self):
+    dataset = FakeLeRobotDataset(num_episodes=1, steps_per_episode=1)
+
+    # Intentionally remove the shape from one of the valid keys
+    del dataset.features["action"]["shape"]
+
+    episode_start_timestamps_ns = {0: 0}
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r"Feature 'action' must specify a non-empty 'shape' list in "
+        r"dataset\.features\.",
+    ):
+      mcap_lerobot_logger.convert_lerobot_data_to_mcap(
+          dataset=dataset,
+          task_id=_TEST_TASK_ID,
+          output_directory=self.output_dir,
+          episodes_limit=0,
+          max_workers=1,
+          episode_start_timestamps_ns=episode_start_timestamps_ns,
+      )
+
+    # Missing shape for observation feature
+    dataset = FakeLeRobotDataset(num_episodes=1, steps_per_episode=1)
+    dataset.features[f"observation.{_TEST_IMAGE_KEY}"]["shape"] = []
+
+    with self.assertRaisesRegex(
+        ValueError,
+        rf"Feature 'observation\.{_TEST_IMAGE_KEY}' must specify a non-empty "
+        r"'shape' list in dataset\.features\.",
+    ):
+      mcap_lerobot_logger.convert_lerobot_data_to_mcap(
+          dataset=dataset,
+          task_id=_TEST_TASK_ID,
+          output_directory=self.output_dir,
+          episodes_limit=0,
+          max_workers=1,
+          episode_start_timestamps_ns=episode_start_timestamps_ns,
       )
 
 

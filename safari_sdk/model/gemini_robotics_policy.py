@@ -14,7 +14,7 @@
 
 """Gemini Robotics Policy."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from concurrent import futures
 import copy
 import dataclasses
@@ -31,6 +31,7 @@ from typing_extensions import override
 
 from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
+from safari_sdk.model import model_interface as model_interface_lib
 from safari_sdk.model import remote_model_interface
 
 
@@ -43,10 +44,10 @@ class EpisodeStatistics:
       wait for a new action chunk from the model because it had run out of
       buffered actions. This metric is used to measure the performance of the
       asynchronous inference, as ideally the policy should never have to wait
-      for the model. It is only incremented in ASYNCHRONOUS mode when
-      the policy needs to block execution to wait for the next action from
-      the model.
+      for the model. It is only incremented in ASYNCHRONOUS mode when the policy
+      needs to block execution to wait for the next action from the model.
   """
+
   action_stall_count: int
 
 
@@ -57,8 +58,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       self,
       serve_id: str,
       task_instruction_key: str,
-      image_observation_keys: Iterable[str],
-      proprioceptive_observation_keys: Iterable[str],
+      image_observation_keys: Sequence[str],
+      proprioceptive_observation_keys: Sequence[str],
       min_replan_interval: int = 15,
       inference_mode: constants.InferenceMode = constants.InferenceMode.ASYNCHRONOUS,
       additional_observations_providers: Sequence[
@@ -68,6 +69,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       image_compression_jpeg_quality: int = 95,
       num_retries: int = 1,
       action_conditioning_chunk_length: int | None = None,
+      model_interface: model_interface_lib.ModelInterface | None = None,
   ):
     """Initializes the evaluation policy.
 
@@ -99,44 +101,35 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         that is used to condition the model from the available action chunk when
         the inference mode is ASYNCHRONOUS. If None, the model will receive all
         remaining actions not consumed so far from the available action chunk.
+      model_interface: Internal use only.
     """
+    if model_interface is None:
+      model_interface = remote_model_interface.RemoteModelInterface(
+          serve_id=serve_id,
+          robotics_api_connection=robotics_api_connection,
+          task_instruction_key=task_instruction_key,
+          proprioceptive_observation_keys=proprioceptive_observation_keys,
+          image_observation_keys=image_observation_keys,
+          image_compression_jpeg_quality=image_compression_jpeg_quality,
+          num_of_retries=num_retries,
+          additional_observations_providers=additional_observations_providers,
+      )
+    self._model = model_interface
 
+    # These are used only to validate the timestep spec in step_spec.
     self._string_observations_keys = [task_instruction_key]
-    self._task_instruction_key = task_instruction_key
     self._image_observation_keys = list(image_observation_keys)
     self._proprioceptive_observation_keys = list(
         proprioceptive_observation_keys
     )
-    self._min_replan_interval = min_replan_interval
     self._additional_observations_providers = list(
         additional_observations_providers
     )
 
-    # Go through the additional observation observations spec and
-    # augment the image, string and proprioceptive keys.
-    for provider in self._additional_observations_providers:
-      additional_specs = provider.get_additional_observations_spec()
-      for key, spec in additional_specs.items():
-        if isinstance(spec, specs.StringArray):
-          self._string_observations_keys.append(key)
-        elif isinstance(spec, specs.Array):
-          if len(spec.shape) == 3:
-            self._image_observation_keys.append(key)
-          elif len(spec.shape) == 1 or len(spec.shape) == 2:
-            self._proprioceptive_observation_keys.append(key)
+    self._min_replan_interval = min_replan_interval
+    self._action_conditioning_chunk_length = action_conditioning_chunk_length
 
     self._dummy_state = np.zeros(())
-
-    self._model = remote_model_interface.RemoteModelInterface(
-        serve_id=serve_id,
-        robotics_api_connection=robotics_api_connection,
-        string_observations_keys=self._string_observations_keys,
-        task_instruction_key=self._task_instruction_key,
-        proprioceptive_observation_keys=self._proprioceptive_observation_keys,
-        image_observation_keys=self._image_observation_keys,
-        image_compression_jpeg_quality=image_compression_jpeg_quality,
-        num_of_retries=num_retries,
-    )
 
     self._model_output = np.array([])
     self._action_spec: gdmr_types.UnboundedArraySpec | None = None
@@ -150,8 +143,6 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       self._future: futures.Future[np.ndarray] | None = None
       self._model_output_lock = threading.Lock()
       self._actions_executed_during_inference = 0
-
-    self._action_conditioning_chunk_length = action_conditioning_chunk_length
 
     self._initialize_episode_statistics()
 
@@ -214,13 +205,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     """
     del prev_state  # Unused.
 
-    # Add additional observations.
     should_replan = self._should_replan()
+    new_observation = dict(timestep.observation)
     for provider in self._additional_observations_providers:
       additional_obs = provider.get_additional_observations(
           timestep, should_replan
       )
-      timestep.observation.update(additional_obs)
+      new_observation.update(additional_obs)
+    timestep = timestep._replace(observation=new_observation)
 
     if 'thinking' in timestep.observation:
       logging.info('thinking: %s', str(timestep.observation['thinking']))
@@ -307,9 +299,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         lambda s: s.generate_value(), self._timestep_spec.observation
     )
 
-    # Some models require a task instruction to be present
-    for string_obs_key in self._string_observations_keys:
-      empty_observation[string_obs_key] = np.array('non empty string')
+    # Some models require a non-empty task instruction to be present
+    observation_spec = dict(self._timestep_spec.observation)
+    non_empty_strings = {
+        key: np.array('non empty string', dtype=np.dtypes.StringDType())  # pytype: disable=module-attr
+        for key, spec in observation_spec.items()
+        if isinstance(spec, specs.StringArray)
+    }
+    empty_observation.update(non_empty_strings)
 
     self._actions_buffer = self._query_model(empty_observation, np.array([]))
 
@@ -346,7 +343,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     self._action_spec = gdmr_types.UnboundedArraySpec(
         shape=self._actions_buffer.shape[1:],
-        dtype=np.float32,
+        dtype=self._actions_buffer.dtype,
     )
 
   def _should_replan(self) -> bool:
@@ -458,9 +455,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       # because its value is a deep copy of the original dictionary which
       # means that we don't need the lock and does not affect the current
       # model_output variable used in the step method.
-      model_output = model_output[
-          : self._action_conditioning_chunk_length
-      ]
+      model_output = model_output[: self._action_conditioning_chunk_length]
       observation[constants.CONDITIONING_ENCODED_OBS_KEY] = (
           model_output.tolist()
       )

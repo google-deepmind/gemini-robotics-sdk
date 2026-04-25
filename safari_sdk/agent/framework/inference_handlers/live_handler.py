@@ -780,11 +780,17 @@ class GeminiLiveAPIHandler:
         and self._turn_coverage
         == types.TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY
     ):
-      # Send text first, then vision update
-      await self._session.send_client_content(
-          turns={"role": "user", "parts": [{"text": text}]},
-          turn_complete=False,
-      )
+      if "gemini-2.5-flash" in self._config.agent_model_name:
+        logging.info("Deprecated send client content command.")
+        # Send text first, then vision update
+        await self._session.send_client_content(
+            turns={"role": "user", "parts": [{"text": text}]},
+            turn_complete=False,
+        )
+      else:
+        logging.info("Beyond Live send_realtime_input.")
+        await self._session.send_realtime_input(text=text)
+
       parts = _prepare_image_parts(
           self._last_image_received,
           self._config.enable_image_stitching,
@@ -795,11 +801,15 @@ class GeminiLiveAPIHandler:
           turn_complete=True,
       )
     else:
-      # Simple case: just send the text
-      await self._session.send_client_content(
-          turns={"role": "user", "parts": [{"text": text}]},
-          turn_complete=True,
-      )
+      if "gemini-2.5-flash" in self._config.agent_model_name:
+        logging.info("Deprecated send client content command.")
+        # Simple case: just send the text
+        await self._session.send_client_content(
+            turns={"role": "user", "parts": [{"text": text}]},
+            turn_complete=True)
+      else:
+        logging.info("Beyond Live send_realtime_input.")
+        await self._session.send_realtime_input(text=text)
 
   async def _send_tool_response(
       self, tool_response: types.LiveClientToolResponse
@@ -816,6 +826,7 @@ class GeminiLiveAPIHandler:
       assert len(tool_response.function_responses) == 1
       response = tool_response.function_responses[0]
       response.scheduling = types.FunctionResponseScheduling.SILENT
+      logging.info("Beyond Live send_tool_response. If case: %s", response)
       await self._session.send_tool_response(function_responses=response)
       parts = _prepare_image_parts(
           self._last_image_received,
@@ -827,7 +838,8 @@ class GeminiLiveAPIHandler:
           turn_complete=True,
       )
     else:
-      # Simple case: just send the tool response
+      logging.info(
+          "Beyond Live send_tool_response. Else case: %s", tool_response)
       await self._session.send_tool_response(
           function_responses=tool_response.function_responses,
       )

@@ -1,3 +1,59 @@
+Metadata-Version: 2.4
+Name: safari_sdk
+Version: 2.121.0
+Summary: Safari SDK: the SDK for Google DeepMind Gemini Robotics models
+Author-Email: Safari SDKAuthors <safari-sdk-authors@google.com>
+License-Expression: Apache-2.0
+License-File: LICENSE
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Intended Audience :: Science/Research
+Project-URL: homepage, https://deepmind.google/models/gemini-robotics/
+Project-URL: repository, https://github.com/google-deepmind/gemini-robotics-sdk
+Requires-Python: <3.14,>=3.11
+Requires-Dist: absl-py
+Requires-Dist: dataclasses_json
+Requires-Dist: dm-env
+Requires-Dist: evdev; sys_platform != "win32"
+Requires-Dist: fastapi
+Requires-Dist: gdm-robotics
+Requires-Dist: google-api-python-client
+Requires-Dist: google-auth-httplib2
+Requires-Dist: google-auth-oauthlib
+Requires-Dist: google-genai>=1.70.0
+Requires-Dist: grpcio
+Requires-Dist: imageio
+Requires-Dist: immutabledict
+Requires-Dist: jax
+Requires-Dist: lark~=1.2
+Requires-Dist: mcap-protobuf-support
+Requires-Dist: mediapy
+Requires-Dist: mujoco>=3.3.6
+Requires-Dist: opencv-python
+Requires-Dist: overrides
+Requires-Dist: protobuf<7
+Requires-Dist: psutil
+Requires-Dist: python-magic
+Requires-Dist: pytz
+Requires-Dist: scipy
+Requires-Dist: tensorflow
+Requires-Dist: uvicorn
+Requires-Dist: watchdog
+Provides-Extra: dev
+Requires-Dist: immutabledict; extra == "dev"
+Requires-Dist: parameterized; extra == "dev"
+Requires-Dist: pyink; extra == "dev"
+Requires-Dist: pylint>=2.6.0; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: pytest-xdist; extra == "dev"
+Provides-Extra: cc-logging
+Requires-Dist: safari-sdk-logging; extra == "cc-logging"
+Description-Content-Type: text/markdown
+
 # Safari SDK: the SDK for Google DeepMind Gemini Robotics models 🦓🦄🐘🐒🐍
 
 ## Disclaimer

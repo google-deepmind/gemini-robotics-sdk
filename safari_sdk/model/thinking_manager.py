@@ -487,7 +487,7 @@ class MultiThinkingManager(
   def _remove_next_step_prefix(self, next_step: np.ndarray) -> np.ndarray:
     """Formats the next step string to remove the prefix."""
     next_step = next_step.item()
-    return np.array(next_step.replace("next step:", "").strip(), dtype=str)
+    return np.array(next_step.replace("next step:", "").strip(), dtype=np.dtypes.StringDType())  # pytype: disable=module-attr
 
   def _get_thinking_observation_for_manager(
       self,

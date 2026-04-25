@@ -75,7 +75,7 @@ class EpisodicLoggerConfig:
     num_workers: The number of workers to use for writing to disk. If None, the
       default number of workers will be used.
     file_shard_size_limit_bytes: The file shard size limits in bytes. Default is
-      2GB.
+      constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES (1GB).
   """
 
   agent_id: str
@@ -95,7 +95,24 @@ class EpisodicLoggerConfig:
   timestamp_key: str | None = None
   batch_size: int | None = None
   num_workers: int | None = None
-  file_shard_size_limit_bytes: int = 2 * 1024 * 1024 * 1024
+  file_shard_size_limit_bytes: int = (
+      constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES
+  )
+
+  def __post_init__(self):
+    for field_name in ("agent_id", "task_id"):
+      value = getattr(self, field_name)
+      if value is None:
+        continue
+      stripped = value.strip()
+      if stripped != value:
+        logging.warning(
+            "%s %r has leading/trailing whitespace; stripping to %r.",
+            field_name,
+            value,
+            stripped,
+        )
+        object.__setattr__(self, field_name, stripped)
 
 
 class EpisodicLogger(episodic_logger.EpisodicLogger):
@@ -312,12 +329,17 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     if self._current_episode_step > 0:
       self.write()
 
-    self._reset_saved_data()
-    self._episode_end_time_ns = None
     if self._timestamp_key:
       timestamp_ns = self._get_timestamp_ns_from_timestep(timestep)
     else:
       timestamp_ns = time.time_ns()
+
+    if self._session_manager.session_started:
+      # Make sure the session is stopped before starting a new one.
+      self._session_manager.stop_session(stop_timestamp_nsec=timestamp_ns)
+
+    self._reset_saved_data()
+    self._episode_end_time_ns = None
     self._episode_start_time_ns = timestamp_ns
 
     # Try to start a new session.
@@ -423,7 +445,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
       reward = np.asarray(timestep.reward)
       # Reward is a float. If the `asarray` converted it to something different,
       # cast it back to a float.
-      if reward.dtype != np.float64 or reward.dtype != np.float32:
+      if reward.dtype not in (np.float64, np.float32):
         reward = reward.astype(np.float32, copy=False)
       self._timestep_batch[constants.REWARD_KEY].append(reward)
 
@@ -437,7 +459,7 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
       discount = np.asarray(timestep.discount)
       # Discount is a float. If the `asarray` converted it to something
       # different, cast it back to a float. Casting should be always safe.
-      if discount.dtype != np.float64 or discount.dtype != np.float32:
+      if discount.dtype not in (np.float64, np.float32):
         discount = discount.astype(np.float32, copy=False)
       self._timestep_batch[constants.DISCOUNT_KEY].append(discount)
 
@@ -603,7 +625,15 @@ class EpisodicLogger(episodic_logger.EpisodicLogger):
     if self._is_recording:
       raise ValueError("Logger is recording data. Cannot set task ID.")
 
-    self._task_id = task_id
+    stripped = task_id.strip()
+    if stripped != task_id:
+      logging.warning(
+          "set_task_id: task_id %r has leading/trailing whitespace;"
+          " stripping to %r.",
+          task_id,
+          stripped,
+      )
+    self._task_id = stripped
 
   def _write_session(self) -> None:
     """Writes the Session message to an mcap file.

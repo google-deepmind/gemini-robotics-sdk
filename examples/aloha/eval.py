@@ -14,13 +14,12 @@
 
 """Run Robotics Policy Eval on Aloha Robot."""
 
-import socket
 from absl import app
 from absl import flags
 import env
 from gdm_robotics.runtime import runloop as runloop_lib
 import rclpy
-from safari_sdk.logging.python import episodic_logger
+
 from safari_sdk.model import constants
 from safari_sdk.model import gemini_robotics_policy
 
@@ -50,11 +49,6 @@ INSTRUCTION = flags.DEFINE_string(
 )
 MAX_NUM_STEPS = flags.DEFINE_integer(
     'steps', 5000, 'Number of steps to run the episode for.'
-)
-AGENT_ID = flags.DEFINE_string(
-    'agent_id',
-    socket.gethostname(),
-    'The agent id to use for the episodic logger.',
 )
 
 
@@ -131,26 +125,10 @@ def main(argv):
         options={env.INSTRUCTION_RESET_OPTION_KEY: user_input_ops.instruction}
     )
 
-  logger = episodic_logger.EpisodicLogger.create(
-      agent_id=AGENT_ID.value,
-      task_id=user_input_ops.instruction,
-      proprioceptive_observation_keys=['joints_pos'],
-      output_directory='/tmp/eval_logs',
-      action_spec=environment.action_spec(),
-      timestep_spec=environment.timestep_spec(),
-      image_observation_keys=[
-          'overhead_cam',
-          'worms_eye_cam',
-          'wrist_cam_left',
-          'wrist_cam_right',
-      ],
-      policy_extra_spec={},
-  )
-
   runloop = runloop_lib.Runloop(
       environment=environment,
       policy=policy,
-      loggers=[logger],
+      loggers=[],
       runloop_runtime_operations=(user_input_ops,),
       reset_options_provider=_update_instruction_on_reset,
   )

@@ -250,6 +250,66 @@ class OrchestratorHelperTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       helper_lib.set_current_robot_operator_id(operator_id="test_operator_id")
 
+  def test_update_robot_hardware_config_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.update_robot_hardware_config.return_value = (
+        orchestrator_helper.interface.RESPONSE(
+            success=True,
+            robot_id="test_robot_id",
+        )
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.update_robot_hardware_config(
+        components=[
+            orchestrator_helper.ROBOT_HARDWARE_COMPONENT(
+                component_name="component_a", serial_number="123"
+            )
+        ]
+    )
+    self.assertTrue(response.success)
+    self.assertEqual(response.robot_id, "test_robot_id")
+
+  def test_update_robot_hardware_config_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.update_robot_hardware_config(
+        components=[
+            orchestrator_helper.ROBOT_HARDWARE_COMPONENT(
+                component_name="component_a", serial_number="123"
+            )
+        ]
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_update_robot_hardware_config_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.update_robot_hardware_config(
+          components=[
+              orchestrator_helper.ROBOT_HARDWARE_COMPONENT(
+                  component_name="component_a", serial_number="123"
+              )
+          ]
+      )
+
   def test_add_operator_event_battery_level(self):
     mock_interface = mock.create_autospec(
         spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
@@ -272,7 +332,25 @@ class OrchestratorHelperTest(absltest.TestCase):
     )
     self.assertTrue(response.success)
     mock_interface.add_operator_event.assert_called_once_with(
+        operator_event_type=None,
         operator_event_str="Battery Level",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="85",
+    )
+
+    response = helper_lib.add_operator_event(
+        operator_event_type=24,  # OPERATOR_EVENT_TYPE_BATTERY_LEVEL_INFO
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="85",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_operator_event.assert_called_with(
+        operator_event_type=24,  # OPERATOR_EVENT_TYPE_BATTERY_LEVEL_INFO
+        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_operator_id",
@@ -301,7 +379,26 @@ class OrchestratorHelperTest(absltest.TestCase):
     )
     self.assertTrue(response.success)
     mock_interface.add_operator_event.assert_called_once_with(
+        operator_event_type=None,
         operator_event_str="Battery Level",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="0",
+    )
+
+    # Default battery level is 0 with operator event type.
+    response = helper_lib.add_operator_event(
+        operator_event_type=24,  # OPERATOR_EVENT_TYPE_BATTERY_LEVEL_INFO
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_operator_id",
+        event_note="0",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_operator_event.assert_called_with(
+        operator_event_type=24,  # OPERATOR_EVENT_TYPE_BATTERY_LEVEL_INFO
+        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_operator_id",
@@ -330,7 +427,25 @@ class OrchestratorHelperTest(absltest.TestCase):
     )
     self.assertTrue(response.success)
     mock_interface.add_operator_event.assert_called_once_with(
+        operator_event_type=None,
         operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+    response = helper_lib.add_operator_event(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_operator_event.assert_called_with(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
@@ -355,6 +470,18 @@ class OrchestratorHelperTest(absltest.TestCase):
         response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
     )
 
+    response = helper_lib.add_operator_event(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
   def test_add_operator_event_bad_with_raise_error(self):
     helper_lib = orchestrator_helper.OrchestratorHelper(
         robot_id="test_robot_id",
@@ -365,6 +492,15 @@ class OrchestratorHelperTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       helper_lib.add_operator_event(
           operator_event_str="Other Break",
+          operator_id="test_operator_id",
+          event_timestamp=123456789,
+          resetter_id="test_resetter_id",
+          event_note="test_event_note",
+      )
+
+    with self.assertRaises(ValueError):
+      helper_lib.add_operator_event(
+          operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
           operator_id="test_operator_id",
           event_timestamp=123456789,
           resetter_id="test_resetter_id",
@@ -1501,7 +1637,7 @@ class OrchestratorHelperTest(absltest.TestCase):
 
     response = helper_lib.set_rui_workcell_state(
         robot_id="test_robot_id",
-        workcell_state="Available",
+        workcell_state_type=10,
     )
     self.assertTrue(response.success)
 
@@ -1513,7 +1649,7 @@ class OrchestratorHelperTest(absltest.TestCase):
 
     response = helper_lib.set_rui_workcell_state(
         robot_id="test_robot_id",
-        workcell_state="Available",
+        workcell_state_type=10,
     )
     self.assertFalse(response.success)
     self.assertEqual(
@@ -1530,7 +1666,7 @@ class OrchestratorHelperTest(absltest.TestCase):
     with self.assertRaises(ValueError):
       helper_lib.set_rui_workcell_state(
           robot_id="test_robot_id",
-          workcell_state="Available",
+          workcell_state_type=10,
       )
 
 

@@ -172,6 +172,17 @@ class InterfaceTest(absltest.TestCase):
         response.error_message, interface._ERROR_IN_OBSERVER_MODE
     )
 
+    response = interface_lib.add_operator_event(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_event_str="",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(response.error_message, interface._ERROR_IN_OBSERVER_MODE)
+
     response = interface_lib.request_robot_job_work_unit()
     self.assertFalse(response.success)
     self.assertEqual(
@@ -378,6 +389,91 @@ class InterfaceTest(absltest.TestCase):
       "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
       return_value=interface.current_robot._RESPONSE(success=True),
   )
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.update_robot_hardware_config",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  def test_update_robot_hardware_config_good(self, *_):
+    FLAGS.api_key = "mock_test_key"
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_build.return_value = mock.Mock(
+          spec=interface.auth.discovery.Resource
+      )
+      response = interface_lib.connect()
+      self.assertTrue(response.success)
+
+    response = interface_lib.update_robot_hardware_config(
+        components=[
+            interface.ROBOT_HARDWARE_COMPONENT(
+                component_name="finger", serial_number="123"
+            )
+        ]
+    )
+    self.assertTrue(response.success)
+
+  def test_update_robot_hardware_config_empty_components(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+    interface_lib._connection = mock.Mock()
+    interface_lib._current_robot_lib = mock.Mock()
+
+    response = interface_lib.update_robot_hardware_config(components=[])
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_EMPTY_COMPONENTS_LIST
+    )
+
+  def test_update_robot_hardware_config_bad_active_connection(self):
+    FLAGS.api_key = None
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+    interface_lib._connection = None
+    interface_lib._current_robot_lib = mock.MagicMock(
+        spec=interface.current_robot.OrchestratorCurrentRobotInfo
+    )
+
+    response = interface_lib.update_robot_hardware_config(
+        components=[
+            interface.ROBOT_HARDWARE_COMPONENT(
+                component_name="finger", serial_number="123"
+            )
+        ]
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+    interface_lib._connection = mock.Mock(
+        spec=interface.auth.discovery.Resource
+    )
+    interface_lib._current_robot_lib = None
+
+    response = interface_lib.update_robot_hardware_config(
+        components=[
+            interface.ROBOT_HARDWARE_COMPONENT(
+                component_name="finger", serial_number="123"
+            )
+        ]
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
   def test_add_operator_event(self, *_):
     # Mock auth.get_service
     mock_auth_get_service = self.enter_context(
@@ -406,6 +502,7 @@ class InterfaceTest(absltest.TestCase):
 
     # Call add_operator_event
     response = interface_lib.add_operator_event(
+        operator_event_type=None,
         operator_event_str="Other Break",
         operator_id="test_operator_id",
         event_timestamp=123456789,
@@ -416,7 +513,29 @@ class InterfaceTest(absltest.TestCase):
     # Assertions
     self.assertTrue(response.success)
     mock_operator_event.add_operator_event.assert_called_once_with(
+        operator_event_type=None,
         operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+    # Call add_operator_event
+    response = interface_lib.add_operator_event(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_event_str="",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+    # Assertions
+    self.assertTrue(response.success)
+    mock_operator_event.add_operator_event.assert_called_with(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
@@ -432,7 +551,24 @@ class InterfaceTest(absltest.TestCase):
 
     # Call add_operator_event without connect
     response = interface_lib.add_operator_event(
+        operator_event_type=None,
         operator_event_str="Other Break",
+        operator_id="test_operator_id",
+        event_timestamp=123456789,
+        resetter_id="test_resetter_id",
+        event_note="test_event_note",
+    )
+
+    # Assertions
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+    # Call add_operator_event without connect
+    response = interface_lib.add_operator_event(
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
+        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
@@ -2570,6 +2706,8 @@ class InterfaceTest(absltest.TestCase):
             ),
         ],
         note="test_note",
+        session_note="test_session_note",
+        request_retry_bypass=False,
     )
     self.assertTrue(response.success)
     self.assertEqual(response.robot_id, "test_robot_id")
@@ -2816,7 +2954,7 @@ class InterfaceTest(absltest.TestCase):
 
     response = interface_lib.set_rui_workcell_state(
         robot_id="test_robot_id",
-        workcell_state="Available",
+        workcell_state_type=10,
     )
     self.assertTrue(response.success)
 
@@ -2834,8 +2972,8 @@ class InterfaceTest(absltest.TestCase):
     )
 
     response = interface_lib.set_rui_workcell_state(
-        robot_id="test_robot_id",
-        workcell_state="Available")
+        robot_id="test_robot_id", workcell_state_type=10
+    )
     self.assertFalse(response.success)
     self.assertEqual(
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
@@ -2847,8 +2985,8 @@ class InterfaceTest(absltest.TestCase):
     interface_lib._rui_workcell_state_lib = None
 
     response = interface_lib.set_rui_workcell_state(
-        robot_id="test_robot_id",
-        workcell_state="test_workcell_state")
+        robot_id="test_robot_id", workcell_state_type=10
+    )
     self.assertFalse(response.success)
     self.assertEqual(
         response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION

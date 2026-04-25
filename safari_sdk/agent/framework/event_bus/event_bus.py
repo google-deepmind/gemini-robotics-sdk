@@ -131,10 +131,10 @@ class EventBus:
       event: The event to log.
     """
     for key, value in event.metadata.items():
-      if isinstance(value, int) or isinstance(value, float):
-        label_value = struct_pb2.Value(number_value=value)
-      elif isinstance(value, bool):
+      if isinstance(value, bool):
         label_value = struct_pb2.Value(bool_value=value)
+      elif isinstance(value, int) or isinstance(value, float):
+        label_value = struct_pb2.Value(number_value=value)
       elif isinstance(value, str):
         label_value = struct_pb2.Value(string_value=value)
       else:
@@ -238,7 +238,7 @@ class EventBus:
     self._main_task = asyncio.create_task(self._event_queue_loop())
     self._is_running = True
 
-  def shutdown(self) -> dict[str, str] | None:
+  async def shutdown(self) -> dict[str, str] | None:
     """Shutdown the event bus."""
     if not self._main_task or self._main_task.done():
       logging.info("Event queue task is not existent or already done.")
@@ -247,6 +247,25 @@ class EventBus:
     self._main_task.cancel()
     self._main_task = None
     self._is_running = False
+
+    # Cancel all pending handler tasks to prevent asyncio.run() cleanup from
+    # hanging on orphaned tasks (especially asyncio.to_thread tasks whose
+    # underlying threads may be blocked on network calls).
+    tasks_to_cancel = []
+    for task in list(self._handler_tasks.values()):
+      if not task.done():
+        task.cancel()
+        tasks_to_cancel.append(task)
+    if tasks_to_cancel:
+      logging.info(
+          "Cancelling %d pending handler tasks...", len(tasks_to_cancel)
+      )
+      _, pending = await asyncio.wait(tasks_to_cancel, timeout=5.0)
+      if pending:
+        logging.warning(
+            "%d handler tasks did not finish within timeout.", len(pending)
+        )
+    self._handler_tasks.clear()
     info = {
         "agent_session_id": (
             self._agent_session_id if self._agent_session_id else ""

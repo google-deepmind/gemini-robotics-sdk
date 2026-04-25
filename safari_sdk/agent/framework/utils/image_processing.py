@@ -205,6 +205,7 @@ def stitch_images(
     label_background: bool = False,
     border_color: str | tuple[int, int, int] | None = None,
     image_order: Sequence[str] | None = None,
+    border_spacing: int = 4,
 ) -> bytes:
   """Stitches multiple camera images into a single grid image.
 
@@ -224,6 +225,8 @@ def stitch_images(
     image_order: Optional sequence of image keys specifying the order to arrange
       images in the grid (left-to-right, top-to-bottom). If None, uses
       dictionary insertion order.
+    border_spacing: Spacing between images in pixels when border_color is set.
+      Defaults to 4.
 
   Returns:
     JPEG bytes of the stitched image.
@@ -252,7 +255,7 @@ def stitch_images(
   num_images = len(images)
   rows, cols = _calculate_grid_dimensions(num_images)
 
-  spacing = 4 if border_color is not None else 0
+  spacing = border_spacing if border_color is not None else 0
   bg_color = border_color if border_color is not None else (0, 0, 0)
 
   grid_width = cols * cell_width + (cols + 1) * spacing

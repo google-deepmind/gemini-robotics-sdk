@@ -145,7 +145,7 @@ class ObservationToModelQueryContentsTest(parameterized.TestCase):
   @parameterized.named_parameters(
       ('string', 'do the task'),
       ('numpy_array_of_strings', np.array(['do the task'])),
-      ('scalar_list', np.array('do the task', dtype=str)),
+      ('scalar_list', np.array('do the task', dtype=np.dtypes.StringDType())),  # pytype: disable=module-attr
       ('bytes', b'do the task'),
   )
   def test_string_observation_formats(self, task_instruction):

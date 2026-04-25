@@ -43,6 +43,7 @@ DRAW_ARROW_ICON = visual_overlay.visual_overlay_icon.DrawArrowIcon
 DRAW_SQUARE_ICON = visual_overlay.visual_overlay_icon.DrawSquareIcon
 DRAW_TRIANGLE_ICON = visual_overlay.visual_overlay_icon.DrawTriangleIcon
 DRAW_CONTAINER = visual_overlay.visual_overlay_icon.DrawContainer
+ROBOT_HARDWARE_COMPONENT = current_robot.ROBOT_HARDWARE_COMPONENT
 
 RESPONSE = api_response.OrchestratorAPIResponse
 _SUCCESS = RESPONSE(success=True)
@@ -55,6 +56,9 @@ _ERROR_NO_WORK_UNIT_CONTEXT = (
 )
 _ERROR_NO_SCENE_PRESET_DETAILS = (
     "OrchestratorInterface: No scene preset details found in current work unit."
+)
+_ERROR_EMPTY_COMPONENTS_LIST = (
+    "OrchestratorInterface: Components list cannot be empty."
 )
 _ERROR_NO_REFERENCE_IMAGES = (
     "OrchestratorInterface: No reference images data found in current work"
@@ -237,10 +241,28 @@ class OrchestratorInterface:
   @_check_orchestrator_interface_requirements(
       observer_check="disallow",
       require_connection=True,
+      required_libs=["_current_robot_lib"],
+  )
+  def update_robot_hardware_config(
+      self, components: list[ROBOT_HARDWARE_COMPONENT]
+  ) -> RESPONSE:
+    """Update the robot hardware configuration."""
+    if not components:
+      return RESPONSE(error_message=_ERROR_EMPTY_COMPONENTS_LIST)
+    assert self._current_robot_lib is not None
+    with self._rpc_lock:
+      return self._current_robot_lib.update_robot_hardware_config(
+          components=components
+      )
+
+  @_check_orchestrator_interface_requirements(
+      observer_check="disallow",
+      require_connection=True,
       required_libs=["_operator_event_lib"],
   )
   def add_operator_event(
       self,
+      operator_event_type: int | None,
       operator_event_str: str,
       operator_id: str,
       event_timestamp: int,
@@ -251,6 +273,7 @@ class OrchestratorInterface:
     assert self._operator_event_lib is not None
     with self._rpc_lock:
       return self._operator_event_lib.add_operator_event(
+          operator_event_type=operator_event_type,
           operator_event_str=operator_event_str,
           operator_id=operator_id,
           event_timestamp=event_timestamp,
@@ -544,10 +567,12 @@ class OrchestratorInterface:
       session_start_time_ns: int | None,
       session_end_time_ns: int | None,
       session_log_type: str | None,
+      session_note: str | None,
       response_to_questions: (
           list[robot_job_work_unit.WORK_UNIT_QUESTION] | None
       ),
       note: str,
+      request_retry_bypass: bool,
   ) -> RESPONSE:
     """Sets the current work unit's stage as completed."""
     assert self._robot_job_work_unit_lib is not None
@@ -559,8 +584,10 @@ class OrchestratorInterface:
           session_start_time_ns=session_start_time_ns,
           session_end_time_ns=session_end_time_ns,
           session_log_type=session_log_type,
+          session_note=session_note,
           response_to_questions=response_to_questions,
           note=note,
+          request_retry_bypass=request_retry_bypass,
       )
 
   @_check_orchestrator_interface_requirements(
@@ -627,13 +654,13 @@ class OrchestratorInterface:
       required_libs=["_rui_workcell_state_lib"],
   )
   def set_rui_workcell_state(
-      self, robot_id: str, workcell_state: str
+      self, robot_id: str, workcell_state_type: int
   ) -> RESPONSE:
     """Sets the RUI workcell state for the given robot."""
     assert self._rui_workcell_state_lib is not None
     with self._rpc_lock:
       return self._rui_workcell_state_lib.set_rui_workcell_state(
-          robot_id=robot_id, workcell_state=workcell_state
+          robot_id=robot_id, workcell_state_type=workcell_state_type
       )
 
   @_check_orchestrator_interface_requirements(

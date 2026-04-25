@@ -106,6 +106,7 @@ class TerminalUI:
     )
     all_events_to_handle = [
         event_bus.EventType.MODEL_TURN,
+        event_bus.EventType.MODEL_THOUGHT,
         event_bus.EventType.MODEL_TURN_COMPLETE,
         event_bus.EventType.MODEL_TURN_INTERRUPTED,
         event_bus.EventType.GENERATION_COMPLETE,

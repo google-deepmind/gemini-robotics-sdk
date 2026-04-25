@@ -41,3 +41,5 @@ TASK_INSTRUCTION_ENCODED_OBS_KEY = "task_instruction"
 
 # Key for the action chunk in the response.
 ACTION_CHUNK_RESPONSE_KEY = "action_chunk"
+
+DTYPE_RESPONSE_KEY = "dtype"

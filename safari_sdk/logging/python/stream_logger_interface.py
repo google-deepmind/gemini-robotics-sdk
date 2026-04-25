@@ -19,6 +19,8 @@ from typing import Collection
 
 from google.protobuf import struct_pb2
 from google.protobuf import message as message_lib
+from safari_sdk.logging.python import constants
+from safari_sdk.protos import fingers_pb2
 from safari_sdk.protos import image_pb2
 from safari_sdk.protos import joints_pb2
 from safari_sdk.protos import label_pb2
@@ -39,6 +41,7 @@ LOG_MESSAGE_TYPE = (
     audio_pb2.Audio
     | contact_surface_pb2.ContactSurface
     | example_pb2.Example
+    | fingers_pb2.FingerSensor
     | image_pb2.Image
     | imu_pb2.Imu
     | joints_pb2.Joints
@@ -68,7 +71,7 @@ class StreamLoggerInterface(abc.ABC):
       output_directory: str,
       required_topics: Collection[str],
       optional_topics: Collection[str] | None = None,
-      file_shard_size_limit_bytes: int = 2 * 1024 * 1024 * 1024,
+      file_shard_size_limit_bytes: int = constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES,
   ):
     """Initializes the stream logger."""
 

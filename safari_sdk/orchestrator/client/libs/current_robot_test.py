@@ -19,6 +19,7 @@ from unittest import mock
 from absl.testing import absltest
 from googleapiclient import errors
 
+from safari_sdk.orchestrator.client.dataclass import robot_hardware_component
 from safari_sdk.orchestrator.client.libs import current_robot
 
 
@@ -192,6 +193,105 @@ class CurrentRobotTest(absltest.TestCase):
     self.assertFalse(response.success)
     self.assertIn(
         current_robot._ERROR_SET_CURRENT_ROBOT_OPERATOR_ID,
+        response.error_message,
+    )
+
+  def test_update_robot_hardware_config_good(self):
+
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().mergeRobotHardwareComponents().execute.return_value = (
+        {}
+    )
+
+    current_robot_lib = current_robot.OrchestratorCurrentRobotInfo(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    components = [
+        robot_hardware_component.RobotHardwareComponent(
+            component_name="test_component",
+            serial_number="test_serial",
+            model="test_model",
+            firmware_number="test_version",
+        )
+    ]
+    response = current_robot_lib.update_robot_hardware_config(
+        components=components
+    )
+    self.assertTrue(response.success)
+
+  def test_update_robot_hardware_config_empty_components(self):
+    current_robot_lib = current_robot.OrchestratorCurrentRobotInfo(
+        connection=mock.MagicMock(),
+        robot_id="test_robot_id",
+    )
+    response = current_robot_lib.update_robot_hardware_config(components=[])
+    self.assertFalse(response.success)
+    self.assertIn(
+        current_robot._ERROR_EMPTY_COMPONENTS_LIST,
+        response.error_message,
+    )
+
+  def test_update_robot_hardware_config_bad_server_call(self):
+
+    class MockHttpError:
+
+      def __init__(self):
+        self.status = "Mock status"
+        self.reason = "Mock reason"
+        self.error_details = "Mock error details"
+
+    def raise_error_side_effect():
+      raise errors.HttpError(MockHttpError(), "Mock failed HTTP call.".encode())
+
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().mergeRobotHardwareComponents().execute.side_effect = (
+        raise_error_side_effect
+    )
+
+    current_robot_lib = current_robot.OrchestratorCurrentRobotInfo(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    components = [
+        robot_hardware_component.RobotHardwareComponent(
+            component_name="test_component",
+            serial_number="test_serial",
+        )
+    ]
+    response = current_robot_lib.update_robot_hardware_config(
+        components=components
+    )
+
+    self.assertFalse(response.success)
+    self.assertIn(
+        current_robot._ERROR_UPDATE_ROBOT_HARDWARE_CONFIG,
+        response.error_message,
+    )
+
+  def test_update_robot_hardware_config_empty_components_server_error(self):
+
+    def raise_error_side_effect():
+      e = errors.HttpError(mock.Mock(status=400, reason="Bad Request"), b"{}")
+      e.error_details = (
+          "[Error ID: 123] 'components' is missing in the request."
+      )
+      raise e
+
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().mergeRobotHardwareComponents().execute.side_effect = (
+        raise_error_side_effect
+    )
+
+    current_robot_lib = current_robot.OrchestratorCurrentRobotInfo(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    response = current_robot_lib.update_robot_hardware_config(components=[])
+
+    self.assertFalse(response.success)
+    self.assertIn(
+        current_robot._ERROR_EMPTY_COMPONENTS_LIST,
         response.error_message,
     )
 

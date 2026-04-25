@@ -12,20 +12,22 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-"""Abstract class for interfacing with models."""
+"""Protocol to represent a model."""
 
-import abc
 from collections.abc import Mapping
+from typing import Protocol
 
+import jax
 import numpy as np
 
 
-class ModelInterface(abc.ABC):
-  """Abstract class for interfacing with models."""
+class ModelInterface(Protocol):
+  """Protocol to represent a model."""
 
-  @abc.abstractmethod
   def query_model(
       self,
-      observation: Mapping[str, np.ndarray],
+      model_input: Mapping[str, np.ndarray],
+      *,
+      rng_key: jax.Array | None = None
   ) -> np.ndarray:
-    """Queries the model with the given observation."""
+    """Queries the model with the provided input."""

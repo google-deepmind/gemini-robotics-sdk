@@ -244,33 +244,17 @@ class ExternalControllerFastAPIServer:
               data=lh_task,
           )
       )
-      return {"message": f"Instructed EAR framework to execute task: {lh_task}"}
-
-    @self._external_controller_server.get("/execute_interaction/")
-    async def execute_interaction(  # pylint: disable=unused-variable
-        interaction: str,
-    ) -> dict[str, str]:
-      """CANONICAL endpoint: Tell agent to execute an interaction.
-
-      This is done by publishing a MODEL_TEXT_INPUT event to the event bus.
-
-      Example usage (type in the browser's url bar):
-      localhost:8887/execute_interaction/?interaction=Hi Appollo, how are you?
-
-      Args:
-        interaction: The interaction to execute.
-      """
-      logging.info("EXTERNAL CONTROLLER: Execute interaction: %s", interaction)
-      # Directly tell the agent to execute the task by publishing a
-      # MODEL_TEXT_INPUT event to the event bus.
+      # Also publish a LOG_SESSION_METADATA event. This is required to populate
+      # the "Interaction" column in the EAR log viewer GUI by setting the
+      # 'orchestrator_work_unit_task_instruction' session label in SSOT.
       await self._bus.publish(
           event=event_bus.Event(
-              type=event_bus.EventType.MODEL_TEXT_INPUT,
+              type=event_bus.EventType.LOG_SESSION_METADATA,
               source=event_bus.EventSource.EXTERNAL_CONTROLLER,
-              data=interaction,
+              metadata={"orchestrator_work_unit_task_instruction": lh_task},
           )
       )
-      return {"message": f"Instructed EAR framework to execute: {interaction}"}
+      return {"message": f"Instructed EAR framework to execute task: {lh_task}"}
 
     @self._external_controller_server.get("/get_agent_session_id/")
     async def get_agent_session_id() -> dict[str, str]:  # pylint: disable=unused-variable
@@ -297,7 +281,7 @@ class ExternalControllerFastAPIServer:
       localhost:8887/terminate/
       """
       logging.info("EXTERNAL CONTROLLER: Terminate")
-      episode_info = self._bus.shutdown()
+      episode_info = await self._bus.shutdown()
       for task in asyncio.all_tasks():
         if not task.done():
           task.cancel()
@@ -572,6 +556,7 @@ class ExternalControllerFastAPIServer:
           event_bus.EventType.GO_AWAY.name,
           event_bus.EventType.DEBUG.name,
           event_bus.EventType.OUTPUT_TRANSCRIPT.name,
+          event_bus.EventType.INFERENCE_STARTED.name,
       ]
       return await stream_events(event_types)
 
@@ -591,12 +576,16 @@ class ExternalControllerFastAPIServer:
       Args:
         event: The event dict to publish to the agent framework.
       """
-      logging.info("EXTERNAL CONTROLLER: Publish event: %s", event)
-
       event_type_str = event.get("type", "MODEL_TEXT_INPUT")
       source_str = event.get("source", "USER")
       data = event.get("data", "")
       metadata = event.get("metadata", {})
+      event_msg = (
+          f"EXTERNAL CONTROLLER: Publish event: 'type':{event_type_str},"
+          f" 'source': {source_str}, 'metadata': {metadata}, 'data':"
+          f" {data[0:50]}"
+      )
+      logging.info(event_msg)
 
       try:
         event_type = event_bus.EventType[event_type_str]
@@ -738,10 +727,16 @@ class ExternalControllerFastAPIServer:
       await server.serve()
     except asyncio.CancelledError:
       logging.info("FastAPI server task was explicitly cancelled.")
-      await server.shutdown()
+      try:
+        await asyncio.wait_for(server.shutdown(), timeout=5.0)
+      except asyncio.TimeoutError:
+        logging.warning("Timed out waiting for uvicorn server shutdown.")
     except Exception:  # pylint: disable=broad-exception-caught
       logging.exception("FastAPI server encountered an error.")
-      await server.shutdown()
+      try:
+        await asyncio.wait_for(server.shutdown(), timeout=5.0)
+      except asyncio.TimeoutError:
+        logging.warning("Timed out waiting for uvicorn server shutdown.")
     except KeyboardInterrupt:
       logging.info("FastAPI server was terminated due to a keyboard interrupt.")
 
@@ -781,10 +776,21 @@ class ExternalControllerFastAPIServer:
     if self._server_task:
       try:
         self._server_task.cancel()
+        try:
+          await asyncio.wait_for(self._server_task, timeout=5.0)
+        except asyncio.TimeoutError:
+          logging.warning(
+              "Timed out waiting for External controller FastApi server task to"
+              " finish."
+          )
+        except asyncio.CancelledError:
+          pass
         self._server_task = None
-      except asyncio.CancelledError:
-        logging.info(
-            "External controller fast api server task was already cancelled."
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning(
+            "Error during External controller FastApi server task"
+            " cancellation: %s",
+            e,
         )
       logging.info("External controller fast api server task cancelled.")
     else:

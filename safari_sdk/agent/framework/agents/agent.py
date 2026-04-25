@@ -166,6 +166,11 @@ class Agent(metaclass=abc.ABCMeta):
     self._stream_name_to_camera_name = stream_name_to_camera_name
     self._ignore_vision_inputs = ignore_vision_inputs
 
+    if config.system_prompt_suffix:
+      self._system_prompt = (
+          f"{self._system_prompt}\n{config.system_prompt_suffix}"
+      )
+
     validate_model_mode_compatibility(
         config.agent_model_name,
         config.orchestrator_handler_type,
@@ -195,6 +200,16 @@ class Agent(metaclass=abc.ABCMeta):
     # Create the handler based on streaming mode.
     self._handler = self._create_handler()
     self._handler.register_event_subscribers()
+
+  @property
+  def system_prompt(self) -> str:
+    """Returns the system prompt."""
+    return self._system_prompt
+
+  @property
+  def exposed_tools(self) -> Sequence[tool_lib.Tool]:
+    """Returns the tools exposed to the agent."""
+    return self._exposed_tools
 
   @abc.abstractmethod
   def _get_all_tools(
@@ -296,7 +311,10 @@ class Agent(metaclass=abc.ABCMeta):
   ) -> genai_types.TurnCoverage:
     if only_activity_coverage:
       return genai_types.TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY
-    return genai_types.TurnCoverage.TURN_INCLUDES_ALL_INPUT
+    if "gemini-live-2.5" in (self._config.agent_model_name).lower():
+      return genai_types.TurnCoverage.TURN_INCLUDES_ALL_INPUT
+    else:
+      return genai_types.TurnCoverage.TURN_INCLUDES_AUDIO_ACTIVITY_AND_ALL_VIDEO
 
   def _get_context_window_compression(
       self,
@@ -330,14 +348,17 @@ class Agent(metaclass=abc.ABCMeta):
     turn_coverage = self._get_turn_coverage(self._config.only_activity_coverage)
     context_window_compression = self._get_context_window_compression()
 
+    tools = [
+        genai_types.Tool(
+            function_declarations=tuple(function_declarations)
+        ),
+    ]
+    if self._config.use_google_search:
+      tools.append(genai_types.Tool(google_search=genai_types.GoogleSearch()))
+
     return genai_types.LiveConnectConfigDict(
         system_instruction=self._system_prompt,
-        tools=[
-            genai_types.Tool(
-                function_declarations=tuple(function_declarations)
-            ),
-            genai_types.Tool(google_search=genai_types.GoogleSearch()),
-        ],
+        tools=tools,
         response_modalities=[response_modality],
         realtime_input_config=genai_types.RealtimeInputConfig(
             turn_coverage=turn_coverage,
@@ -395,9 +416,12 @@ class Agent(metaclass=abc.ABCMeta):
       )
       clean_declarations.append(clean_decl)
 
-    return [
+    tools = [
         genai_types.Tool(function_declarations=tuple(clean_declarations)),
     ]
+    if self._config.use_google_search:
+      tools.append(genai_types.Tool(google_search=genai_types.GoogleSearch()))
+    return tools
 
   def _create_nonstreaming_tool_config(self) -> genai_types.ToolConfig | None:
     """Creates the tool configuration. Override to customize.

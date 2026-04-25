@@ -3191,6 +3191,172 @@ class EpisodicLoggerTest(parameterized.TestCase):
     self.assertIsNotNone(time_range.end_time_ns)
     self.assertLess(time_range.start_time_ns, time_range.end_time_ns)
 
+  def test_float64_reward_and_discount_are_not_downcast(self):
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward=specs.Array(shape=(), dtype=np.float64),
+        discount=specs.Array(shape=(), dtype=np.float64),
+        observation={
+            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+        },
+    )
+
+    action_spec = specs.BoundedArray(
+        shape=(5,),
+        dtype=np.float32,
+        minimum=np.array([-1.0, -2.0, -1.0, -2.0, 0.0], dtype=np.float32),
+        maximum=np.array([1.0, 1.0, 2.0, 3.0, 1.0], dtype=np.float32),
+    )
+
+    logger = episodic_logger.EpisodicLogger.create(
+        episodic_logger.EpisodicLoggerConfig(
+            agent_id=_TEST_AGENT_ID,
+            task_id=_TEST_TASK_ID,
+            output_directory=self._episode_path.full_path,
+            action_spec=action_spec,
+            timestep_spec=timestep_spec,
+            proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+            image_observation_keys=[],
+            policy_extra_spec={},
+        )
+    )
+
+    initial_timestep = self._generate_timestep(
+        timestep_spec, dm_env.StepType.FIRST
+    )
+    logger.reset(initial_timestep)
+
+    for _ in range(_DEFAULT_NUMBER_STEPS):
+      next_timestep = self._generate_timestep(
+          timestep_spec, dm_env.StepType.MID
+      )
+      action = specs_utils.valid_value_for_spec(action_spec)
+      logger.record_action_and_next_timestep(
+          action=action, next_timestep=next_timestep, policy_extra={}
+      )
+
+    last_timestep = self._generate_timestep(timestep_spec, dm_env.StepType.LAST)
+    action = specs_utils.valid_value_for_spec(action_spec)
+    logger.record_action_and_next_timestep(
+        action=action, next_timestep=last_timestep, policy_extra={}
+    )
+
+    logger.write()
+    logger.stop()
+
+    mcap_proto_data = mcap_parser_utils.read_proto_data(
+        self._episode_path.full_path,
+        constants.TIMESTEP_TOPIC_NAME,
+        constants.ACTION_TOPIC_NAME,
+        constants.POLICY_EXTRA_TOPIC_NAME,
+    )
+    timesteps_examples = mcap_proto_data.timesteps
+    actions_examples = mcap_proto_data.actions
+    policy_extras_examples = mcap_proto_data.policy_extra
+
+    timesteps, _, _ = mcap_parser_utils.parse_examples_to_dm_env_types(
+        timestep_spec,
+        action_spec,
+        {},
+        timesteps_examples,
+        actions_examples,
+        policy_extras_examples,
+        constants.STEP_TYPE_KEY,
+        constants.OBSERVATION_KEY_PREFIX,
+        constants.REWARD_KEY,
+        constants.DISCOUNT_KEY,
+        constants.ACTION_KEY_PREFIX,
+        constants.POLICY_EXTRA_PREFIX,
+    )
+
+    for ts in timesteps:
+      self.assertEqual(ts.reward.dtype, np.float64)
+      self.assertEqual(ts.discount.dtype, np.float64)
+
+
+class EpisodicLoggerConfigSanitizationTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="strips_whitespace_from_task_id",
+          agent_id="clean_agent",
+          task_id=" test_task ",
+          expected_agent_id="clean_agent",
+          expected_task_id="test_task",
+      ),
+      dict(
+          testcase_name="strips_whitespace_from_agent_id",
+          agent_id=" test_agent ",
+          task_id="clean_task",
+          expected_agent_id="test_agent",
+          expected_task_id="clean_task",
+      ),
+      dict(
+          testcase_name="no_change_for_clean_ids",
+          agent_id="clean_agent",
+          task_id="clean_task",
+          expected_agent_id="clean_agent",
+          expected_task_id="clean_task",
+      ),
+  )
+  def test_config_whitespace_stripping(
+      self, agent_id, task_id, expected_agent_id, expected_task_id
+  ):
+    config = episodic_logger.EpisodicLoggerConfig(
+        agent_id=agent_id,
+        task_id=task_id,
+        output_directory="/tmp/test",
+        image_observation_keys=[],
+        proprioceptive_observation_keys=[],
+        timestep_spec=gdmr_types.TimeStepSpec(
+            step_type=gdmr_types.STEP_TYPE_SPEC,
+            reward=specs.Array(shape=(), dtype=np.float32),
+            discount=specs.Array(shape=(), dtype=np.float32),
+            observation={
+                "instruction": specs.StringArray(shape=(), name="instruction"),
+            },
+        ),
+        action_spec=specs.BoundedArray(
+            shape=(1,),
+            dtype=np.float32,
+            minimum=-1.0,
+            maximum=1.0,
+        ),
+        policy_extra_spec={},
+    )
+    self.assertEqual(config.agent_id, expected_agent_id)
+    self.assertEqual(config.task_id, expected_task_id)
+
+  def test_set_task_id_strips_whitespace(self):
+    config = episodic_logger.EpisodicLoggerConfig(
+        agent_id="test_agent",
+        task_id="initial_task",
+        output_directory="/tmp/test",
+        image_observation_keys=[],
+        proprioceptive_observation_keys=[],
+        timestep_spec=gdmr_types.TimeStepSpec(
+            step_type=gdmr_types.STEP_TYPE_SPEC,
+            reward=specs.Array(shape=(), dtype=np.float32),
+            discount=specs.Array(shape=(), dtype=np.float32),
+            observation={
+                "instruction": specs.StringArray(shape=(), name="instruction"),
+            },
+        ),
+        action_spec=specs.BoundedArray(
+            shape=(1,),
+            dtype=np.float32,
+            minimum=-1.0,
+            maximum=1.0,
+        ),
+        policy_extra_spec={},
+    )
+    logger = episodic_logger.EpisodicLogger.create(config)
+    logger.set_task_id(" new_task ")
+    self.assertEqual(logger._task_id, "new_task")
+    logger.stop()
+
 
 if __name__ == "__main__":
   absltest.main()

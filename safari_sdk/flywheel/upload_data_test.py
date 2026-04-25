@@ -16,19 +16,51 @@ import datetime
 import os
 from unittest import mock
 
+import mcap.exceptions
 import pytz
 
-# Assuming the module is accessible like this for testing
 from absl.testing import absltest
 from absl.testing import parameterized
 from safari_sdk.flywheel import upload_data
 
 
+class CheckSessionSizeTest(absltest.TestCase):
+
+  def _make_fake_message(self, size_bytes):
+    fake_message = mock.Mock()
+    fake_message.data = b'x' * size_bytes
+    return fake_message
+
+  @mock.patch.object(upload_data.mcap_reader, 'make_reader')
+  def test_raises_if_session_too_large(self, mock_make_reader):
+    oversized = self._make_fake_message(
+        upload_data._SESSION_SIZE_LIMIT_BYTES + 1
+    )
+    mock_make_reader.return_value.iter_messages.return_value = [
+        (None, None, oversized)
+    ]
+    with self.assertRaisesRegex(ValueError, '/session message is'):
+      upload_data._check_session_size(b'fake-mcap-bytes')
+
+  @mock.patch.object(upload_data.mcap_reader, 'make_reader')
+  def test_passes_if_session_small(self, mock_make_reader):
+    small = self._make_fake_message(700)
+    mock_make_reader.return_value.iter_messages.return_value = [
+        (None, None, small)
+    ]
+    upload_data._check_session_size(b'fake-mcap-bytes')
+
+  @mock.patch.object(upload_data.mcap_reader, 'make_reader')
+  def test_check_session_size_invalid_mcap(self, mock_make_reader):
+    mock_make_reader.side_effect = mcap.exceptions.McapError('Corrupt MCAP')
+
+    with self.assertRaisesRegex(ValueError, 'File is not a valid MCAP'):
+      upload_data._check_session_size(b'corrupt-mcap-bytes')
+
+
 class UploadFileTest(absltest.TestCase):
 
-  @mock.patch(
-      'safari_sdk.flywheel.upload_data.requests.post'
-  )
+  @mock.patch.object(upload_data.requests, 'post')
   def test_upload_file_calls_requests_post_correctly(self, mock_post):
     mock_response = mock.Mock()
     mock_response.status_code = 200
@@ -60,17 +92,16 @@ class UploadFileTest(absltest.TestCase):
 
 class UploadDataDirectoryTest(parameterized.TestCase):
 
-  @mock.patch(
-      'safari_sdk.flywheel.upload_data._upload_file'
-  )
-  @mock.patch(
-      'safari_sdk.flywheel.upload_data.auth.get_api_key'
-  )
+  @mock.patch.object(upload_data, '_check_session_size')
+  @mock.patch.object(upload_data, '_upload_file')
+  @mock.patch.object(upload_data.auth, 'get_api_key')
   def test_upload_data_directory_success_and_rename(
       self,
       mock_get_api_key,
       mock_upload_file,
+      mock_check_session_size,
   ):
+    del mock_check_session_size
     upload_data_dir = self.create_tempdir()
     upload_data_dir.create_file('data1.mcap', content='dummy file content 1')
     upload_data_dir.create_file('data2.mcap', content='dummy file content 2')
@@ -145,9 +176,7 @@ class UploadDataDirectoryTest(parameterized.TestCase):
         os.path.exists(os.path.join(upload_sub_dir.full_path, 'data3.mcap'))
     )
 
-  @mock.patch(
-      'safari_sdk.flywheel.upload_data.auth.get_api_key'
-  )
+  @mock.patch.object(upload_data.auth, 'get_api_key')
   def test_upload_data_directory_no_api_key_raises_error(
       self, mock_get_api_key
   ):
@@ -159,9 +188,7 @@ class UploadDataDirectoryTest(parameterized.TestCase):
           robot_id='test_agent_001',
       )
 
-  @mock.patch(
-      'safari_sdk.flywheel.upload_data.auth.get_api_key'
-  )
+  @mock.patch.object(upload_data.auth, 'get_api_key')
   def test_upload_data_directory_already_uploaded_prints_message(
       self, mock_get_api_key
   ):
@@ -185,9 +212,7 @@ class UploadDataDirectoryTest(parameterized.TestCase):
       self.assertIn('No new .mcap files found', printed_msg)
       self.assertIn('2 file(s) were already uploaded', printed_msg)
 
-  @mock.patch(
-      'safari_sdk.flywheel.upload_data.auth.get_api_key'
-  )
+  @mock.patch.object(upload_data.auth, 'get_api_key')
   def test_upload_data_directory_empty_prints_message(self, mock_get_api_key):
     mock_get_api_key.return_value = 'test_api_key_123'
     upload_data_dir = self.create_tempdir()
@@ -201,6 +226,49 @@ class UploadDataDirectoryTest(parameterized.TestCase):
       mock_print.assert_called_once_with(
           f'No .mcap files found in {upload_data_dir.full_path}.'
       )
+
+  @mock.patch.object(upload_data, '_upload_file')
+  @mock.patch.object(upload_data.auth, 'get_api_key')
+  def test_upload_data_directory_mixed_success_failure(
+      self, mock_get_api_key, mock_upload_file
+  ):
+    mock_get_api_key.return_value = 'test_api_key_123'
+    upload_data_dir = self.create_tempdir()
+    file1 = upload_data_dir.create_file(
+        'data1.mcap', content='dummy file content 1'
+    )
+    file2 = upload_data_dir.create_file(
+        'data2.mcap', content='dummy file content 2'
+    )
+
+    # Mock _upload_file to succeed for file1 and fail for file2
+    def side_effect(**kwargs):
+      filename = kwargs.get('filename')
+      if 'data1.mcap' in filename:
+        return 200, 'OK'
+      return 500, 'Internal Server Error'
+
+    mock_upload_file.side_effect = side_effect
+
+    with mock.patch('builtins.print') as mock_print:
+      with mock.patch.object(upload_data, '_check_session_size'):
+        upload_data.upload_data_directory(
+            api_endpoint='https://example.com/upload',
+            data_directory=upload_data_dir.full_path,
+            robot_id='test_agent_001',
+        )
+
+    # Check that file1 was renamed and file2 was not
+    self.assertTrue(os.path.exists(file1.full_path + '.uploaded'))
+    self.assertFalse(os.path.exists(file2.full_path + '.uploaded'))
+    self.assertTrue(os.path.exists(file2.full_path))
+
+    # Verify printed calls
+    printed_calls = [call[0][0] for call in mock_print.call_args_list]
+    self.assertTrue(any('Uploaded data1.mcap' in msg for msg in printed_calls))
+    self.assertTrue(
+        any('Failed to upload data2.mcap' in msg for msg in printed_calls)
+    )
 
 
 if __name__ == '__main__':

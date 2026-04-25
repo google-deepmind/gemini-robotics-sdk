@@ -84,19 +84,21 @@ class EventStreamHandler(Generic[_EventT]):
     if not self._stream_tasks:
       logging.info("No active stream tasks to cancel.")
       return
+    tasks_to_await = []
     for stream_name, stream_task in self._stream_tasks.items():
       if not stream_task.done():
         logging.info("Cancelling stream task %s...", stream_name)
         stream_task.cancel()
-        try:
-          await stream_task
-          logging.info("Stream task cancelled and awaited.")
-        except asyncio.CancelledError:
-          logging.info("Stream task was successfully cancelled.")
-        except Exception as e:  # pylint: disable=broad-exception-caught
-          logging.info("Error during stream task cancellation: %s", e)
-        finally:
-          self._stream_task = None
+        tasks_to_await.append(stream_task)
+
+    if tasks_to_await:
+      logging.info("Awaiting %d cancelled stream tasks...", len(tasks_to_await))
+      results = await asyncio.gather(*tasks_to_await, return_exceptions=True)
+      for result in results:
+        if isinstance(result, Exception) and not isinstance(
+            result, asyncio.CancelledError
+        ):
+          logging.info("Error during stream task cancellation: %s", result)
 
     self._stream_tasks = {}
     logging.info("Disconnect complete.")

@@ -34,6 +34,7 @@ COLOR_MAP = {
     event_bus.EventType.TOOL_RESULT: TERMINAL_COLOR_ORANGE,
     event_bus.EventType.TOOL_CALL_CANCELLATION: TERMINAL_COLOR_RED,
     event_bus.EventType.MODEL_TURN: TERMINAL_COLOR_BLUE,
+    event_bus.EventType.MODEL_THOUGHT: TERMINAL_COLOR_YELLOW,
     event_bus.EventType.OUTPUT_TRANSCRIPT: TERMINAL_COLOR_CYAN,
 }
 
@@ -158,6 +159,7 @@ def handle_event(event: event_bus.Event) -> None:
         | event_bus.EventType.TOOL_RESULT
         | event_bus.EventType.GO_AWAY
         | event_bus.EventType.DEBUG
+        | event_bus.EventType.MODEL_THOUGHT
     ):
       _print_to_terminal(f"{event.data}", event=event, color=color)
 

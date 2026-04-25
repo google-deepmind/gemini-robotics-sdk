@@ -19,9 +19,10 @@ from absl.testing import absltest
 
 # Import tensorflow before safari_sdk to work around a pybind11_abseil type
 # registration bug in tensorflow/pybind11_abseil.
-import tensorflow as tf  # noqa: F401  # pylint: disable=unused-import
+import tensorflow
+del tensorflow
 
-import example_logger_usage
+import example_logger_usage  # pylint: disable=g-import-not-at-top
 from safari_sdk.logging.python import constants
 from safari_sdk.logging.python import mcap_parser_utils
 

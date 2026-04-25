@@ -18,6 +18,7 @@ from unittest import mock
 
 from absl import flags
 from absl.testing import absltest
+from absl.testing import parameterized
 from google.genai import types
 import numpy as np
 import tensorflow as tf
@@ -28,7 +29,7 @@ FLAGS = flags.FLAGS
 FLAGS.mark_as_parsed()
 
 
-class GenaiRoboticsTest(absltest.TestCase):
+class GenaiRoboticsTest(parameterized.TestCase):
 
   def test_robotics_api_create_client(self):
     with mock.patch("googleapiclient.discovery.build") as mock_build:
@@ -110,9 +111,7 @@ class GenaiRoboticsTest(absltest.TestCase):
       self.assertEqual(query["joints_pos"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
   def test_genai_create_client_via_auth_library(self):
-    with mock.patch("google.genai.Client") as mock_genai_client:
-      mock_client = mock.Mock()
-      mock_genai_client.return_value = mock_client
+    with mock.patch("google.genai.Client", autospec=True) as mock_genai_client:
       FLAGS.api_key = "test_api_key"
 
       client = genai_robotics.Client(
@@ -125,9 +124,7 @@ class GenaiRoboticsTest(absltest.TestCase):
       )
 
   def test_genai_create_client_via_param(self):
-    with mock.patch("google.genai.Client") as mock_genai_client:
-      mock_client = mock.Mock()
-      mock_genai_client.return_value = mock_client
+    with mock.patch("google.genai.Client", autospec=True) as mock_genai_client:
       FLAGS.api_key = None
 
       client = genai_robotics.Client(
@@ -139,6 +136,33 @@ class GenaiRoboticsTest(absltest.TestCase):
       mock_genai_client.assert_called_once_with(
           api_key="test_api_key", project="test_project"
       )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="default",
+          grpc_url=None,
+          expected_url=genai_robotics._LOCAL_GRPC_URL,
+      ),
+      dict(
+          testcase_name="custom",
+          grpc_url="grpc://10.0.0.5:10100",
+          expected_url="grpc://10.0.0.5:10100",
+      ),
+  )
+  @mock.patch.object(genai_robotics, "_connect_to_grpc", autospec=True)
+  def test_local_client_uses_grpc_url(
+      self, mock_connect, grpc_url, expected_url
+  ):
+    def dummy_query(_):
+      return ""
+
+    mock_connect.return_value = mock.create_autospec(dummy_query)
+    client = genai_robotics.Client(
+        robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.LOCAL,
+        grpc_url=grpc_url,
+    )
+    self.assertIsNotNone(client)
+    mock_connect.assert_called_once_with(expected_url)
 
 
 if __name__ == "__main__":

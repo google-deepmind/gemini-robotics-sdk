@@ -1,4 +1,4 @@
-# Copyright 2026 Google LLC
+# Copyright 2025 Google LLC
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -52,7 +52,9 @@ AGENTIC_BASE_URL = flags.DEFINE_string(
     "https://generativelanguage.googleapis.com",
     "Base URL of the Gemini Live and Gemini API. For example:"
     " - prod: https://generativelanguage.googleapis.com"
-    ,
+    " - autopush: https://autopush-generativelanguage.sandbox.googleapis.com"
+    " - staging: https://staging-generativelanguage.sandbox.googleapis.com"
+    " - preprod: https://preprod-generativelanguage.googleapis.com",
 )
 
 AGENTIC_LOG_LEVEL = flags.DEFINE_enum(
@@ -73,6 +75,13 @@ AGENTIC_CONTROL_MODE = flags.DEFINE_enum_class(
     help="The control mode for the framework.",
 )
 
+AGENTIC_SIMULATE_COMMUNICATION = flags.DEFINE_bool(
+    "framework.simulate_communication",
+    False,
+    "When True, simulates all FastAPI calls to the robot. "
+    "Tools return success, and camera streams return black images.",
+)
+
 AGENTIC_EXTERNAL_CONTROLLER_HOST = flags.DEFINE_string(
     "framework.external_controller_host",
     "127.0.0.1",
@@ -89,7 +98,7 @@ AGENTIC_EXTERNAL_CONTROLLER_PORT = flags.DEFINE_integer(
 
 AGENTIC_KILL_PORT_PROCESS = flags.DEFINE_bool(
     "framework.kill_port_process",
-    False,
+    True,
     "If True, kill any process using the external controller port before"
     " starting the server. First attempts graceful SIGTERM, then SIGKILL"
     " after a timeout. Helps when restarting the framework and a previous"
@@ -130,6 +139,13 @@ AGENTIC_LISTEN_WHILE_SPEAKING = flags.DEFINE_boolean(
     "Whether to listen while speaking.",
 )
 
+AGENTIC_SHOW_SYSTEM_PROMPT_THEN_EXIT = flags.DEFINE_bool(
+    "framework.show_system_prompt_then_exit",
+    False,
+    "If True, print the system prompt and tool declarations to stdout and "
+    "exit early.",
+)
+
 # ------------------------
 # Agent flags.
 # ------------------------
@@ -144,6 +160,13 @@ AGENTIC_MEOW_MODE = flags.DEFINE_bool(
     "agent.meow",
     False,
     "Whether to meow.",
+)
+
+
+AGENTIC_USE_GOOGLE_SEARCH = flags.DEFINE_bool(
+    "agent.use_google_search",
+    False,
+    "Whether to use Google Search.",
 )
 
 
@@ -251,7 +274,7 @@ AGENTIC_REMINDER_TEXT_LIST = flags.DEFINE_multi_string(
 
 AGENTIC_REMINDER_TIME_IN_SECONDS = flags.DEFINE_multi_float(
     "agent.reminder_time_in_seconds",
-    [0.5, 360],
+    [99999, 999999],
     "The number of seconds to delay before automatically sending a reminder"
     " text to the Gemini Live API. If the framework connects after this delay,"
     " the reminder will be sent. Set to None to disable this feature.",
@@ -290,7 +313,7 @@ AGENTIC_LOG_GEMINI_QUERY = flags.DEFINE_bool(
 
 AGENTIC_ENABLE_IMAGE_STITCHING = flags.DEFINE_bool(
     "agent.enable_image_stitching",
-    False,
+    True,
     "Whether to stitch multiple camera images into a single grid image before"
     " sending to the Gemini Live model. When disabled, images are sent"
     " individually.",
@@ -303,6 +326,16 @@ AGENTIC_SHOW_CAMERA_NAME_IN_STITCHED_IMAGE = flags.DEFINE_bool(
     " when agent.enable_image_stitching is True.",
 )
 
+AGENTIC_IMAGE_STITCHING_ORDER = flags.DEFINE_multi_string(
+    "agent.image_stitching_order",
+    None,
+    "Optional ordered list of camera stream endpoint names that specifies the"
+    " arrangement of cameras in the stitched grid (left-to-right,"
+    " top-to-bottom). If None, uses dictionary insertion order"
+    " (non-deterministic). Only has effect when agent.enable_image_stitching"
+    " is True.",
+)
+
 AGENTIC_ENABLE_AUTOMATIC_SESSION_RESUMPTION = flags.DEFINE_bool(
     "agent.enable_automatic_session_resumption",
     True,
@@ -313,7 +346,7 @@ AGENTIC_ENABLE_AUTOMATIC_SESSION_RESUMPTION = flags.DEFINE_bool(
 
 AGENTIC_NON_STREAMING_IMAGE_PRUNING_TRIGGER_AMOUNT = flags.DEFINE_integer(
     "agent.non_streaming_image_pruning_trigger_amount",
-    60,
+    10000,
     "Maximum number of images to keep in conversation history for non-streaming"
     " API. When this limit is exceeded, images are pruned down to"
     " agent.non_streaming_image_pruning_target_amount.",
@@ -328,7 +361,7 @@ AGENTIC_NON_STREAMING_IMAGE_BUFFERING_INTERVAL_SECONDS = flags.DEFINE_float(
 
 AGENTIC_NON_STREAMING_IMAGE_PRUNING_TARGET_AMOUNT = flags.DEFINE_integer(
     "agent.non_streaming_image_pruning_target_amount",
-    15,
+    5000,
     "When the number of images in context exceeds"
     " agent.non_streaming_image_pruning_trigger_amount, prune down to this"
     " number. This batch pruning strategy preserves the prefill cache by"
@@ -337,7 +370,7 @@ AGENTIC_NON_STREAMING_IMAGE_PRUNING_TARGET_AMOUNT = flags.DEFINE_integer(
 
 AGENTIC_NON_STREAMING_DISCARD_IMAGES_AFTER_TURN = flags.DEFINE_bool(
     "agent.non_streaming_discard_images_after_turn",
-    True,
+    False,
     "Whether to discard buffered images after each turn (user message or"
     " function response). When True (default), images are cleared after being"
     " used. When False, images accumulate and are sent with subsequent turns.",
@@ -353,7 +386,7 @@ AGENTIC_NON_STREAMING_FR_LATEST_IMAGE_ONLY = flags.DEFINE_bool(
 
 AGENTIC_NON_STREAMING_USER_TURN_LATEST_IMAGE_ONLY = flags.DEFINE_bool(
     "agent.non_streaming_user_turn_latest_image_only",
-    False,
+    True,
     "When enabled, only the latest image per stream (or the latest stitched"
     " frame) buffered before the user turn is attached to the user turn."
     " When disabled, all buffered images are attached.",
@@ -381,6 +414,45 @@ AGENTIC_NON_STREAMING_TOOL_RESULT_TIMEOUT_SECONDS = flags.DEFINE_float(
     "The maximum amount of time in seconds to wait for tool results from the"
     " event bus after the model emits a function call before producing an error"
     " response.",
+)
+
+AGENTIC_NON_STREAMING_PRUNE_THINKING_HISTORY = flags.DEFINE_bool(
+    "agent.non_streaming_prune_thinking_history",
+    False,
+    "Whether to prune thinking tokens from model responses in non-streaming"
+    " handlers (Evergreen and GenAI). When False (default), thinking tokens"
+    " are retained in the response and history. When True, thinking/thought"
+    " tokens are stripped from responses.",
+)
+
+AGENTIC_NON_STREAMING_NUM_RETRIES = flags.DEFINE_integer(
+    "agent.non_streaming_num_retries",
+    12,
+    "Maximum number of retries for non-streaming generate calls. Retry should"
+    " essentially never exhaust because aborting will be controlled by the"
+    " agentic framework's health tolerance settings.",
+)
+
+AGENTIC_NON_STREAMING_MIN_RETRY_INTERVAL = flags.DEFINE_float(
+    "agent.non_streaming_min_retry_interval",
+    2.0,
+    "Minimum (initial) interval in seconds for exponential backoff retries"
+    " in non-streaming generate calls.",
+)
+
+AGENTIC_NON_STREAMING_MAX_RETRY_INTERVAL = flags.DEFINE_float(
+    "agent.non_streaming_max_retry_interval",
+    60.0,
+    "Maximum interval in seconds for exponential backoff retries in"
+    " non-streaming generate calls. The backoff delay is capped at this value.",
+)
+
+AGENTIC_NON_STREAMING_RETRY_INTERVAL_MULTIPLIER = flags.DEFINE_float(
+    "agent.non_streaming_retry_interval_multiplier",
+    2.0,
+    "Multiplier applied to the retry interval after each failed attempt in"
+    " non-streaming generate calls. For example, 2.0 means the delay doubles"
+    " on each retry.",
 )
 
 # Agent model generation parameters (for non-streaming handler).
@@ -431,6 +503,21 @@ AGENTIC_NON_STREAMING_ENABLE_CONTEXT_SNAPSHOT_LOGGING = flags.DEFINE_bool(
     " every model call. When enabled, the entire conversation history"
     " (including images, function calls, and thought signatures) is logged"
     " as a CONTEXT_SNAPSHOT event.",
+)
+
+AGENTIC_SYSTEM_PROMPT_SUFFIX = flags.DEFINE_string(
+    "agent.system_prompt_suffix",
+    "",
+    "A string to append to the end of the system prompt. Applied to all"
+    " handler types (streaming and non-streaming).",
+)
+
+AGENTIC_ENABLE_BOOTUP_TEST = flags.DEFINE_bool(
+    "agent.enable_bootup_test",
+    True,
+    "Whether to run a bootup test during handler activation. The bootup test"
+    " sends a simple message to verify client connectivity. Set to False to"
+    " skip the test and reduce startup latency.",
 )
 
 # ------------------------
@@ -711,7 +798,7 @@ AGENTIC_LOGGING_OUTPUT_DIRECTORY = flags.DEFINE_string(
 
 AGENTIC_LOGGING_SESSION_LOG_TYPE_KEY = flags.DEFINE_string(
     "logging.session_log_type_key",
-    None,
+    "session_log_type",
     "The key of the session log type.",
 )
 
@@ -723,7 +810,7 @@ AGENTIC_LOGGING_SESSION_LOG_TYPE_VALUE = flags.DEFINE_string(
 
 AGENTIC_EXCLUDE_MODEL_IMAGE_INPUT_LOGGING = flags.DEFINE_bool(
     "logging.exclude_model_image_input_logging",
-    False,
+    True,
     "Whether to exclude MODEL_IMAGE_INPUT events from being logged to the"
     " event stream. These are the most frequent event type and are currently"
     " unused by downstream consumers. Enabling this reduces log size and"

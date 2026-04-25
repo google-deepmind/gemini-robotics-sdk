@@ -15,14 +15,40 @@
 """Upload data library."""
 
 import datetime
+import io
 import json
 import os
 import time
 
+import mcap.exceptions as mcap_exceptions
+import mcap.reader as mcap_reader
 import pytz
 import requests
 
 from safari_sdk import auth
+
+
+_SESSION_SIZE_LIMIT_BYTES = 1 * 1024 * 1024
+
+
+def _check_session_size(file_content_bytes):
+  """Raises ValueError if any /session message is too big."""
+  try:
+    reader = mcap_reader.make_reader(io.BytesIO(file_content_bytes))
+  except mcap_exceptions.McapError as e:
+    raise ValueError(f'File is not a valid MCAP: {e}') from e
+  for _, _, message in reader.iter_messages(topics=['/session']):
+    size = len(message.data)
+    if size > _SESSION_SIZE_LIMIT_BYTES:
+      raise ValueError(
+          f'/session message is {size:,} bytes'
+          f' ({size / 1024 / 1024:.1f} MiB), which exceeds the'
+          f' {_SESSION_SIZE_LIMIT_BYTES // 1024 // 1024} MiB limit.'
+          ' This is likely caused by inefficient per-pixel image bounds in'
+          ' a gym.Box observation space. Use low=-np.inf, high=np.inf for'
+          ' image observations, then re-record, or reach out to your TTP'
+          ' contact for assistance.'
+      )
 
 
 def _upload_file(
@@ -107,6 +133,8 @@ def upload_data_directory(
         with open(file_path, 'rb') as f:
           file_content_bytes = f.read()
         file_size_mb = len(file_content_bytes) / (1024 * 1024)
+
+        _check_session_size(file_content_bytes)
 
         t_start = time.time()
         status_code, reason = _upload_file(

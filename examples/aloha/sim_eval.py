@@ -57,6 +57,7 @@ from typing_extensions import override
 
 from safari_sdk.model import constants as gemini_robotics_constants
 from safari_sdk.model import gemini_robotics_policy
+from safari_sdk.model import remote_model_interface
 
 
 _TASK_NAME = flags.DEFINE_enum(
@@ -213,7 +214,16 @@ def main(argv: Sequence[str]) -> None:
   else:
     try:
       print('Creating policy...')
+      remote_model = remote_model_interface.RemoteModelInterface(
+          serve_id=_SERVE_ID,
+          robotics_api_connection=gemini_robotics_constants.RoboticsApiConnectionType.LOCAL,
+          task_instruction_key='instruction',
+          proprioceptive_observation_keys=_ALOHA_JOINTS.keys(),
+          image_observation_keys=_ALOHA_CAMERAS.keys(),
+          image_compression_jpeg_quality=95,
+      )
       policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+          model_interface=remote_model,
           serve_id=_SERVE_ID,
           task_instruction_key='instruction',
           image_observation_keys=_ALOHA_CAMERAS.keys(),

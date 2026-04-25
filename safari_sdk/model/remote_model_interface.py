@@ -17,9 +17,11 @@
 from collections.abc import Mapping, Sequence
 import json
 
+from dm_env import specs
+import jax
 import numpy as np
-from typing_extensions import override
 
+from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 from safari_sdk.model import genai_robotics
 from safari_sdk.model import model_interface
@@ -27,42 +29,87 @@ from safari_sdk.model import observation_to_model_query_contents
 
 
 class RemoteModelInterface(model_interface.ModelInterface):
-  """Model that queries a remote model."""
+  """Model interface object that queries a remote model."""
 
   def __init__(
       self,
       serve_id: str,
       robotics_api_connection: constants.RoboticsApiConnectionType,
-      string_observations_keys: Sequence[str],
       task_instruction_key: str,
       proprioceptive_observation_keys: Sequence[str],
       image_observation_keys: Sequence[str],
       image_compression_jpeg_quality: int,
       num_of_retries: int = 1,
+      additional_observations_providers: Sequence[
+          additional_observations_provider.AdditionalObservationsProvider
+      ] = (),
   ):
+    """Initializes the remote model interface.
+
+    Args:
+      serve_id: The serve ID to use for the connecting to the model.
+      robotics_api_connection: Connection type for the Robotics API.
+      task_instruction_key: The key of the task instruction in the observation.
+      proprioceptive_observation_keys: The list of observation keys that are
+        related to proprioceptive sensors (e.g. joints).
+      image_observation_keys: A list of observation keys that are related to
+        images.
+      image_compression_jpeg_quality: The JPEG quality for encoding images.
+      num_of_retries: The number of retries for inference calls to the server
+        when the connection is CLOUD.
+      additional_observations_providers: A sequence of providers for additional
+        observations.
+    """
+
+    self._string_observations_keys = [task_instruction_key]
+    self._task_instruction_key = task_instruction_key
+    self._image_observation_keys = list(image_observation_keys)
+    self._proprioceptive_observation_keys = list(
+        proprioceptive_observation_keys
+    )
     self._serve_id = serve_id
     self._robotics_api_connection = robotics_api_connection
-    self._image_observation_keys = image_observation_keys
-    self._string_observations_keys = string_observations_keys
-    self._task_instruction_key = task_instruction_key
-    self._proprioceptive_observation_keys = proprioceptive_observation_keys
     self._image_compression_jpeg_quality = image_compression_jpeg_quality
+
+    # Go through the additional observation observations spec and
+    # augment the image, string and proprioceptive keys. This is necessary to
+    # ensure that the additional observations are serialized and sent to the
+    # model.
+    for provider in additional_observations_providers:
+      additional_specs = provider.get_additional_observations_spec()
+      for key, spec in additional_specs.items():
+        if isinstance(spec, specs.StringArray):
+          self._string_observations_keys.append(key)
+        elif isinstance(spec, specs.Array):
+          if len(spec.shape) == 3:
+            self._image_observation_keys.append(key)
+          elif len(spec.shape) == 1 or len(spec.shape) == 2:
+            self._proprioceptive_observation_keys.append(key)
+
+    grpc_url = None
+    if robotics_api_connection == constants.RoboticsApiConnectionType.LOCAL:
+      # Only use serve_id as grpc_url if it looks like a URL or host:port.
+      # Dummy IDs like 'gemini_robotics_on_device' will be ignored.
+      if serve_id and (serve_id.startswith("grpc://") or ":" in serve_id):
+        grpc_url = serve_id
 
     self._client = genai_robotics.Client(
         robotics_api_connection=robotics_api_connection,
         num_retries=num_of_retries,
+        grpc_url=grpc_url,
     )
 
-  @override
   def query_model(
       self,
-      observation: Mapping[str, np.ndarray],
+      model_input: Mapping[str, np.ndarray],
+      *,
+      rng_key: jax.Array | None = None,
   ) -> np.ndarray:
     """Queries the model with the given observation."""
-
+    del rng_key  # Unused.
     # Serialize the observation to the format expected by the transport.
     serialized_contents = observation_to_model_query_contents.observation_to_model_query_contents(
-        observation=observation,
+        observation=model_input,
         string_observations_keys=self._string_observations_keys,
         task_instruction_key=self._task_instruction_key,
         proprioceptive_observation_keys=self._proprioceptive_observation_keys,
@@ -104,7 +151,8 @@ class RemoteModelInterface(model_interface.ModelInterface):
           "Response JSON does not contain"
           f" '{constants.ACTION_CHUNK_RESPONSE_KEY}'"
       )
-    action_chunk = np.array(action_chunk)
+    action_dtype = response_data.get(constants.DTYPE_RESPONSE_KEY) or np.float64
+    action_chunk = np.array(action_chunk, dtype=action_dtype)
     if action_chunk.ndim != 2:
       raise ValueError(
           "Action chunk has more than 2 dimensions:"

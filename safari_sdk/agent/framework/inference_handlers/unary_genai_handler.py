@@ -41,6 +41,7 @@ _DEFAULT_MODEL_NAME = "models/gemini-2.0-flash"
 # Number of retries for empty candidates in a single generate_content call.
 # Successful query with empty candidate retries will be treated as a single try.
 _EMPTY_CANDIDATES_INNER_RETRIES = 2
+_EMPTY_CANDIDATES_RETRY_INTERVAL_SECONDS = 2
 
 
 @enum.unique
@@ -97,24 +98,35 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     )
 
     api_key = self._get_api_key(config.api_key)
-    self._client = genai.Client(
-        api_key=api_key,
-        http_options=http_options,
+    self._client = nonstreaming_handler.client_init_with_retries(
+        lambda: genai.Client(
+            api_key=api_key,
+            http_options=http_options,
+        ),
+        operation_name="GenAI Client creation",
     )
     self._api_health = GenAIOrchestratorHealth.NORMAL
     self._model_name = config.agent_model_name or _DEFAULT_MODEL_NAME
     self._system_instruction = system_instruction
     self._tools = tools
     self._tool_config = tool_config
+    if config.use_google_search:
+      if self._tools and not self._tool_config:
+        self._tool_config = types.ToolConfig(
+            include_server_side_tool_invocations=True,
+        )
+      elif self._tool_config:
+        self._tool_config.include_server_side_tool_invocations = True
     self._conversation_history: list[types.Content] = []
 
-    self._thinking_config = types.ThinkingConfig(
-        thinking_level=(
-            types.ThinkingLevel(config.non_streaming_thinking_level)
-            if config.non_streaming_thinking_level
-            else None
-        ),
-    )
+    self._thinking_config = None
+    if config.non_streaming_thinking_level:
+      self._thinking_config = types.ThinkingConfig(
+          thinking_level=types.ThinkingLevel(
+              config.non_streaming_thinking_level
+          ),
+      )
+    self._prune_thinking_history = config.non_streaming_prune_thinking_history
 
     self._function_call_timestamp: datetime.datetime | None = None
 
@@ -126,9 +138,11 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     self._conversation_history = []
     self._function_call_timestamp = None
     self._pending_tool_results = asyncio.Queue()
+    self._context_compression_occurred = False
     self._clear_image_state()
     self._start_image_stitching()
-    await self._bootup_test()
+    if self._config.enable_bootup_test:
+      await self._bootup_test()
     await self._publish_session_metadata()
     await self._publish_health_status(GenAIOrchestratorHealth.NORMAL, None)
     logging.info("UnaryGenAIHandler activated.")
@@ -138,9 +152,10 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
 
     This is called during connect() to catch client failures early.
     """
-    try:
-      logging.info("Calling generate with BOOTUP TEST")
-      bootup_response = await asyncio.wait_for(
+    logging.info("Calling generate with BOOTUP TEST")
+
+    async def _generate_fn():
+      return await asyncio.wait_for(
           self._client.aio.models.generate_content(
               model=self._model_name,
               contents=types.Content(
@@ -157,13 +172,11 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
                   thinking_config=self._thinking_config,
               ),
           ),
-          timeout=15.0,
+          timeout=60.0,
       )
-      bootup_response_text = str(bootup_response.text)[:250]
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.error("Error generating BOOTUP TEST response: %s", e)
-      await self._maybe_publish_health_event(e)
-      raise e
+
+    bootup_response, _ = await self._retry_wrapper(_generate_fn)
+    bootup_response_text = str(getattr(bootup_response, "text", ""))[:250]
     logging.info("BOOTUP TEST Success: %s", bootup_response_text)
 
   async def disconnect(self) -> None:
@@ -195,32 +208,35 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
       # Build user content (text + buffered images) and add to history.
       self._build_and_append_user_content(user_text)
       # Remove images from older turns to keep context window manageable.
-      self._trim_images_in_history()
+      await self._trim_images_in_history()
 
-      # Agentic loop: call model, handle tool calls, repeat until text-only.
-      # Empty candidates are handled with a separate retry counter since this
-      # is a different failure mode than transient network errors.
       remaining_empty_candidates_retries = _EMPTY_CANDIDATES_INNER_RETRIES
+      inference_count = 0
+      trigger = "initial"
       while True:
-        try:
-          query_start_time = time.time()
-          response, num_retries = await self._retry_wrapper(self._call_model)
-          query_elapsed = time.time() - query_start_time
+        inference_count += 1
+        await self._publish_event(
+            event_bus.EventType.INFERENCE_STARTED,
+            user_text,
+            metadata={
+                "inference_count": inference_count,
+                "trigger": trigger,
+            },
+        )
+        query_start_time = time.time()
+        response, num_retries = await self._retry_wrapper(self._call_model)
+        query_elapsed = time.time() - query_start_time
 
-          # Count thinking words before recording result.
-          num_thinking_words = 0
-          if response.candidates and response.candidates[0].content:
-            for part in response.candidates[0].content.parts or []:
-              if hasattr(part, "thought") and part.thought and part.text:
-                num_thinking_words += len(part.text.split())
-          self._record_query_result(
-              num_retries, query_elapsed, num_thinking_words
-          )
-          await self._maybe_publish_health_event(None)
-        except Exception as e:
-          logging.error("Error generating response: %s", e, exc_info=True)
-          await self._maybe_publish_health_event(e)
-          raise
+        # Count thinking words before recording result.
+        num_thinking_words = 0
+        if response.candidates and response.candidates[0].content:
+          for part in response.candidates[0].content.parts or []:
+            if hasattr(part, "thought") and part.thought and part.text:
+              num_thinking_words += len(part.text.split())
+        self._record_query_result(
+            num_retries, query_elapsed, num_thinking_words
+        )
+        await self._maybe_publish_health_event(None)
 
         if not response.candidates:
           logging.warning("No candidates in response.")
@@ -236,13 +252,53 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
               "Retrying due to empty candidates (%d retries remaining)...",
               remaining_empty_candidates_retries,
           )
-          await asyncio.sleep(nonstreaming_handler.RETRY_INTERVAL_SECONDS)
+          trigger = "empty_candidates_retry"
+          await asyncio.sleep(_EMPTY_CANDIDATES_RETRY_INTERVAL_SECONDS)
           continue
 
         # Add model response to history.
         # NOTE: We must keep the full response including thought_signature
         # for Gemini 3 models, as it's required for function calling.
         model_content = response.candidates[0].content
+
+        # Publish model thinking trace before any pruning.
+        thought_texts = []
+        if model_content and model_content.parts:
+          for part in model_content.parts:
+            if hasattr(part, "thought") and part.thought and part.text:
+              thought_texts.append(part.text)
+        if thought_texts:
+          await self._publish_event(
+              event_bus.EventType.MODEL_THOUGHT, "\n".join(thought_texts)
+          )
+
+        # Optionally prune thinking parts from conversation history to reduce
+        # context size, while keeping thought_signature for function calling.
+        if (
+            self._prune_thinking_history
+            and model_content
+            and model_content.parts
+        ):
+          parts_before = len(model_content.parts)
+          pruned_parts = [
+              part for part in model_content.parts
+              if not (hasattr(part, "thought") and part.thought)
+          ]
+          thinking_parts_removed = parts_before - len(pruned_parts)
+          if thinking_parts_removed > 0:
+            await self._publish_context_compression_event(
+                mechanism="thinking_history_pruning",
+                details={
+                    "parts_before": parts_before,
+                    "parts_after": len(pruned_parts),
+                    "thinking_parts_removed": thinking_parts_removed,
+                },
+            )
+          model_content = types.Content(
+              role=model_content.role,
+              parts=pruned_parts,
+          )
+
         self._conversation_history.append(model_content)
 
         # Publish the model turn so downstream listeners can process it.
@@ -265,6 +321,7 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
           await self._handle_tool_calls(tool_calls)
           # Reset empty candidates retries after successful tool handling.
           remaining_empty_candidates_retries = _EMPTY_CANDIDATES_INNER_RETRIES
+          trigger = "tool_call_continuation"
           continue
 
         # No tool calls — model returned final text, we're done.
@@ -482,9 +539,11 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
 
     # Prune old images from earlier turns to keep context window manageable.
     if self._discard_images_after_turn:
-      self._discard_old_images_in_history(len(self._conversation_history) - 1)
+      await self._discard_old_images_in_history(
+          len(self._conversation_history) - 1
+      )
 
-    self._trim_images_in_history()
+    await self._trim_images_in_history()
 
   def _count_content_parts(self) -> tuple[int, int, int, int]:
     """Counts text, image, function call and response parts in history.
@@ -558,7 +617,9 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
           tool_calls.append(part.function_call)
     return tool_calls
 
-  def _discard_old_images_in_history(self, latest_fr_content_idx: int) -> None:
+  async def _discard_old_images_in_history(
+      self, latest_fr_content_idx: int
+  ) -> None:
     """Removes all images from conversation history except in the latest FR.
 
     Called when discard_images_after_turn is True. This aggressively strips
@@ -625,8 +686,15 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
       logging.info(
           "Discarded %d images from history (kept latest FR).", removed
       )
+      await self._publish_context_compression_event(
+          mechanism="per_turn_image_discard",
+          details={
+              "images_removed": removed,
+              "latest_fr_content_idx": latest_fr_content_idx,
+          },
+      )
 
-  def _trim_images_in_history(self) -> None:
+  async def _trim_images_in_history(self) -> None:
     """Trims earliest images from history using a watermark strategy.
 
     Only prunes when the image count exceeds image_pruning_trigger_amount
@@ -661,13 +729,15 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     if images_to_remove <= 0:
       return
 
+    images_before = len(image_locations)
+
     logging.warning(
         "\n##############################################\n"
         "# IMAGE PRUNING TRIGGERED\n"
         "# Images in context: %d (max: %d)\n"
         "# Removing %d images, keeping newest %d\n"
         "##############################################",
-        len(image_locations),
+        images_before,
         self._image_pruning_trigger_amount,
         images_to_remove,
         self._image_pruning_target_amount,
@@ -707,6 +777,17 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
           self._conversation_history[content_idx] = types.Content(
               role=content.role, parts=[]
           )
+
+    await self._publish_context_compression_event(
+        mechanism="image_pruning_watermark",
+        details={
+            "images_before": images_before,
+            "images_after": self._image_pruning_target_amount,
+            "images_removed": images_to_remove,
+            "trigger_amount": self._image_pruning_trigger_amount,
+            "target_amount": self._image_pruning_target_amount,
+        },
+    )
 
   def _get_api_key(self, api_key: str | None) -> str:
     if api_key is None:

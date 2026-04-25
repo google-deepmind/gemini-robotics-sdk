@@ -556,7 +556,6 @@ class WorkUnitContext:
 class WorkUnit:
   """Orchestrator work unit information."""
 
-  projectId: str | None = None
   robotJobId: str | None = None
   workUnitId: str | None = None
   context: WorkUnitContext | None = None

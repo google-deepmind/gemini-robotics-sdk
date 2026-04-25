@@ -388,7 +388,6 @@ class WorkUnitResponseTest(absltest.TestCase):
 
   def test_response_post_init_from_json_response(self):
     response = work_unit.WorkUnit(
-        projectId="test_project_id",
         robotJobId="test_robot_job_id",
         workUnitId="test_work_unit_id",
         context=work_unit.WorkUnitContext(),
@@ -396,7 +395,6 @@ class WorkUnitResponseTest(absltest.TestCase):
         outcome="WORK_UNIT_OUTCOME_UNSPECIFIED",
         note="test_note",
     )
-    self.assertEqual(response.projectId, "test_project_id")
     self.assertEqual(response.robotJobId, "test_robot_job_id")
     self.assertEqual(response.workUnitId, "test_work_unit_id")
     self.assertIsInstance(response.context, work_unit.WorkUnitContext)
@@ -413,13 +411,11 @@ class WorkUnitResponseTest(absltest.TestCase):
 
   def test_response_post_init_as_enum(self):
     response = work_unit.WorkUnit(
-        projectId="test_project_id",
         robotJobId="test_robot_job_id",
         workUnitId="test_work_unit_id",
         stage=work_unit.WorkUnitStage.WORK_UNIT_STAGE_QUEUED_TO_ROBOT,
         outcome=work_unit.WorkUnitOutcome.WORK_UNIT_OUTCOME_SUCCESS,
     )
-    self.assertEqual(response.projectId, "test_project_id")
     self.assertEqual(response.robotJobId, "test_robot_job_id")
     self.assertEqual(response.workUnitId, "test_work_unit_id")
     self.assertIsNone(response.context)
@@ -436,7 +432,6 @@ class WorkUnitResponseTest(absltest.TestCase):
   def test_response_post_init_as_none(self):
     response = work_unit.WorkUnit()
 
-    self.assertIsNone(response.projectId)
     self.assertIsNone(response.robotJobId)
     self.assertIsNone(response.workUnitId)
     self.assertIsNone(response.context)

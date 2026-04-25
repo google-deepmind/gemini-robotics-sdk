@@ -98,6 +98,9 @@ class EventType(enum.Enum):
   # displayed in the web GUI.
   SYSTEM_LOG = "SYSTEM_LOG"
   CONTEXT_SNAPSHOT = "CONTEXT_SNAPSHOT"
+  INFERENCE_STARTED = "INFERENCE_STARTED"
+  CONTEXT_COMPRESSION = "CONTEXT_COMPRESSION"
+  MODEL_THOUGHT = "MODEL_THOUGHT"
 
 
 @dataclasses.dataclass(frozen=True)

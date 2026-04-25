@@ -139,6 +139,7 @@ DRAW_ARROW_ICON = interface.DRAW_ARROW_ICON
 DRAW_SQUARE_ICON = interface.DRAW_SQUARE_ICON
 DRAW_TRIANGLE_ICON = interface.DRAW_TRIANGLE_ICON
 DRAW_CONTAINER = interface.DRAW_CONTAINER
+ROBOT_HARDWARE_COMPONENT = interface.ROBOT_HARDWARE_COMPONENT
 
 _ERROR_NO_ACTIVE_CONNECTION = (
     "OrchestratorHelper: No active connection. Please call connect() first."
@@ -255,13 +256,25 @@ class OrchestratorHelper:
 
     return self._interface.set_current_robot_operator_id(operator_id)
 
+  def update_robot_hardware_config(
+      self, components: list[ROBOT_HARDWARE_COMPONENT]
+  ) -> RESPONSE:
+    """Update the robot hardware configuration."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.update_robot_hardware_config(components)
+
   def add_operator_event(
       self,
-      operator_event_str: str,
       operator_id: str,
       event_timestamp: int,
       resetter_id: str,
       event_note: str,
+      operator_event_type: int | None = None,
+      operator_event_str: str = "",
   ) -> RESPONSE:
     """Records an operator event."""
     if self._interface is None:
@@ -270,6 +283,7 @@ class OrchestratorHelper:
       return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
 
     return self._interface.add_operator_event(
+        operator_event_type=operator_event_type,
         operator_event_str=operator_event_str,
         operator_id=operator_id,
         event_timestamp=event_timestamp,
@@ -509,7 +523,9 @@ class OrchestratorHelper:
       session_start_time_ns: int | None = None,
       session_end_time_ns: int | None = None,
       session_log_type: str | None = None,
+      session_note: str | None = None,
       response_to_questions: list[WORK_UNIT_QUESTION] | None = None,
+      request_retry_bypass: bool = False,
   ) -> RESPONSE:
     """Sets the current work unit's stage as completed."""
     if self._interface is None:
@@ -524,8 +540,10 @@ class OrchestratorHelper:
         session_start_time_ns=session_start_time_ns,
         session_end_time_ns=session_end_time_ns,
         session_log_type=session_log_type,
+        session_note=session_note,
         response_to_questions=response_to_questions,
         note=note,
+        request_retry_bypass=request_retry_bypass,
     )
 
   def get_artifact_uri(self, artifact_id: str) -> RESPONSE:
@@ -572,7 +590,9 @@ class OrchestratorHelper:
     return self._interface.load_rui_workcell_state(robot_id=robot_id)
 
   def set_rui_workcell_state(
-      self, robot_id: str, workcell_state: str
+      self,
+      robot_id: str,
+      workcell_state_type: int,
   ) -> RESPONSE:
     """Sets the RUI workcell state for the given robot."""
     if self._interface is None:
@@ -581,5 +601,5 @@ class OrchestratorHelper:
       return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
 
     return self._interface.set_rui_workcell_state(
-        robot_id=robot_id, workcell_state=workcell_state
+        robot_id=robot_id, workcell_state_type=workcell_state_type
     )

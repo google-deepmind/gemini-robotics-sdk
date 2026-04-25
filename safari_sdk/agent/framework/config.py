@@ -1,4 +1,4 @@
-# Copyright 2026 Google LLC
+# Copyright 2025 Google LLC
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 # pytype: skip-file
 
 import dataclasses
+import json
 
 from absl import logging
 from google.genai import types as genai_types
@@ -40,9 +41,11 @@ class AgentFrameworkConfig:
   # General configuration
   # API key for the Gemini Live and Gemini API.
   api_key: str | None = None
-  # Base URL of the Gemini Live and Gemini API. For example:
-  # prod:
-  # https://generativelanguage.googleapis.com,
+  # Base URL of the Gemini Live and Gemini API. For example: prod:
+  # https://generativelanguage.googleapis.com, autopush:
+  # https://autopush-generativelanguage.sandbox.googleapis.com, staging:
+  # https://staging-generativelanguage.sandbox.googleapis.com, preprod:
+  # https://preprod-generativelanguage.googleapis.com
   base_url: str = 'https://generativelanguage.googleapis.com'
   # The logging level to use.
   log_level: str = 'INFO'
@@ -63,6 +66,9 @@ class AgentFrameworkConfig:
   # modifying the core terminal UI logic. OPERATOR_DATA_COLLECT mode is designed
   # for operator-led data collection or evaluation with simplified output.
   external_ui_type: types.ExternalUIType = types.ExternalUIType.NONE
+  # If True, print the system prompt and tool declarations to stdout and
+  # exit early.
+  show_system_prompt_then_exit: bool = False
 
   # Agent configuration
   # The name of the agent to use.
@@ -71,6 +77,8 @@ class AgentFrameworkConfig:
   run_until_done_time_limit: float = 60.0
   # Whether to meow.
   meow_mode: bool = False
+  # Whether to use Google Search.
+  use_google_search: bool = False
   # The name of the model to use for the Gemini Live agent.
   agent_model_name: str = 'gemini-2.5-flash-native-audio-preview-12-2025'
   # Whether to enable audio input.
@@ -141,6 +149,11 @@ class AgentFrameworkConfig:
   # Whether to show camera name labels on stitched images. Only has effect
   # when enable_image_stitching is True.
   show_camera_name_in_stitched_image: bool = True
+  # Optional ordered list of camera stream endpoint names specifying the
+  # arrangement in the stitched grid (left-to-right, top-to-bottom). If None,
+  # uses dictionary insertion order. Only has effect when
+  # enable_image_stitching is True.
+  image_stitching_order: list[str] | None = None
   # Whether to enable automatic session resumption when receiving GO_AWAY from
   # the Live API. When enabled, the framework will automatically reconnect
   # after a 20 second grace period.
@@ -162,6 +175,14 @@ class AgentFrameworkConfig:
   non_streaming_include_stream_names: bool = True
   non_streaming_thinking_level: str | None = None
   non_streaming_tool_result_timeout_seconds: float = 300.0
+  # When True, prune thinking tokens from model responses in conversation
+  # history.
+  non_streaming_prune_thinking_history: bool = False
+  # Retry parameters for non-streaming generate calls.
+  non_streaming_num_retries: int = 12
+  non_streaming_min_retry_interval: float = 2.0
+  non_streaming_max_retry_interval: float = 60.0
+  non_streaming_retry_interval_multiplier: float = 2.0
 
   # Agent model generation parameters (for non-streaming handler).
   # Temperature for the agent model (0.0-2.0). None uses server default.
@@ -178,6 +199,10 @@ class AgentFrameworkConfig:
   orchestrator_handler_type: types.OrchestratorHandlerType = (
       types.OrchestratorHandlerType.STREAMING
   )
+
+  system_prompt_suffix: str | None = None
+  # Whether to run a bootup test during handler activation.
+  enable_bootup_test: bool = True
 
   # Success detection configuration
   # Whether to run success detection in dry run mode. If True, decide success
@@ -275,7 +300,7 @@ class AgentFrameworkConfig:
   # The ID of the robot.
   robot_id: str | None = None
   # The output directory for the logs.
-  logging_output_directory: str = '/tmp/safari_logs'
+  logging_output_directory: str = '/tmp/safari_agent_logs'
   # The key of the session log type. If logging is enabled then the agent logs
   # from event bus will be saved to SSOT. This is the key which describes the
   # session log type column for the SSOT table.
@@ -300,6 +325,34 @@ class AgentFrameworkConfig:
           ' models.'
       )
 
+  def to_dict(self) -> dict[str, str]:
+    """Serializes all config fields into a flat dict of string values.
+
+    This is used to log all active configuration as the 'ear_flags' session
+    label, providing a complete snapshot of the framework configuration at
+    session start time.
+
+    Returns:
+      A dict mapping field names to their string representations.
+    """
+    result = {}
+    for field in dataclasses.fields(self):
+      value = getattr(self, field.name)
+      # Skip sensitive fields.
+      if field.name in ('api_key', 'sherlog_oauth_token'):
+        result[field.name] = '***REDACTED***'
+      elif value is None:
+        result[field.name] = 'None'
+      elif isinstance(value, (str, int, float, bool)):
+        result[field.name] = str(value)
+      elif isinstance(value, list):
+        result[field.name] = json.dumps([str(v) for v in value])
+      elif hasattr(value, 'value'):  # Enum types
+        result[field.name] = str(value.value)
+      else:
+        result[field.name] = str(value)
+    return result
+
   @classmethod
   def create(
       cls,
@@ -312,10 +365,12 @@ class AgentFrameworkConfig:
       external_controller_port: int | None = None,
       publish_logging_events: bool | None = None,
       external_ui_type: types.ExternalUIType | None = None,
+      show_system_prompt_then_exit: bool | None = None,
       agent_name: str | None = None,
       tool_run_for_duration_second: float | None = None,
       run_until_done_time_limit: float | None = None,
       meow_mode: bool | None = None,
+      use_google_search: bool | None = None,
       agent_model_name: str | None = None,
       enable_audio_input: bool | None = None,
       enable_audio_output: bool | None = None,
@@ -342,6 +397,7 @@ class AgentFrameworkConfig:
       log_gemini_query: bool | None = None,
       enable_image_stitching: bool | None = None,
       show_camera_name_in_stitched_image: bool | None = None,
+      image_stitching_order: list[str] | None = None,
       enable_automatic_session_resumption: bool | None = None,
       non_streaming_image_pruning_trigger_amount: int | None = None,
       non_streaming_image_buffering_interval_seconds: float | None = None,
@@ -352,11 +408,18 @@ class AgentFrameworkConfig:
       non_streaming_include_stream_names: bool | None = None,
       non_streaming_thinking_level: str | None = None,
       non_streaming_tool_result_timeout_seconds: float | None = None,
+      non_streaming_prune_thinking_history: bool | None = None,
+      non_streaming_num_retries: int | None = None,
+      non_streaming_min_retry_interval: float | None = None,
+      non_streaming_max_retry_interval: float | None = None,
+      non_streaming_retry_interval_multiplier: float | None = None,
       agent_temperature: float | None = None,
       agent_max_output_tokens: int | None = None,
       agent_thinking_budget: int | None = None,
       agent_media_resolution: genai_types.MediaResolution | None = None,
       orchestrator_handler_type: types.OrchestratorHandlerType | None = None,
+      system_prompt_suffix: str | None = None,
+      enable_bootup_test: bool | None = None,
       sd_dry_run: bool | None = None,
       sd_tool_name: agentic_flags.SDToolName | None = None,
       sd_timeout_seconds: float | None = None,
@@ -427,6 +490,11 @@ class AgentFrameworkConfig:
         external_ui_type=(
             external_ui_type or agentic_flags.AGENTIC_EXTERNAL_UI_TYPE.value
         ),
+        show_system_prompt_then_exit=(
+            show_system_prompt_then_exit
+            if show_system_prompt_then_exit is not None
+            else agentic_flags.AGENTIC_SHOW_SYSTEM_PROMPT_THEN_EXIT.value
+        ),
         agent_name=agent_name or agentic_flags.AGENTIC_AGENT_NAME.value,
         tool_run_for_duration_second=(
             tool_run_for_duration_second
@@ -439,6 +507,11 @@ class AgentFrameworkConfig:
             else agentic_flags.AGENTIC_RUN_UNTIL_DONE_TIME_LIMIT.value
         ),
         meow_mode=meow_mode or agentic_flags.AGENTIC_MEOW_MODE.value,
+        use_google_search=(
+            use_google_search
+            if use_google_search is not None
+            else agentic_flags.AGENTIC_USE_GOOGLE_SEARCH.value
+        ),
         agent_model_name=(
             agent_model_name or agentic_flags.AGENTIC_AGENT_MODEL_NAME.value
         ),
@@ -521,11 +594,17 @@ class AgentFrameworkConfig:
         ),
         enable_image_stitching=(
             enable_image_stitching
-            or agentic_flags.AGENTIC_ENABLE_IMAGE_STITCHING.value
+            if enable_image_stitching is not None
+            else agentic_flags.AGENTIC_ENABLE_IMAGE_STITCHING.value
         ),
         show_camera_name_in_stitched_image=(
             show_camera_name_in_stitched_image
             or agentic_flags.AGENTIC_SHOW_CAMERA_NAME_IN_STITCHED_IMAGE.value
+        ),
+        image_stitching_order=(
+            image_stitching_order
+            if image_stitching_order is not None
+            else agentic_flags.AGENTIC_IMAGE_STITCHING_ORDER.value
         ),
         enable_automatic_session_resumption=(
             enable_automatic_session_resumption
@@ -574,6 +653,31 @@ class AgentFrameworkConfig:
             if non_streaming_tool_result_timeout_seconds is not None
             else agentic_flags.AGENTIC_NON_STREAMING_TOOL_RESULT_TIMEOUT_SECONDS.value
         ),
+        non_streaming_prune_thinking_history=(
+            non_streaming_prune_thinking_history
+            if non_streaming_prune_thinking_history is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_PRUNE_THINKING_HISTORY.value
+        ),
+        non_streaming_num_retries=(
+            non_streaming_num_retries
+            if non_streaming_num_retries is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_NUM_RETRIES.value
+        ),
+        non_streaming_min_retry_interval=(
+            non_streaming_min_retry_interval
+            if non_streaming_min_retry_interval is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_MIN_RETRY_INTERVAL.value
+        ),
+        non_streaming_max_retry_interval=(
+            non_streaming_max_retry_interval
+            if non_streaming_max_retry_interval is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_MAX_RETRY_INTERVAL.value
+        ),
+        non_streaming_retry_interval_multiplier=(
+            non_streaming_retry_interval_multiplier
+            if non_streaming_retry_interval_multiplier is not None
+            else agentic_flags.AGENTIC_NON_STREAMING_RETRY_INTERVAL_MULTIPLIER.value
+        ),
         agent_temperature=(
             agent_temperature
             if agent_temperature is not None
@@ -596,6 +700,15 @@ class AgentFrameworkConfig:
         orchestrator_handler_type=(
             orchestrator_handler_type
             or agentic_flags.AGENTIC_ORCHESTRATOR_HANDLER_TYPE.value
+        ),
+        system_prompt_suffix=(
+            system_prompt_suffix
+            or agentic_flags.AGENTIC_SYSTEM_PROMPT_SUFFIX.value
+        ),
+        enable_bootup_test=(
+            enable_bootup_test
+            if enable_bootup_test is not None
+            else agentic_flags.AGENTIC_ENABLE_BOOTUP_TEST.value
         ),
         sd_dry_run=sd_dry_run or agentic_flags.AGENTIC_SD_DRY_RUN.value,
         sd_tool_name=sd_tool_name or agentic_flags.AGENTIC_SD_TOOL_NAME.value,

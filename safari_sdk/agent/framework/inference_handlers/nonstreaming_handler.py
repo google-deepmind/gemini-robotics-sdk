@@ -22,10 +22,12 @@ streaming.
 
 import abc
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import datetime
 import enum
 import threading
+import time
+from typing import TypeVar
 
 from absl import logging
 from google.api_core import exceptions as api_exceptions
@@ -38,22 +40,40 @@ from safari_sdk.agent.framework.event_bus import event_bus
 from safari_sdk.agent.framework.utils import image_processing
 
 
-NUM_RETRIES = 3
-RETRY_INTERVAL_SECONDS = 1.0
+# Retry parameters for synchronous client initialization. Exponential backoff
+# with rate of 2x per attempt, capped at max_delay seconds.
+CLIENT_INIT_MAX_RETRIES = 5
+CLIENT_INIT_MAX_DELAY_SECONDS = 60.0
+CLIENT_INIT_BASE_DELAY_SECONDS = 1.0
 
 # Exceptions that are always retriable (no code check needed).
 _ALWAYS_RETRIABLE_EXCEPTIONS = (
     asyncio.TimeoutError,
+    # asyncio.wait_for cancels the inner coroutine when the timeout fires.
+    # Normally this CancelledError is caught internally and re-raised as
+    # TimeoutError, but there is a race condition with asyncio.to_thread:
+    # if the thread-backed coroutine does not complete its cancellation
+    # promptly, the CancelledError leaks through instead of being
+    # converted. Since CancelledError is a BaseException (Python 3.9+),
+    # it would escape all `except Exception` handlers in the retry and
+    # handler stack, crashing the multiepisode loop. Listing it here
+    # ensures the retry wrapper treats it identically to TimeoutError.
+    asyncio.CancelledError,
     ConnectionError,
     # GenAI/api_core exceptions that are explicitly transient.
     api_exceptions.ServiceUnavailable,  # 503: Server temporarily down.
     api_exceptions.InternalServerError,  # 500: Transient server error.
     api_exceptions.DeadlineExceeded,  # Timeout.
+    api_exceptions.ResourceExhausted,  # Rate limiting.
 )
 
 # Evergreen canonical codes that are retriable.
 # - DEADLINE_EXCEEDED: Request took too long, likely transient.
 # - RESOURCE_EXHAUSTED: Rate limiting (per-minute quota), retriable.
+# - INTERNAL: Transient server-side errors (e.g. streaming thought-signature
+#   chunk race conditions). Safe to retry; the same request typically succeeds.
+#   Consistent with the GenAI path where api_exceptions.InternalServerError
+#   (HTTP 500) is already in _ALWAYS_RETRIABLE_EXCEPTIONS.
 # Note: UNAVAILABLE is NOT included because Evergreen reports it for
 # permanent failures like invalid model URLs or server shutdown.
 
@@ -83,8 +103,6 @@ def is_retriable_exception(e: Exception) -> bool:
   if isinstance(e, api_exceptions.ResourceExhausted):
     return True
 
-  # Evergreen client errors: check the canonical code.
-
   # Raw gRPC errors: check the status code.
   if isinstance(e, grpc.RpcError):
     try:
@@ -94,6 +112,63 @@ def is_retriable_exception(e: Exception) -> bool:
       return False
 
   return False
+
+
+_T = TypeVar("_T")
+
+
+def client_init_with_retries(
+    fn: Callable[[], _T],
+    max_retries: int = CLIENT_INIT_MAX_RETRIES,
+    base_delay: float = CLIENT_INIT_BASE_DELAY_SECONDS,
+    max_delay: float = CLIENT_INIT_MAX_DELAY_SECONDS,
+    operation_name: str = "operation",
+) -> _T:
+  """Retries a synchronous function with exponential backoff.
+
+  This is useful for retrying client creation or other blocking operations
+  that may fail transiently (e.g., network issues, server unavailability).
+
+  Args:
+    fn: The function to call (takes no arguments, returns the result).
+    max_retries: Maximum number of attempts.
+    base_delay: Initial delay in seconds; doubles after each failure.
+    max_delay: Maximum delay in seconds.
+    operation_name: Name of the operation for logging.
+
+  Returns:
+    The result of fn() on success.
+
+  Raises:
+    Exception: The last exception if all retries are exhausted.
+    RuntimeError: If the retry loop exits unexpectedly (should not happen).
+  """
+  for attempt in range(max_retries):
+    try:
+      return fn()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      if attempt < max_retries - 1:
+        delay = min(base_delay * (2**attempt), max_delay)
+        logging.warning(
+            "[model client init] %s failed (attempt %d/%d): %s. "
+            "Retrying in %.1fs...",
+            operation_name,
+            attempt + 1,
+            max_retries,
+            e,
+            delay,
+        )
+        time.sleep(delay)
+      else:
+        logging.error(
+            "[model client init] %s failed after %d attempts: %s",
+            operation_name,
+            max_retries,
+            e,
+        )
+        raise
+  # This should never be reached, but satisfies type checker.
+  raise RuntimeError(f"{operation_name} failed unexpectedly")
 
 
 class NonstreamingOrchestratorHealth(enum.Enum):
@@ -192,6 +267,11 @@ class NonStreamingHandler(abc.ABC):
     self._show_camera_name_in_stitched_image = (
         config.show_camera_name_in_stitched_image
     )
+    self._image_stitching_order = (
+        list(config.image_stitching_order)
+        if config.image_stitching_order
+        else None
+    )
     self._stitch_interval_seconds = (
         config.non_streaming_image_buffering_interval_seconds
     )
@@ -214,10 +294,38 @@ class NonStreamingHandler(abc.ABC):
         config.non_streaming_tool_result_timeout_seconds
     )
 
+    # Exponential backoff retry parameters for generate calls.
+    self._num_retries = config.non_streaming_num_retries
+    self._min_retry_interval = config.non_streaming_min_retry_interval
+    self._max_retry_interval = config.non_streaming_max_retry_interval
+    self._retry_interval_multiplier = (
+        config.non_streaming_retry_interval_multiplier
+    )
+
     # Query history: list of (num_retries, total_time_seconds) for each query
     self._latency_and_retries_per_query: list[tuple[int, float]] = []
     # Number of words in thinking/thought tokens per query
     self._num_thinking_words_per_query: list[int] = []
+    self._context_compression_occurred = False
+
+  async def _publish_context_compression_event(
+      self,
+      mechanism: str,
+      details: dict[str, object],
+  ) -> None:
+    """Publishes a context compression event and sets the session label."""
+    if not self._context_compression_occurred:
+      self._context_compression_occurred = True
+      await self._publish_event(
+          event_bus.EventType.LOG_SESSION_METADATA,
+          "context_compression_occurred=True",
+          metadata={"context_compression_occurred": True},
+      )
+    await self._publish_event(
+        event_bus.EventType.CONTEXT_COMPRESSION,
+        f"Context compression: {mechanism}",
+        metadata={"mechanism": mechanism, **details},
+    )
 
   async def connect(self) -> None:
     ...
@@ -232,7 +340,11 @@ class NonStreamingHandler(abc.ABC):
       *args,
       **kwargs,
   ):
-    """Wraps a generate function with retry logic.
+    """Wraps a generate function with exponential backoff retry logic.
+
+    Retries use exponential backoff: the delay starts at
+    _min_retry_interval and is multiplied by _retry_interval_multiplier after
+    each attempt, capped at _max_retry_interval.
 
     Args:
       generate_fn: The async generate function to call.
@@ -247,25 +359,61 @@ class NonStreamingHandler(abc.ABC):
     """
     last_exception = None
 
-    for attempt in range(NUM_RETRIES):
+    for attempt in range(self._num_retries):
       try:
         response = await generate_fn(*args, **kwargs)
         return response, attempt
-      except Exception as e:  # pylint: disable=broad-exception-caught
+      except BaseException as e:  # pylint: disable=broad-exception-caught
+        # Catch BaseException (not just Exception) because
+        # asyncio.CancelledError is a BaseException in Python 3.9+ and
+        # can leak through asyncio.wait_for when wrapping to_thread.
+
+        # Distinguish genuine task cancellation (shutdown) from a leaked
+        # CancelledError due to the asyncio.wait_for / to_thread race.
+        # When wait_for times out and cancels the inner coroutine, our
+        # *outer* task is NOT cancelled — cancelling() returns 0.
+        # When main_task.cancel() is called during shutdown,
+        # cancelling() returns > 0.  Propagate immediately in that case
+        # so the framework thread can exit without burning through
+        # retries.
+        if isinstance(e, asyncio.CancelledError):
+          current_task = asyncio.current_task()
+          if current_task and current_task.cancelling() > 0:
+            logging.info(
+                "CancelledError with active task cancellation "
+                "(shutdown). Propagating instead of retrying."
+            )
+            raise
+
         if not is_retriable_exception(e):
           logging.error("Generate failed with non-retriable error: %s", e)
           raise
         last_exception = e
-        logging.warning(
-            "Generate attempt %d/%d failed with retriable error: %s. "
-            "Retrying in %.1fs...",
-            attempt + 1,
-            NUM_RETRIES,
-            type(e).__name__,
-            RETRY_INTERVAL_SECONDS,
-        )
-        if attempt < NUM_RETRIES - 1:
-          await asyncio.sleep(RETRY_INTERVAL_SECONDS)
+        if attempt < self._num_retries - 1:
+          wait = min(
+              self._min_retry_interval
+              * (self._retry_interval_multiplier ** attempt),
+              self._max_retry_interval,
+          )
+          logging.warning(
+              "Generate attempt %d/%d failed with retriable error: %s "
+              "(timeout=%s). Retrying in %.1fs...",
+              attempt + 1,
+              self._num_retries,
+              type(e).__name__,
+              kwargs.get("timeout", "N/A"),
+              wait,
+          )
+          await asyncio.sleep(wait)
+        else:
+          logging.warning(
+              "Generate attempt %d/%d failed with retriable error: %s "
+              "(timeout=%s). No more retries.",
+              attempt + 1,
+              self._num_retries,
+              type(e).__name__,
+              kwargs.get("timeout", "N/A"),
+          )
 
     raise last_exception
 
@@ -632,7 +780,8 @@ class NonStreamingHandler(abc.ABC):
         for name, blob in img_dict.items()
     }
     stitched_bytes = image_processing.stitch_images(
-        images, labels, show_labels=self._show_camera_name_in_stitched_image
+        images, labels, show_labels=self._show_camera_name_in_stitched_image,
+        image_order=self._image_stitching_order,
     )
     return types.Part.from_bytes(data=stitched_bytes, mime_type="image/jpeg")
 

@@ -62,6 +62,7 @@ _DEFAULT_VERSION = "v1"
 _DEFAULT_DISCOVERY_SERVICE_URL = (
     "https://roboticsdeveloper.googleapis.com/$discovery/rest?version=v1"
 )
+_DEFAULT_TIMEOUT = 30  # 30 seconds
 
 # Error message.
 _ERROR_NO_API_KEY_PROVIDED = (
@@ -78,9 +79,9 @@ def _extract_api_key_from_file(file_path: str) -> str:
     return f.read().strip()
 
 
-def _build_service(api_key: str) -> discovery.Resource:
+def _build_service(api_key: str, timeout: int) -> discovery.Resource:
   """Builds the service."""
-  http = httplib2.Http(timeout=900)  # 15 minutes
+  http = httplib2.Http(timeout=timeout)
   return discovery.build(
       serviceName=_DEFAULT_SERVICE_NAME,
       version=_DEFAULT_VERSION,
@@ -90,13 +91,16 @@ def _build_service(api_key: str) -> discovery.Resource:
   )
 
 
-def get_service() -> discovery.Resource:
+def get_service(timeout: int = _DEFAULT_TIMEOUT) -> discovery.Resource:
   """Gets a built discovery service based on flags or fixed file locations.
 
   The order of resolution precedence for the API key is:
   1. By flag, "--api_key"
   2. By path, "$HOME/.config/safari_sdk/API_KEY"
   3. By path, "/opt/safari_sdk/API_KEY"
+
+  Args:
+    timeout: Optional. The timeout in seconds for the HTTP request.
 
   Returns:
     The service as a discovery.Resource object.
@@ -105,14 +109,14 @@ def get_service() -> discovery.Resource:
     ValueError: If no API key is provided by flag or file.
   """
   if _API_KEY.value:
-    return _build_service(api_key=_API_KEY.value)
+    return _build_service(api_key=_API_KEY.value, timeout=timeout)
 
   for file_path in _API_KEY_FILE_PATHS:
     if os.path.isfile(file_path):
       api_key_from_file = _extract_api_key_from_file(file_path)
       if not api_key_from_file:
         raise ValueError(f"{_ERROR_NO_API_KEY_PROVIDED_IN_FILE} {file_path}")
-      return _build_service(api_key=api_key_from_file)
+      return _build_service(api_key=api_key_from_file, timeout=timeout)
 
   raise ValueError(_ERROR_NO_API_KEY_PROVIDED)
 

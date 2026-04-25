@@ -112,15 +112,6 @@ _NUM_EPISODES = flags.DEFINE_integer(
 )
 
 
-_PROPRIO_KEYS = flags.DEFINE_list(
-    'proprio_keys',
-    default=['state'],
-    help=(
-        'The keys of the proprio data in the observation. Do not include the'
-        ' "observation." prefix here, but features should start "observation.".'
-    ),
-)
-
 _MAX_WORKERS = flags.DEFINE_integer(
     'max_workers',
     1,
@@ -232,7 +223,6 @@ def main(argv: Sequence[str]) -> None:
       dataset=dataset,
       task_id=_TASK_ID.value,
       output_directory=output_directory,
-      proprioceptive_observation_keys=_PROPRIO_KEYS.value,
       episodes_limit=_NUM_EPISODES.value,
       max_workers=_MAX_WORKERS.value,
       episode_start_timestamps_ns=episode_start_time_ns_by_episode_id,

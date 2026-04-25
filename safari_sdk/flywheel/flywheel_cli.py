@@ -14,6 +14,7 @@
 
 """The main file for the Robotics SDK training CLI."""
 
+import argparse
 import copy
 import datetime
 import json
@@ -30,8 +31,9 @@ import urllib
 
 from absl import app
 from absl import flags
+from absl.flags import argparse_flags
 
-from safari_sdk import __version__  # pylint: disable=g-importing-member
+from safari_sdk import _version
 from safari_sdk import auth
 from safari_sdk.flywheel import upload_data
 
@@ -45,12 +47,14 @@ _COMMANDS_LIST = [
     "serve",
     "help",
     "upload_data",
+    "status",
     "version",
 ]
 
 _UPLOAD_DATA_ROBOT_ID_REGEX = re.compile(r"[a-zA-Z][\w-]{0,62}")
 # The constraints for artifact IDs come from the backend proto definition.
 _ARTIFACT_ID_REGEX = re.compile(r"^[a-zA-Z0-9][\w-]{1,35}$")
+_DEFAULT_TIMEOUT = 900  # 15 minutes
 
 # Mapping from recipe name to training type.
 _RECIPE_TO_TYPE_MAP = {
@@ -66,6 +70,10 @@ _CHECKPOINT_TYPE_MAP = {
     "franka_duo": "CHECKPOINT_TYPE_FRANKA_DUO",
 }
 
+# Training parameter limits. These must match the backend validation rules.
+_MAX_TRAINING_STEPS_LIMIT = 50000
+_MIN_CHECKPOINT_INTERVAL = 100
+
 _TRAINING_JOB_ID = flags.DEFINE_string(
     name="training_job_id", default=None, help="The training job id to use."
 )
@@ -80,6 +88,12 @@ _MODEL_CHECKPOINT_PATH = flags.DEFINE_string(
     name="model_checkpoint_path",
     default=None,
     help="The local gemini_robotics_on_device model checkpoint path to use.",
+)
+
+_LICENSE_PATH = flags.DEFINE_string(
+    name="license_path",
+    default=None,
+    help="The local path to the base64 encoded license file.",
 )
 
 _SERVE_PORT = flags.DEFINE_integer(
@@ -129,15 +143,53 @@ _MAX_TRAINING_STEPS = flags.DEFINE_integer(
     default=10000,
     help="The maximum number of training steps to use.",
 )
+flags.register_validator(
+    "max_training_steps",
+    lambda value: 0 <= value <= _MAX_TRAINING_STEPS_LIMIT,
+    message=(
+        "--max_training_steps must be between 0 and "
+        f"{_MAX_TRAINING_STEPS_LIMIT}."
+    ),
+)
 
 _CHECKPOINT_EVERY_N_STEPS = flags.DEFINE_integer(
     name="checkpoint_every_n_steps",
-    default=None,
+    default=0,
     help=(
-        "The number of steps to checkpoint. If not set, the default is"
-        " max_training_steps / 5."
+        "The number of steps between checkpoints. 0 means system managed /"
+        " auto-calculated."
     ),
 )
+flags.register_validator(
+    "checkpoint_every_n_steps",
+    lambda value: value == 0 or value >= _MIN_CHECKPOINT_INTERVAL,
+    message=(
+        "--checkpoint_every_n_steps must be 0 or at least "
+        f"{_MIN_CHECKPOINT_INTERVAL}."
+    ),
+)
+
+
+def _validate_training_steps_combination(flags_dict):
+  max_steps = flags_dict["max_training_steps"]
+  checkpoint_steps = flags_dict["checkpoint_every_n_steps"]
+  if max_steps is not None and max_steps < _MIN_CHECKPOINT_INTERVAL:
+    if checkpoint_steps is not None and checkpoint_steps > 0:
+      return False
+  return True
+
+
+flags.register_multi_flags_validator(
+    ["max_training_steps", "checkpoint_every_n_steps"],
+    _validate_training_steps_combination,
+    message=(
+        f"When --max_training_steps is less than {_MIN_CHECKPOINT_INTERVAL},"
+        " custom checkpointing is not supported because the minimum checkpoint"
+        f" interval is {_MIN_CHECKPOINT_INTERVAL} steps. Please leave"
+        " --checkpoint_every_n_steps as 0."
+    ),
+)
+
 
 _CHECKPOINT_TYPE = flags.DEFINE_enum(
     name="checkpoint_type",
@@ -159,8 +211,9 @@ _PROPRIOCEPTION_KEYS = flags.DEFINE_list(
     name="proprioception_keys",
     default=[],
     help=(
-        "The proprioception keys to use for training. They should be a subset"
-        " of the available proprioceptive_observation_keys logged by"
+        "The proprioception keys to use for training. Required for the"
+        " gemini_robotics_on_device_v1 training recipe. They should be a"
+        " subset of the proprioceptive_observation_keys logged by"
         " EpisodicLogger."
     ),
 )
@@ -178,6 +231,15 @@ _ONLY_SUCCESSFUL_EPISODES = flags.DEFINE_bool(
         "Whether to train only on successful episodes. Default false, which"
         " means train on all episodes, whether it is marked success / failure"
         " or not marked."
+    ),
+)
+
+_MAX_EPISODES = flags.DEFINE_integer(
+    name="max_episodes",
+    default=None,
+    help=(
+        "The maximum number of demonstration episodes to use for training."
+        " If not set, all available episodes will be used."
     ),
 )
 
@@ -222,6 +284,21 @@ _USE_CPU = flags.DEFINE_bool(
     "Whether to use CPU for serving. If False, GPU will be used.",
 )
 
+_DOCKER_TAG = flags.DEFINE_string(
+    name="docker_tag",
+    default="latest",
+    help="The docker tag to use for serving.",
+)
+flags.register_validator(
+    "docker_tag",
+    lambda value: value is not None
+    and (
+        value == "latest"
+        or re.fullmatch(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", value)
+    ),
+    message='--docker_tag must be in semver form (e.g. 1.0.0) or "latest".',
+)
+
 _HELP_STRING = f"""Usage: flywheel-cli command --api_key=api_key <additional flags>
 
 Commands:
@@ -231,16 +308,22 @@ Commands:
     --start_date: The start date to use. Format: YYYYMMDD.
     --end_date: The end date to use. Format: YYYYMMDD.
     --training_recipe: The training recipe to use, one of [{', '.join(_RECIPE_TO_TYPE_MAP.keys())}]
+    --max_episodes: The maximum number of demonstration episodes to use for training. (Optional) Episodes are randomly selected.
   For gemini_robotics_on_device_v1 recipe, the following flags are also available:
      --max_training_steps: The maximum number of training steps to use. (Optional)
      --checkpoint_every_n_steps: The number of steps to checkpoint. If not set, the default is max_training_steps / 5. (Optional)
      --checkpoint_type: The checkpoint type to use, one of [{', '.join(_CHECKPOINT_TYPE_MAP.keys())}] (Optional)
      --image_keys: The image keys to use for training. (Optional)
-     --proprioception_keys: The proprioception keys to use for training. (Optional)
+     --proprioception_keys: The proprioception keys to use for training.
+       Required for gemini_robotics_on_device_v1. Must be a subset of the
+       proprioceptive_observation_keys logged by EpisodicLogger.
 
   data_stats: Show data stats currently available for training.
 
   list: List available models.
+
+  status: Get the status of a training job.
+    --training_job_id: The training job id to use.
 
   list_serve: List available serving jobs.
 
@@ -253,11 +336,13 @@ Commands:
       --model_checkpoint_path: The local gemini_robotics_on_device model
         checkpoint path to use if you have downloaded the checkpoint and saved
         it locally. (Optional)
+      --license_path: Absolute path to license file corresponding to model checkpoint.
       --serve_port: The port to use for serving. (Optional)
       --gpu_mem_fraction: The GPU memory fraction to use for serving. (Optional)
       --use_cpu: Whether to use CPU for serving. If False, GPU will be used. (Optional)
       --image_keys: The image keys to use for serving. (Optional)
       --proprioception_keys: The proprioception keys to use for serving. (Optional)
+      --docker_tag: The docker tag to use for serving. (Optional, default: latest)
 
       This will download the model and start a serving docker container.
 
@@ -279,11 +364,42 @@ Note: The API key can be specified with the --api_key flag or in a file named
 "api_key.json" in one of the paths specified in the auth module."""
 
 
+def _strip_whitespace_from_flags() -> None:
+  """Strips leading/trailing whitespace from all string identifier flags."""
+  # List flags (identifiers used for data lookups).
+  for flag in [_TASK_ID, _ROBOT_ID]:
+    if flag.value:
+      stripped = [v.strip() for v in flag.value]
+      if stripped != flag.value:
+        print(
+            f"WARNING: --{flag.name} contained leading/trailing whitespace."
+            f" Auto-corrected: {flag.value} -> {stripped}"
+        )
+        flags.FLAGS[flag.name].value = stripped
+
+  # String flags.
+  for flag in [
+      _TRAINING_JOB_ID,
+      _UPLOAD_DATA_ROBOT_ID,
+      _ARTIFACT_ID,
+      _LICENSE_PATH,
+      _MODEL_CHECKPOINT_PATH,
+  ]:
+    value = flag.value
+    if value is not None and value != value.strip():
+      stripped = value.strip()
+      print(
+          f"WARNING: --{flag.name} contained leading/trailing whitespace."
+          f" Auto-corrected: {value!r} -> {stripped!r}"
+      )
+      flags.FLAGS[flag.name].value = stripped
+
+
 class FlywheelCli:
   """The training CLI."""
 
   def __init__(self):
-    self._service = auth.get_service()
+    self._service = auth.get_service(timeout=_DEFAULT_TIMEOUT)
     self._base_request_body = {}
 
   def handle_train(self) -> None:
@@ -303,22 +419,51 @@ class FlywheelCli:
     }
     if _ONLY_SUCCESSFUL_EPISODES.value:
       training_data_filters["only_successful_episodes"] = True
+    if _MAX_EPISODES.value is not None:
+      training_data_filters["max_episode_count"] = _MAX_EPISODES.value
     body |= {
         "training_data_filters": training_data_filters,
         "training_type": _RECIPE_TO_TYPE_MAP[_TRAINING_RECIPE.value],
         "tracer": time.time_ns(),
     }
     if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+      checkpoint_every_n_steps = _CHECKPOINT_EVERY_N_STEPS.value
+      if checkpoint_every_n_steps == 0:
+        if _MAX_TRAINING_STEPS.value < _MIN_CHECKPOINT_INTERVAL:
+          # For small runs, let the backend decide (no intermediate
+          # checkpoints). Setting to 0 means "use system default".
+          checkpoint_every_n_steps = 0
+        else:
+          checkpoint_every_n_steps = max(
+              _MIN_CHECKPOINT_INTERVAL,
+              _MAX_TRAINING_STEPS.value // 25,
+          )
       body |= {
           "training_config": {
               "max_training_steps": _MAX_TRAINING_STEPS.value,
-              "checkpoint_every_n_steps": _CHECKPOINT_EVERY_N_STEPS.value,
+              "checkpoint_every_n_steps": checkpoint_every_n_steps,
               "checkpoint_type": _CHECKPOINT_TYPE_MAP[_CHECKPOINT_TYPE.value],
               "image_keys": _IMAGE_KEYS.value,
               "proprioception_keys": _PROPRIOCEPTION_KEYS.value,
           }
       }
     response = self._service.orchestrator().startTraining(body=body).execute()
+
+    print(json.dumps(response, indent=4))
+
+  def handle_status(self) -> None:
+    """Handles the status command.
+
+    Gets the status of a training job.
+    """
+    body = copy.deepcopy(self._base_request_body)
+    body |= {
+        "trainingJobId": _TRAINING_JOB_ID.value,
+        "tracer": time.time_ns(),
+    }
+    response = (
+        self._service.orchestrator().trainingJobStatus(body=body).execute()
+    )
 
     print(json.dumps(response, indent=4))
 
@@ -468,11 +613,18 @@ class FlywheelCli:
         flags.FLAGS.set_default("training_job_id", "grod-chkpt-aloha-v1")
 
       checkpoint_path = self.handle_download_training_artifacts()
+      if checkpoint_path is None:
+        print("No checkpoint path provided. Exiting...")
+        return
     else:
       checkpoint_path = _MODEL_CHECKPOINT_PATH.value
-    checkpoint_path = os.path.abspath(checkpoint_path)
-    file_dir = os.path.dirname(checkpoint_path)
-    file_name = os.path.basename(checkpoint_path)
+    checkpoint_path = pathlib.Path(checkpoint_path).resolve()
+    if not checkpoint_path.exists():
+      raise FileNotFoundError(
+          f"Checkpoint path does not exist: {checkpoint_path}"
+      )
+    file_dir = checkpoint_path.parent
+    file_name = checkpoint_path.name
     try:
       print(f"\nStarting serving docker with checkpoint: {checkpoint_path} ...")
       commands = ["docker", "run", "-it"]
@@ -490,9 +642,26 @@ class FlywheelCli:
           f"{_SERVE_PORT.value}:60061",
           "-v",
           f"{file_dir}:/checkpoint",
-          "google-deepmind/gemini_robotics_on_device",
+      ])
+
+      if _LICENSE_PATH.value:
+        license_path = pathlib.Path(_LICENSE_PATH.value).resolve()
+        if not license_path.is_file():
+          raise FileNotFoundError(f"License file not found: {license_path}")
+        license_dir = license_path.parent
+        license_name = license_path.name
+        commands.extend([
+            "-v",
+            f"{license_dir}:/license",
+        ])
+
+      commands.extend([
+          f"google-deepmind/gemini_robotics_on_device:{_DOCKER_TAG.value}",
           f"--checkpoint_path=/checkpoint/{file_name}",
       ])
+
+      if _LICENSE_PATH.value:
+        commands.append(f"--license_path=/license/{license_name}")
 
       if _IMAGE_KEYS.value:
         commands.append(f"--image_keys={','.join(_IMAGE_KEYS.value)}")
@@ -511,10 +680,21 @@ class FlywheelCli:
       print(
           f"\n[ERROR] Failed to run serving docker (exit code: {e.returncode})."
       )
-      print(
-          "\nHint: Did you forget to load the docker image? Try `flywheel-cli"
-          " download --artifact_id=grod_model_server_docker`."
-      )
+      if _DOCKER_TAG.value == "latest":
+        print(
+            "\nHint: Did you forget to load the docker image? Try `flywheel-cli"
+            " download --artifact_id=grod_model_server_docker`."
+        )
+      else:
+        artifact_id = (
+            f"grod_model_server_docker_v{_DOCKER_TAG.value.replace('.', '_')}"
+        )
+        print(
+            "\nHint: To use a versioned docker image, be sure to load it first."
+            f" Try `flywheel-cli download --artifact_id={artifact_id}` or"
+            " consider running flywheel-cli serve without the --docker_tag"
+            " flag to use the image tagged as 'latest'."
+        )
 
   def handle_serve(self) -> None:
     """Handles the serve commands.
@@ -587,7 +767,7 @@ class FlywheelCli:
 
       try:
         artifact_number_str = input(
-            "\n> Enter artifact # to download (or press Enter to skip): "
+            "\n> Enter artifact # to download (or press Enter to cancel): "
         )
         if not artifact_number_str:
           return
@@ -671,8 +851,12 @@ class FlywheelCli:
     if not auth.get_api_key():
       raise ValueError("API key is required.")
 
+    _strip_whitespace_from_flags()
+
     match command:
       case "train":
+        if not _TRAINING_RECIPE.value:
+          raise ValueError("Training recipe is required.")
         if not _TASK_ID.value:
           raise ValueError("Task id is required.")
         if not _ROBOT_ID.value:
@@ -698,7 +882,24 @@ class FlywheelCli:
               "Start date must be before or equal to end date."
               f" Start date: {_START_DATE.value} End date: {_END_DATE.value}"
           )
+        if _MAX_EPISODES.value is not None and _MAX_EPISODES.value <= 0:
+          raise ValueError(
+              "Max episodes must be a positive integer. Got:"
+              f" {_MAX_EPISODES.value}"
+          )
+        if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+          if not _PROPRIOCEPTION_KEYS.value:
+            raise ValueError(
+                "proprioception_keys is required for the"
+                " gemini_robotics_on_device_v1 training recipe. Set"
+                " --proprioception_keys to a subset of the proprioceptive"
+                " observation keys logged by EpisodicLogger."
+            )
         self.handle_train()
+      case "status":
+        if not _TRAINING_JOB_ID.value:
+          raise ValueError("Training job id is required.")
+        self.handle_status()
       case "serve":
         support_training_recipes = [
             "gemini_robotics_v1",
@@ -903,29 +1104,44 @@ def _is_valid_start_end_date_pair(start_date: str, end_date: str) -> bool:
   return start <= end
 
 
+def _create_parser() -> argparse_flags.ArgumentParser:
+  """Creates the argument parser."""
+  parser = argparse_flags.ArgumentParser(
+      description=_HELP_STRING,
+      formatter_class=argparse.RawDescriptionHelpFormatter,
+  )
+  parser.add_argument(
+      "command", nargs="?", choices=_COMMANDS_LIST, help="Command to run"
+  )
+  return parser
+
+
+_PARSER = _create_parser()
+
+
 def show_help() -> None:
   """Shows the help message."""
-  print(_HELP_STRING)
+  _PARSER.print_help()
 
 
 def cli_main() -> None:
   """The main function for the CLI."""
-  app.run(main)
+  app.run(main, flags_parser=lambda argv: _PARSER.parse_args(argv[1:]))
 
 
-def main(argv: Sequence[str]) -> None:
-  if len(argv) != 2 or argv[1] == "help" or argv[1] not in _COMMANDS_LIST:
+def main(args: argparse.Namespace) -> None:
+  if not args.command or args.command == "help":
     show_help()
     return
 
-  if argv[1] == "version":
-    print(f"Version: {__version__}")
+  if args.command == "version":
+    print(f"Version: {_version.__version__}")
     return
 
-  command = argv[1]
+  command = args.command
   flywheel_cli = FlywheelCli()
   flywheel_cli.parse_flag(command)
 
 
 if __name__ == "__main__":
-  app.run(main)
+  cli_main()

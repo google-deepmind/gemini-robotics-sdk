@@ -304,11 +304,12 @@ class AgentEvaluator:
     except httpx.RequestError:
       logging.exception("Failed to send work unit details to agent backend.")
 
-  def _send_interaction_to_agent_backend(self, interaction: str) -> None:
+  def _send_instruction_to_agent_backend(self, agent_instruction: str) -> None:
     """Sends the LH task to the agent backend via HTTP GET request."""
-    url = f"{_AGENT_BACKEND_URL}/execute_interaction/"
-    params = {"interaction": interaction}
-    self._fns.print(f"\nSending interaction to agent backend: {interaction}")
+    url = f"{_AGENT_BACKEND_URL}/execute_lh_task/"
+    params = {"lh_task": agent_instruction}
+    self._fns.print(
+        f"\nSending instruction to agent backend: {agent_instruction}")
     try:
       response = httpx.get(url, params=params)
       response.raise_for_status()
@@ -641,7 +642,11 @@ class AgentEvaluator:
     )
 
   def _get_work_unit_details(
-      self, work_unit, interaction: str, policy_name: str | None = None
+      self,
+      work_unit,
+      agent_instruction: str,
+      operator_instruction: str,
+      policy_name: str | None = None
   ) -> dict[str, str]:
     """Gets the work unit details."""
     work_unit_details = {
@@ -649,7 +654,8 @@ class AgentEvaluator:
         "orchestrator_work_unit_id": work_unit.workUnitId,
         "orchestrator_task_id": work_unit.context.orchestratorTaskId,
         "orchestrator_scene_preset_id": work_unit.context.scenePresetId,
-        "orchestrator_work_unit_task_instruction": interaction,
+        "orchestrator_work_unit_agent_instruction": agent_instruction,
+        "orchestrator_work_unit_operator_instruction": operator_instruction,
     }
     if policy_name:
       work_unit_details["orchestrator_work_unit_policy_name"] = policy_name
@@ -673,21 +679,30 @@ class AgentEvaluator:
       success_score_definition, episode_note).
     """
     scene_details = work_unit.context.scenePresetDetails
-    interaction = scene_details.get_parameter_value("interaction", None)
-    if interaction is None:
-      raise ValueError("`interaction` must be specified in the work unit.")
+    agent_instruction = scene_details.get_parameter_value(
+        "agent_instruction", None
+    )
+    operator_instruction = scene_details.get_parameter_value(
+        "operator_instruction", None
+    )
+    if agent_instruction is None and operator_instruction is None:
+      raise ValueError(
+          "Either `agent_instruction` or `operator_instruction` must be "
+          "specified in the work unit."
+      )
     self._fns.print("====== Episode task ======")
 
     scene_id = work_unit.context.scenePresetId
     self._fns.print(f"Scene id: {scene_id}")
-    time_limit_seconds = scene_details.get_parameter_value("time_limit", 5)
+    time_limit_seconds = scene_details.get_parameter_value("time_limit", 360)
     policy_details = work_unit.context.policyDetails  # pytype: disable=attribute-error
     self._fns.print(f"Policy name: {policy_details.name}")
-    self._fns.print(f"Interaction: {interaction}")
+    self._fns.print(f"Agent instruction: {agent_instruction}")
+    self._fns.print(f"Operator instruction: {operator_instruction}")
 
     policy_name = policy_details.name if policy_details else None
     work_unit_details = self._get_work_unit_details(
-        work_unit, interaction, policy_name)
+        work_unit, agent_instruction, operator_instruction, policy_name)
 
     self._fns.print(f"Work unit details: {work_unit_details}")
 
@@ -707,7 +722,13 @@ class AgentEvaluator:
     self._orchestrator_client.start_work_unit_execution()
     self._agent_session_id = self._get_agent_session_id_from_agent_backend()
     self._set_agent_session_id_on_robot_backend(self._agent_session_id)
-    self._send_interaction_to_agent_backend(interaction=interaction)
+    if agent_instruction:
+      self._send_instruction_to_agent_backend(agent_instruction)
+    if operator_instruction:
+      self._fns.print(
+          "OPERATOR INSTRUCTION: Interaction to execute:"
+          f" {operator_instruction}."
+      )
     # The work unit details will be sent to the external controller which will
     # publish them to the event bus wherein they will be logged by the stream
     # logger. This is needed to correctly associate SSOT sessions with ORCA

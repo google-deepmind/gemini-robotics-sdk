@@ -122,10 +122,13 @@ class RunInstructionUntilDoneTool(tool.Tool):
         #    reachable or in a bad state.
         # 2. The instruction is rejected by the user under data collection mode.
 
+        reason = output.get("reason", "")
+        reason_msg = f" Reason: {reason}" if reason else ""
+
         return types.FunctionResponse(
             response={
                 "subtask": instruction,
-                "subtask_status": "Instruction is rejected.",
+                "subtask_status": f"Instruction is rejected.{reason_msg}",
             },
             will_continue=False,
         )
