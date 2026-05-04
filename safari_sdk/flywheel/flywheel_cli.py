@@ -20,6 +20,7 @@ import datetime
 import json
 import os
 import pathlib
+import random
 import re
 import shutil
 import subprocess
@@ -243,6 +244,15 @@ _MAX_EPISODES = flags.DEFINE_integer(
     ),
 )
 
+_SEED = flags.DEFINE_integer(
+    name="seed",
+    default=None,
+    help=(
+        "Optional seed for deterministic random sampling when max_episodes is"
+        " set. If not set, a random seed will be generated."
+    ),
+)
+
 _UPLOAD_DATA_API_ENDPOINT = flags.DEFINE_string(
     "upload_data_api_endpoint",
     "https://roboticsdeveloper.googleapis.com/upload/v1/dataIngestion:uploadData",
@@ -309,6 +319,7 @@ Commands:
     --end_date: The end date to use. Format: YYYYMMDD.
     --training_recipe: The training recipe to use, one of [{', '.join(_RECIPE_TO_TYPE_MAP.keys())}]
     --max_episodes: The maximum number of demonstration episodes to use for training. (Optional) Episodes are randomly selected.
+    --seed: Seed for deterministic episode sampling. Auto-generated if not set. Only applies to gemini_robotics_on_device_v1. (Optional)
   For gemini_robotics_on_device_v1 recipe, the following flags are also available:
      --max_training_steps: The maximum number of training steps to use. (Optional)
      --checkpoint_every_n_steps: The number of steps to checkpoint. If not set, the default is max_training_steps / 5. (Optional)
@@ -417,10 +428,30 @@ class FlywheelCli:
         "start_date": _START_DATE.value,
         "end_date": _END_DATE.value,
     }
+    if _SEED.value is not None and _MAX_EPISODES.value is None:
+      raise ValueError(
+          "--seed requires --max_episodes to be set. The seed is used for"
+          " deterministic episode sampling, which only applies when"
+          " --max_episodes limits the number of episodes."
+      )
     if _ONLY_SUCCESSFUL_EPISODES.value:
       training_data_filters["only_successful_episodes"] = True
     if _MAX_EPISODES.value is not None:
       training_data_filters["max_episode_count"] = _MAX_EPISODES.value
+
+      if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+        seed = _SEED.value
+        if seed is None:
+          seed = random.randint(0, 9007199254740991)
+          print(
+              f"Using generated random seed: {seed}. To reproduce, pass"
+              f" --seed={seed}"
+          )
+        else:
+          print(f"Using provided seed: {seed}")
+
+        training_data_filters["seed"] = seed
+
     body |= {
         "training_data_filters": training_data_filters,
         "training_type": _RECIPE_TO_TYPE_MAP[_TRAINING_RECIPE.value],
@@ -644,6 +675,7 @@ class FlywheelCli:
           f"{file_dir}:/checkpoint",
       ])
 
+      license_name = None
       if _LICENSE_PATH.value:
         license_path = pathlib.Path(_LICENSE_PATH.value).resolve()
         if not license_path.is_file():

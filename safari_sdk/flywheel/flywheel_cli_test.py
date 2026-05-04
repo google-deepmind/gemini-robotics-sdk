@@ -188,9 +188,9 @@ class FlywheelCliTest(parameterized.TestCase):
         "tracer": mock.ANY,
     }
     if max_episodes is not None:
-      expected_body["training_data_filters"].update(
-          max_episode_count=max_episodes
-      )
+      expected_body["training_data_filters"]["max_episode_count"] = max_episodes
+      if recipe == "gemini_robotics_on_device_v1":
+        expected_body["training_data_filters"]["seed"] = mock.ANY
     if recipe == "gemini_robotics_on_device_v1":
       expected_body["training_config"] = {
           "max_training_steps": 12345,
@@ -227,6 +227,69 @@ class FlywheelCliTest(parameterized.TestCase):
       self.assertEqual(
           call_body["training_config"]["checkpoint_every_n_steps"], 0
       )
+
+  def test_train_with_explicit_seed(self):
+    self.service_mock.startTraining.return_value.execute.return_value = {
+        "training_job_id": "test_training_job_id"
+    }
+    req_flags = {
+        "task_id": "test_task_id",
+        "start_date": "20240101",
+        "end_date": "20240102",
+        "training_recipe": "gemini_robotics_on_device_v1",
+        "max_episodes": 10,
+        "seed": 42,
+    }
+
+    with flagsaver.flagsaver(**req_flags):
+      self._cli.handle_train()
+      call_body = self.service_mock.startTraining.call_args[1]["body"]
+      self.assertEqual(call_body["training_data_filters"]["seed"], 42)
+
+  def test_train_generates_random_seed(self):
+    self.service_mock.startTraining.return_value.execute.return_value = {
+        "training_job_id": "test_training_job_id"
+    }
+    req_flags = {
+        "task_id": "test_task_id",
+        "start_date": "20240101",
+        "end_date": "20240102",
+        "training_recipe": "gemini_robotics_on_device_v1",
+        "max_episodes": 10,
+    }
+
+    mock_stdout = io.StringIO()
+    with flagsaver.flagsaver(**req_flags):
+      with mock.patch("sys.stdout", mock_stdout):
+        self._cli.handle_train()
+
+    call_body = self.service_mock.startTraining.call_args[1]["body"]
+    self.assertIn("seed", call_body["training_data_filters"])
+    generated_seed = call_body["training_data_filters"]["seed"]
+    self.assertIsInstance(generated_seed, int)
+    # Verify seed is within JSON-safe integer range
+    self.assertLessEqual(generated_seed, 2**53 - 1)
+    self.assertGreaterEqual(generated_seed, 0)
+
+    output = mock_stdout.getvalue()
+    self.assertIn(f"Using generated random seed: {generated_seed}", output)
+
+  def test_train_seed_without_max_episodes_raises_error(self):
+    """Verifies that --seed without --max_episodes raises ValueError."""
+    self.service_mock.startTraining.return_value.execute.return_value = {
+        "training_job_id": "test_training_job_id"
+    }
+    req_flags = {
+        "task_id": "test_task_id",
+        "start_date": "20240101",
+        "end_date": "20240102",
+        "training_recipe": "gemini_robotics_on_device_v1",
+        "seed": 42,
+    }
+
+    with flagsaver.flagsaver(**req_flags):
+      with self.assertRaisesRegex(ValueError, "--seed requires --max_episodes"):
+        self._cli.handle_train()
 
   @parameterized.named_parameters(
       (
