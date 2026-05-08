@@ -18,10 +18,6 @@ keywords = []
 
 # pip dependencies of the project
 dependencies = [
-  # copybara:strip_begin(for internal changes only)
-  # LINT.IfChange
-  # copybara:strip_end
-  # go/keep-sorted start
   "absl-py",
   "dataclasses_json",
   "dm-env",
@@ -50,12 +46,6 @@ dependencies = [
   "tensorflow",
   "uvicorn",
   "watchdog",
-  # go/keep-sorted end
-  # copybara:strip_begin(for internal changes only)
-  # LINT.ThenChange(//depot/google3/third_party/safari/sdk/requirements.txt)
-  # Run `bash third_party/safari/sdk/scripts/update_pip_dependencies.sh`
-  # to update the dependencies in requirements.txt.
-  # copybara:strip_end
 ]
 
 dynamic = ["version"]
@@ -72,7 +62,6 @@ repository = "https://github.com/google-deepmind/gemini-robotics-sdk"
 # Development deps (unittest, linting, formating,...)
 # Installed through `pip install .[dev]`
 dev = [
-    # go/keep-sorted start
     "immutabledict",
     "parameterized",
     "pyink",
@@ -80,7 +69,6 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-xdist",
-    # go/keep-sorted end
 ]
 cc_logging = [
   "safari-sdk-logging",

@@ -21,6 +21,7 @@ import os
 from typing import Any, Type, TypeVar, cast
 
 from absl import logging
+import cv2
 import dm_env
 from dm_env import specs
 from gdm_robotics.interfaces import types as gdmr_types
@@ -181,7 +182,7 @@ def parse_examples_to_dm_env_types(
 ) -> tuple[
     list[dm_env.TimeStep],
     list[gdmr_types.ActionType],
-    list[Mapping[str, Any]],
+    list[Mapping[str, Any] | np.ndarray],
 ]:
   """Parses examples to dm env types."""
   timesteps = [
@@ -290,7 +291,7 @@ def _parse_policy_extra_from_example(
     policy_extra_example: example_pb2.Example,
     policy_extra_spec: gdmr_types.ExtraOutputSpec,
     policy_extra_key_prefix: str,
-) -> Mapping[str, Any]:
+) -> Mapping[str, Any] | np.ndarray:
   """Parses policy extra from an example."""
   policy_extra = {}
   # Filter for only the policy extra keys. We expect the example to contain
@@ -311,16 +312,112 @@ def _parse_policy_extra_from_example(
   )
 
 
+_JPEG_MAGIC = b"\xff\xd8\xff"
+_PNG_MAGIC = b"\x89PNG"
+
+
+def _maybe_decode_image(
+    value: list[bytes], key: str = "<unknown>"
+) -> np.ndarray | None:
+  """Decodes compressed image bytes (JPEG/PNG) to a numpy array.
+
+  This handles the case where the writer (C++ SerializeImageForTimestep)
+  JPEG-encodes images via cv::imencode and stores them as a single entry
+  in a BytesList. The encoded bytes need to be decoded back to a raw
+  pixel array.
+
+  IMPORTANT: This function relies on a structural invariant to distinguish
+  images from non-image uint8 data. Image features are stored as a BytesList
+  with exactly ONE entry containing the full compressed image. Non-image
+  uint8 features are stored as a BytesList with MULTIPLE single-byte entries
+  (one per element). See log_data_serializer_utils.cc:118-126.
+
+  NOTE: Decoded images are returned as uint8 arrays. For offline
+  replay/eval this memory cost is acceptable (e.g. 4 cameras x 200 steps
+  ~ 60-600 MB), but callers processing very large datasets should be
+  aware of this.
+
+  Args:
+    value: The raw value from _python_value_from_example_feature(). Expected to
+      be a list with a single bytes element for images.
+    key: The feature key name, used for error reporting.
+
+  Returns:
+    A numpy uint8 array if a compressed image is detected:
+      - RGB images: shape (H, W, 3)
+      - Grayscale images: shape (H, W, 1)
+    Returns None if the value is not a compressed image.
+
+  Raises:
+    ValueError: If the bytes have a valid image magic header but
+      cv2.imdecode fails to decode the data, or if the decoded image
+      has an unsupported dtype or channel count (e.g. alpha, 16-bit).
+  """
+  if not (
+      hasattr(value, "__len__")
+      and len(value) == 1
+      and isinstance(value[0], bytes)
+      and len(value[0]) > 4
+  ):
+    return None
+
+  raw = value[0]
+  if raw.startswith((_JPEG_MAGIC, _PNG_MAGIC)):
+    buf = np.frombuffer(raw, dtype=np.uint8)
+    # Decode with IMREAD_UNCHANGED to preserve the original channel count.
+    # The C++ writer supports both RGB (3-ch) and grayscale (1-ch) images
+    # (log_data_serializer_utils.cc:53-60).
+    decoded = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+    if decoded is None:
+      raise ValueError(
+          f'Failed to decode image bytes for key "{key}" '
+          f"(len={len(raw)}, magic={raw[:4].hex()})"
+      )
+    if decoded.dtype != np.uint8:
+      raise ValueError(
+          f'Decoded image for key "{key}" has dtype {decoded.dtype}, '
+          "expected uint8"
+      )
+    if decoded.ndim == 2:
+      # Grayscale: add trailing channel dim for consistent 3D rank.
+      return decoded[:, :, np.newaxis]
+    elif decoded.ndim == 3 and decoded.shape[2] == 3:
+      # BGR -> RGB to match the SDK's convention.
+      # The C++ writer encodes RGB->BGR->JPEG
+      # (log_data_serializer_utils.cc:74-81).
+      return cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+    elif decoded.ndim == 3 and decoded.shape[2] == 4:
+      raise ValueError(
+          f'Alpha-channel images are not supported for key "{key}"'
+      )
+    else:
+      raise ValueError(
+          f'Unexpected decoded image shape {decoded.shape} for key "{key}"'
+      )
+  return None
+
+
 def _parse_and_match_spec(
     values_spec: specs.Array | Mapping[str, specs.Array],
     prefix: str,
     values: Mapping[str, Any],
-):
+) -> np.ndarray | Mapping[str, Any]:
   """Parses and matches a value to a spec."""
   if len(values) == 1 and list(values.keys())[0] == prefix:
     spec = cast(specs.Array, values_spec)
-    # Handle strings.
     value = values[prefix]
+
+    # Handle compressed images (JPEG/PNG) before any other type checks.
+    decoded_image = _maybe_decode_image(value, key=prefix)
+    if decoded_image is not None:
+      if spec.shape and decoded_image.shape != tuple(spec.shape):
+        raise ValueError(
+            f"Decoded image shape {decoded_image.shape} does not match "
+            f'spec shape {tuple(spec.shape)} for key "{prefix}"'
+        )
+      return decoded_image
+
+    # Handle strings.
     if isinstance(spec, specs.StringArray):
       # We expect a single string inside the value but the parser returns a
       # list.
@@ -339,6 +436,17 @@ def _parse_and_match_spec(
   for key, value in values.items():
     stripped_key = key.removeprefix(f"{prefix}/")
     spec = cast(specs.Array, values_spec[stripped_key])
+
+    # Handle compressed images (JPEG/PNG) before any other type checks.
+    decoded_image = _maybe_decode_image(value, key=key)
+    if decoded_image is not None:
+      if spec.shape and decoded_image.shape != tuple(spec.shape):
+        raise ValueError(
+            f"Decoded image shape {decoded_image.shape} does not match "
+            f'spec shape {tuple(spec.shape)} for key "{key}"'
+        )
+      parsed_values[stripped_key] = decoded_image
+      continue
 
     dtype = spec.dtype
     if isinstance(spec, specs.StringArray):

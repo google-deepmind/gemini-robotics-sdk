@@ -306,7 +306,7 @@ class RendererTest(absltest.TestCase):
         thickness=thickness,
         icon_object=icon_object,
     )
-    self.assertEqual(ideal_x, 60)
+    self.assertEqual(ideal_x, 64)
     self.assertEqual(ideal_y, 55)
 
   def test_get_image_as_pil_image(self):
@@ -781,6 +781,95 @@ class RendererTest(absltest.TestCase):
 
     self.assertFalse(np.array_equal(initial_image, renderer._overlay_image_np))
     self.assertListEqual(renderer._overlay_image_np[0][0].tolist(), [0, 0, 0])
+
+  def test_adjust_overlay_scale_to_large_reference_image(self):
+    large_metadata = _work_unit.SceneReferenceImage(
+        artifactId='test_large',
+        renderedCanvasWidth=100,
+        renderedCanvasHeight=100,
+        sourceTopic='topic',
+        rawImageWidth=1500,
+        rawImageHeight=1000,
+    )
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=large_metadata
+    )
+    self.assertIsNotNone(renderer._custom_font_size)
+    self.assertIsNotNone(renderer._custom_thickness)
+
+  def test_update_image_unsupported_type(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    with self.assertRaises(ValueError):
+      renderer.render_overlay(new_image=12345)
+
+  def test_process_scene_object_bad_container(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    bad_object = _work_unit.SceneObject(
+        objectId='bad_container',
+        evaluationLocation=_work_unit.FixedLocation(
+            overlayIcon=_work_unit.OverlayObjectIcon.OVERLAY_OBJECT_ICON_CONTAINER,
+            containerArea=_work_unit.ContainerArea(),
+        ),
+        sceneReferenceImageArtifactId='test_artifact_id_1',
+    )
+    with self.assertRaises(ValueError):
+      renderer._process_scene_object(bad_object)
+
+  def test_process_scene_object_undefined_icon(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    bad_object = _work_unit.SceneObject(
+        objectId='bad_icon',
+        evaluationLocation=_work_unit.FixedLocation(
+            overlayIcon=-999,
+        ),
+        sceneReferenceImageArtifactId='test_artifact_id_1',
+    )
+    with self.assertRaises(ValueError):
+      renderer._process_scene_object(bad_object)
+
+  def test_find_ideal_text_position_all_arrow_angles_and_negative_container(
+      self,
+  ):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    for rad in [-0.2, 0.2, 2.5, -2.5, 1.0, -1.0]:
+      arrow = visual_overlay.visual_overlay_icon.DrawArrowIcon(
+          object_id='test',
+          overlay_text_label='txt',
+          rgb_hex_color_value='FF0000',
+          layer_order=1,
+          x=50,
+          y=50,
+          rad=rad,
+      )
+      renderer._find_ideal_text_position(
+          text='test',
+          font_scale=0.75,
+          thickness=2,
+          icon_object=arrow,
+          arrow_end_point=(10, 10),
+      )
+
+    container = visual_overlay.visual_overlay_icon.DrawContainer(
+        object_id='test',
+        overlay_text_label='txt',
+        rgb_hex_color_value='FF0000',
+        layer_order=1,
+        x=50,
+        y=50,
+        w=-10,
+        h=-10,
+    )
+    renderer._find_ideal_text_position(
+        text='test', font_scale=0.75, thickness=2, icon_object=container
+    )
 
 
 if __name__ == '__main__':

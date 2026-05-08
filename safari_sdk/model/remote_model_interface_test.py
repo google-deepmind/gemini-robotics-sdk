@@ -308,9 +308,16 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
 
     self.assertEqual(call_contents[-1], expected_serialized_contents[-1])
 
-  @mock.patch.object(genai_robotics, "_connect_to_grpc")
-  def test_local_connection_passes_serve_id_as_grpc_url(self, mock_connect):
-    mock_connect.return_value = mock.MagicMock()
+  @mock.patch.object(genai_robotics, "_check_server_compatibility")
+  @mock.patch.object(genai_robotics, "_connect_to_grpc_json")
+  @mock.patch.object(genai_robotics.grpc, "insecure_channel")
+  def test_local_connection_passes_serve_id_as_grpc_url(
+      self, mock_insecure_channel, mock_connect_json, mock_compat
+  ):
+    del mock_compat  # Not asserted; just prevents real server call.
+    mock_channel = mock.MagicMock()
+    mock_insecure_channel.return_value = mock_channel
+    mock_connect_json.return_value = mock.MagicMock()
     remote_model = remote_model_interface.RemoteModelInterface(
         serve_id="grpc://10.0.0.5:10100",
         robotics_api_connection=constants.RoboticsApiConnectionType.LOCAL,
@@ -320,7 +327,10 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
         image_compression_jpeg_quality=75,
     )
     self.assertIsNotNone(remote_model)
-    mock_connect.assert_called_once_with("grpc://10.0.0.5:10100")
+    mock_insecure_channel.assert_called_once_with("10.0.0.5:10100")
+    mock_connect_json.assert_called_once_with(
+        mock_channel, "sample_actions_json_flat"
+    )
 
 if __name__ == "__main__":
   absltest.main()

@@ -1,0 +1,9 @@
+# Requirements for Flywheel offline evaluation tool
+numpy
+matplotlib
+absl-py
+dm-env
+pillow
+mcap
+mcap-protobuf-support
+gdm-robotics

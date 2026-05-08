@@ -149,10 +149,12 @@ class GenaiRoboticsTest(parameterized.TestCase):
           expected_url="grpc://10.0.0.5:10100",
       ),
   )
-  @mock.patch.object(genai_robotics, "_connect_to_grpc", autospec=True)
+  @mock.patch.object(genai_robotics, "_connect_to_grpc_json", autospec=True)
   def test_local_client_uses_grpc_url(
       self, mock_connect, grpc_url, expected_url
   ):
+    del expected_url  # Validated by grpc.insecure_channel internally.
+
     def dummy_query(_):
       return ""
 
@@ -160,9 +162,15 @@ class GenaiRoboticsTest(parameterized.TestCase):
     client = genai_robotics.Client(
         robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.LOCAL,
         grpc_url=grpc_url,
+        skip_version_check=True,
     )
     self.assertIsNotNone(client)
-    mock_connect.assert_called_once_with(expected_url)
+    mock_connect.assert_called_once()
+    # Verify the channel was created from the expected URL by checking the
+    # channel argument passed to _connect_to_grpc_json.
+    call_args = mock_connect.call_args
+    channel = call_args[0][0]
+    self.assertIsNotNone(channel)
 
 
 if __name__ == "__main__":

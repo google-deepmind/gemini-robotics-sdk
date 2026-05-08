@@ -21,19 +21,25 @@ import logging
 import os
 import time
 from typing import Any, Callable, Optional, Union
+import warnings
 
 from google import genai
 from google.genai import types
 import grpc
 import numpy as np
+from packaging import version as packaging_version
 import tensorflow as tf
 
+from safari_sdk import _version as _sdk_version
 from safari_sdk import auth
 from safari_sdk.model import constants
 
 _CONNECTION = constants.RoboticsApiConnectionType
 _LOCAL_GRPC_URL = 'grpc://localhost:60061'
-_LOCAL_GRPC_METHOD_NAME = '/gemini_robotics/sample_actions_json_flat'
+_LOCAL_SERVICE_NAME = 'gemini_robotics'
+# Minimum server version this client requires. Bump when the client starts
+# relying on server-side features that older servers don't have.
+_MIN_SERVER_VERSION = '0.0.0'
 
 
 def update_robotics_content_to_genai_format(
@@ -137,6 +143,7 @@ class Client:
       image_compression_jpeg_quality: int = 95,
       num_retries: int = 1,
       grpc_url: str | None = None,
+      skip_version_check: bool = False,
       **kwargs,
   ):
     """Initializes the GenAI Robotics Client.
@@ -156,6 +163,9 @@ class Client:
       grpc_url: The gRPC URL to connect to when using `_CONNECTION.LOCAL`.
         If None, the default `_LOCAL_GRPC_URL` is used. Example:
         'grpc://10.0.0.5:10100'.
+      skip_version_check: If True, skip the server version check when using
+        `_CONNECTION.LOCAL`. Useful for benchmarking or when the server is
+        not yet running at client construction time.
       **kwargs: Additional keyword arguments to pass to the `genai.Client` when
         using `_CONNECTION.CLOUD_GENAI`.
     """
@@ -177,7 +187,10 @@ class Client:
           url = _LOCAL_GRPC_URL
         if not url.startswith('grpc://'):
           url = 'grpc://' + url
-        self._client = _connect_to_grpc(url)
+        channel = grpc.insecure_channel(url[7:])
+        if not skip_version_check:
+          _check_server_compatibility(channel, _sdk_version.__version__)
+        self._client = _connect_to_grpc_json(channel, method_name)
         self.models: Any = lambda: None
         self.models.generate_content = functools.partial(
             self._robotics_generate_content,
@@ -327,15 +340,23 @@ def _is_list_of_numbers(value):
   return True
 
 
-def _connect_to_grpc(base_url: str) -> Callable[[dict[str, Any]], str]:
-  """Connects to gRPC server."""
-  if not base_url.startswith('grpc://'):
-    raise ValueError(
-        f'Unsupported base_url: {base_url}. Only gRPC is supported (grpc://).'
-    )
-  grpc_channel = grpc.insecure_channel(base_url[7:])
-  grpc_stub = grpc_channel.unary_unary(
-      _LOCAL_GRPC_METHOD_NAME,
+def _connect_to_grpc_json(
+    channel: grpc.Channel,
+    method_name: str,
+) -> Callable[[dict[str, Any]], str]:
+  """Creates a JSON query function over an existing gRPC channel.
+
+  Args:
+    channel: An open gRPC channel.
+    method_name: The name of the method to call on the gRPC server.
+
+  Returns:
+    A callable that takes a query dict and returns the server's JSON response
+    as a string.
+  """
+  full_method_name = f'/{_LOCAL_SERVICE_NAME}/{method_name}'
+  grpc_stub = channel.unary_unary(
+      full_method_name,
       request_serializer=lambda v: v,
       response_deserializer=lambda v: v,
   )
@@ -345,3 +366,103 @@ def _connect_to_grpc(base_url: str) -> Callable[[dict[str, Any]], str]:
     return grpc_stub(encoded_query).decode('utf-8')
 
   return query
+
+
+def _version_lt(a: str, b: str) -> bool:
+  """Returns True if version string a is less than version string b.
+
+  Args:
+    a: First version string (e.g. '2.103.0').
+    b: Second version string (e.g. '2.122.0').
+
+  Returns:
+    True if a < b per PEP 440 semantics. Returns False if either
+    string is not a valid version.
+  """
+  try:
+    return packaging_version.Version(a) < packaging_version.Version(b)
+  except packaging_version.InvalidVersion:
+    return False
+
+
+def _check_server_compatibility(
+    channel: grpc.Channel,
+    client_version: str,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+  """Queries get_server_info for version negotiation.
+
+  Handles three cases:
+  1. Server supports get_server_info -> returns server info dict.
+  2. Server doesn't implement it (UNIMPLEMENTED) -> warns, returns
+     JSON fallback.
+  3. Server unreachable (UNAVAILABLE/DEADLINE_EXCEEDED) -> warns,
+     returns JSON.
+
+  Args:
+    channel: An open gRPC channel to the server.
+    client_version: The client SDK version string.
+    timeout: Seconds to wait for the server response.
+
+  Returns:
+    A dict with at least 'supported_protocols' and 'server_version' keys.
+
+  Raises:
+    RuntimeError: If the client version is below the server's
+      min_client_version.
+  """
+  try:
+    stub = channel.unary_unary(
+        '/gemini_robotics/get_server_info',
+        request_serializer=lambda v: v,
+        response_deserializer=lambda v: v,
+    )
+    response = stub(b'', timeout=timeout)
+    server_info = json.loads(response.decode('utf-8'))
+
+    min_client = server_info.get('min_client_version', '0.0.0')
+    if _version_lt(client_version, min_client):
+      raise RuntimeError(
+          f'Safari SDK {client_version} is too old for this server '
+          f'(requires >= {min_client}). '
+          f'Upgrade: pip install --upgrade google-genai>={min_client}'
+      )
+
+    server_ver = server_info.get('server_version', 'unknown')
+    if server_ver != 'unknown' and _version_lt(server_ver, _MIN_SERVER_VERSION):
+      warnings.warn(
+          f'Server version {server_ver} is older than the minimum '
+          f'this client supports ({_MIN_SERVER_VERSION}). '
+          'Some features may not work correctly.',
+          stacklevel=2,
+      )
+    return server_info
+
+  except json.JSONDecodeError:
+    warnings.warn(
+        'Server returned invalid JSON from get_server_info. '
+        'Proceeding with JSON protocol.',
+        stacklevel=2,
+    )
+    return {'supported_protocols': ['json'], 'server_version': 'unknown'}
+
+  except grpc.RpcError as e:
+    status = e.code()  # pytype: disable=attribute-error
+    if status == grpc.StatusCode.UNIMPLEMENTED:
+      warnings.warn(
+          'Server does not support get_server_info. '
+          'Assuming legacy JSON protocol.',
+          stacklevel=2,
+      )
+    elif status in (
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+    ):
+      warnings.warn(
+          f'Server version check failed ({status.name}). '
+          'Proceeding with JSON protocol.',
+          stacklevel=2,
+      )
+    else:
+      raise
+    return {'supported_protocols': ['json'], 'server_version': 'unknown'}

@@ -40,6 +40,9 @@ _ERROR_UNDEFINED_OBJECT_TYPE = "OrchestratorRenderer: Undefined object type:"
 
 _DEFAULT_FONT_SCALE = 0.75
 _DEFAULT_THICKNESS = 2
+_DEFAULT_MARKER_SIZE = 15
+_DEFAULT_ARROW_LENGTH_SCALE_FACTOR = 1.0
+_DEFAULT_DOT_SIZE = 6
 
 
 class ImageFormat(enum.Enum):
@@ -93,6 +96,10 @@ class OrchestratorRenderer:
 
     self._custom_thickness = None
     self._custom_font_size = None
+    self._custom_marker_size = None
+    self._custom_dot_size = None
+    self._custom_arrow_length_scale_factor = None
+    self._adjust_overlay_scale_to_reference_image_size()
 
   def _compute_image_conversion_ratio(
       self, initial_size: int, desired_size: int
@@ -129,6 +136,30 @@ class OrchestratorRenderer:
     """Sets the custom font size for all overlay objects."""
     self._custom_font_size = font_size
     return _RESPONSE(success=True)
+
+  def _adjust_overlay_scale_to_reference_image_size(self) -> None:
+    """Sets whether to auto scale the overlay to the reference image size."""
+    pixel_size = self._overlay_x_size * self._overlay_y_size
+    scale_factor = pixel_size / 1000000.0  # Scaling by megapixels.
+
+    if scale_factor <= 1.0:
+      # No scaling needed.
+      return None
+
+    scale_factor -= 1.0  # Remove the baseline scaling factor.
+    custom_font_size = _DEFAULT_FONT_SCALE + (scale_factor * 0.15)
+    custom_thickness = _DEFAULT_THICKNESS + int(scale_factor * 0.5)
+
+    self._custom_arrow_length_scale_factor = (
+        _DEFAULT_ARROW_LENGTH_SCALE_FACTOR + int(scale_factor * 0.2)
+    )
+    self._custom_marker_size = _DEFAULT_MARKER_SIZE + int(scale_factor * 1.25)
+    self._custom_dot_size = self._custom_marker_size - 9
+
+    self.set_custom_font_size(font_size=custom_font_size)
+    self.set_custom_thickness(thickness=custom_thickness)
+
+    return None
 
   def get_image_as_pil_image(self) -> _RESPONSE:
     """Returns the overlay image as a PIL image."""
@@ -206,11 +237,14 @@ class OrchestratorRenderer:
 
     ideal_x = x + x_offset
     ideal_y = y + y_offset
-    is_overrun_x = ideal_x + text_width > image_width
+    is_overrun_x_left = ideal_x <= 5
+    is_overrun_x_right = ideal_x + text_width > image_width
     is_overrun_y_top = ideal_y - text_height <= 5
     is_overrun_y_bottom = ideal_y > image_height
 
-    if is_overrun_x:
+    if is_overrun_x_left and not is_overrun_x_right:
+      ideal_x = 5
+    elif is_overrun_x_right and not is_overrun_x_left:
       ideal_x = image_width - text_width - 5
 
     if is_overrun_y_top and not is_overrun_y_bottom:
@@ -233,6 +267,7 @@ class OrchestratorRenderer:
           | visual_overlay_icon.DrawContainer
       ),
       radius: int | None = None,
+      arrow_end_point: tuple[int, int] | None = None,
   ) -> tuple[int, int]:
     """Finds the ideal position for the text to be drawn."""
     # Find the size of text box.
@@ -247,10 +282,14 @@ class OrchestratorRenderer:
 
     match obj_type:
       case visual_overlay_icon.DrawCircleIcon:
+        if self._custom_dot_size:
+          x_shift = self._custom_dot_size + 2
+        else:
+          x_shift = 14
         return self._generate_xy_position_with_no_overruns(
             x=icon_object.x,
             y=icon_object.y,
-            x_offset=10,
+            x_offset=x_shift,
             y_offset=5,
             image_width=image_width,
             image_height=image_height,
@@ -259,11 +298,36 @@ class OrchestratorRenderer:
             text_baseline=text_baseline,
         )
       case visual_overlay_icon.DrawArrowIcon:
+        assert isinstance(icon_object, visual_overlay_icon.DrawArrowIcon)
+        assert arrow_end_point is not None
+        end_x, end_y = arrow_end_point
+        angle = icon_object.rad if icon_object.rad else 0.0
+        angle = math.atan2(math.sin(angle), math.cos(angle))
+
+        if angle <= 0 and angle >= -0.436332:
+          x_shift = 10
+          y_shift = -text_baseline  # text_baseline + 10
+        elif angle >= 0 and angle <= 0.436332:
+          x_shift = 10
+          y_shift = text_height + text_baseline
+        elif angle <= math.pi and angle >= math.pi - 0.436332:
+          x_shift = -text_width - 10
+          y_shift = text_height + text_baseline
+        elif angle >= -math.pi and angle <= -math.pi + 0.436332:
+          x_shift = -text_width - 10
+          y_shift = -text_baseline
+        elif angle > 0:
+          x_shift = int(-text_width / 2)
+          y_shift = text_height + text_baseline
+        else:
+          x_shift = int(-text_width / 2)
+          y_shift = -(text_baseline * 2)
+
         return self._generate_xy_position_with_no_overruns(
-            x=icon_object.x,
-            y=icon_object.y,
-            x_offset=10,
-            y_offset=10,
+            x=end_x,
+            y=end_y,
+            x_offset=x_shift,
+            y_offset=y_shift,
             image_width=image_width,
             image_height=image_height,
             text_width=text_width,
@@ -274,7 +338,7 @@ class OrchestratorRenderer:
         return self._generate_xy_position_with_no_overruns(
             x=icon_object.x,
             y=icon_object.y,
-            x_offset=10,
+            x_offset=self._custom_marker_size or 10,
             y_offset=5,
             image_width=image_width,
             image_height=image_height,
@@ -286,7 +350,7 @@ class OrchestratorRenderer:
         return self._generate_xy_position_with_no_overruns(
             x=icon_object.x,
             y=icon_object.y,
-            x_offset=10,
+            x_offset=self._custom_marker_size or 10,
             y_offset=5,
             image_width=image_width,
             image_height=image_height,
@@ -309,7 +373,7 @@ class OrchestratorRenderer:
               x=upper_left_x,
               y=upper_left_y,
               x_offset=0,
-              y_offset=-8,
+              y_offset=-12,
               image_width=image_width,
               image_height=image_height,
               text_width=text_width,
@@ -322,7 +386,7 @@ class OrchestratorRenderer:
               x=icon_object.x,
               y=icon_object.y,
               x_offset=0,
-              y_offset=radius + 10,
+              y_offset=radius + 12,
               image_width=image_width,
               image_height=image_height,
               text_width=text_width,
@@ -346,9 +410,10 @@ class OrchestratorRenderer:
           self._draw_overlay_circle(
               x=obj.x,
               y=obj.y,
-              radius=4,
+              radius=self._custom_dot_size or _DEFAULT_DOT_SIZE,
               color=self._convert_color_to_tuple(obj.rgb_hex_color_value),
-              thickness=self._custom_thickness or -1,
+              # thickness=self._custom_thickness or -1,
+              thickness=-1,
           )
           text_x, text_y = self._find_ideal_text_position(
               text=obj.overlay_text_label,
@@ -366,18 +431,20 @@ class OrchestratorRenderer:
           )
         case visual_overlay_icon.DrawArrowIcon:
           assert isinstance(obj, visual_overlay_icon.DrawArrowIcon)
-          self._draw_overlay_arrow(
+          arrow_end_x, arrow_end_y = self._draw_overlay_arrow(
               x=obj.x,
               y=obj.y,
               angle=obj.rad if obj.rad else 0.0,
               color=self._convert_color_to_tuple(obj.rgb_hex_color_value),
               thickness=self._custom_thickness or 4,
           )
+
           text_x, text_y = self._find_ideal_text_position(
               text=obj.overlay_text_label,
               font_scale=self._custom_font_size or _DEFAULT_FONT_SCALE,
               thickness=self._custom_thickness or _DEFAULT_THICKNESS,
               icon_object=obj,
+              arrow_end_point=(arrow_end_x, arrow_end_y),
           )
           # Need to dynamically set XY position based on angle...
           self._write_text(
@@ -393,6 +460,7 @@ class OrchestratorRenderer:
               x=obj.x,
               y=obj.y,
               color=self._convert_color_to_tuple(obj.rgb_hex_color_value),
+              marker_size=self._custom_marker_size or _DEFAULT_MARKER_SIZE,
               thickness=self._custom_thickness or _DEFAULT_THICKNESS,
           )
           text_x, text_y = self._find_ideal_text_position(
@@ -414,6 +482,7 @@ class OrchestratorRenderer:
               x=obj.x,
               y=obj.y,
               color=self._convert_color_to_tuple(obj.rgb_hex_color_value),
+              marker_size=self._custom_marker_size or _DEFAULT_MARKER_SIZE,
               thickness=self._custom_thickness or _DEFAULT_THICKNESS,
           )
           text_x, text_y = self._find_ideal_text_position(
@@ -522,11 +591,15 @@ class OrchestratorRenderer:
       angle: float,
       color: tuple[int, int, int] = (255, 0, 0),
       thickness: int = 4,
-  ) -> None:
+  ) -> tuple[int, int]:
     """Draw arrow."""
+    arrow_length_scale_factor = (
+        self._custom_arrow_length_scale_factor
+        or _DEFAULT_ARROW_LENGTH_SCALE_FACTOR
+    )
     arrow_end = (
-        int(x + 50.0 * (math.cos(angle))),
-        int(y + 50.0 * (math.sin(angle))),
+        int(x + (50.0 * arrow_length_scale_factor) * (math.cos(angle))),
+        int(y + (50.0 * arrow_length_scale_factor) * (math.sin(angle))),
     )
     self._overlay_image_np = cv2.arrowedLine(
         img=self._overlay_image_np,
@@ -537,6 +610,7 @@ class OrchestratorRenderer:
         tipLength=0.5,
     )
     self._overlay_image = Image.fromarray(self._overlay_image_np)
+    return arrow_end
 
   def _draw_overlay_circle(
       self,
@@ -580,6 +654,7 @@ class OrchestratorRenderer:
       x: int,
       y: int,
       color: tuple[int, int, int] = (255, 0, 0),
+      marker_size: int = _DEFAULT_MARKER_SIZE,
       thickness: int = _DEFAULT_THICKNESS,
   ) -> None:
     """Draw triangle."""
@@ -588,6 +663,7 @@ class OrchestratorRenderer:
         y=y,
         icon_type=cv2.MARKER_TRIANGLE_UP,
         color=color,
+        marker_size=marker_size,
         thickness=thickness,
     )
 
@@ -596,6 +672,7 @@ class OrchestratorRenderer:
       x: int,
       y: int,
       color: tuple[int, int, int] = (255, 0, 0),
+      marker_size: int = _DEFAULT_MARKER_SIZE,
       thickness: int = _DEFAULT_THICKNESS,
   ) -> None:
     """Draw square."""
@@ -604,6 +681,7 @@ class OrchestratorRenderer:
         y=y,
         icon_type=cv2.MARKER_SQUARE,
         color=color,
+        marker_size=marker_size,
         thickness=thickness,
     )
 
@@ -613,6 +691,7 @@ class OrchestratorRenderer:
       y: int,
       icon_type: int,
       color: tuple[int, int, int] = (255, 0, 0),
+      marker_size: int = _DEFAULT_MARKER_SIZE,
       thickness: int = _DEFAULT_THICKNESS,
   ) -> None:
     """Draw requested native CV2 icons."""
@@ -621,7 +700,7 @@ class OrchestratorRenderer:
         position=(x, y),
         color=color,
         markerType=icon_type,
-        markerSize=15,
+        markerSize=marker_size,
         thickness=thickness,
     )
     self._overlay_image = Image.fromarray(self._overlay_image_np)
@@ -636,6 +715,20 @@ class OrchestratorRenderer:
       thickness: int = _DEFAULT_THICKNESS,
   ) -> None:
     """Draw text into image via CV2."""
+    (text_width, text_height), text_baseline = cv2.getTextSize(
+        text=display_text,
+        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+        fontScale=font_scale,
+        thickness=thickness,
+    )
+    black_background_color = (0, 0, 0)
+    self._overlay_image_np = cv2.rectangle(
+        img=self._overlay_image_np,
+        pt1=(x - 2, y - text_height - 2),
+        pt2=(x + text_width + 2, y + text_baseline + 2),
+        color=black_background_color,
+        thickness=-1,
+    )
     self._overlay_image_np = cv2.putText(
         img=self._overlay_image_np,
         text=display_text,

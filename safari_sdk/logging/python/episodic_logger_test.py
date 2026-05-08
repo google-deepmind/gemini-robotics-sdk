@@ -21,6 +21,7 @@ import shutil
 from typing import Any, cast
 from unittest import mock
 
+import cv2
 import dm_env
 from dm_env import specs
 from gdm_robotics.interfaces import types as gdmr_types
@@ -3274,6 +3275,224 @@ class EpisodicLoggerTest(parameterized.TestCase):
     for ts in timesteps:
       self.assertEqual(ts.reward.dtype, np.float64)
       self.assertEqual(ts.discount.dtype, np.float64)
+
+  def _get_test_jpeg_bytes(self, image_rgb: np.ndarray) -> bytes:
+    """Encodes an RGB numpy array to JPEG bytes."""
+    # Encode to JPEG (mimicking the C++ writer: RGB->BGR->imencode).
+    test_image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+    _, jpeg_buf = cv2.imencode(".jpg", test_image_bgr)
+    return jpeg_buf.tobytes()
+
+  def test_maybe_decode_image_jpeg_decodes_successfully(self):
+    test_image_rgb = np.full((48, 64, 3), [255, 0, 0], dtype=np.uint8)
+    jpeg_bytes = self._get_test_jpeg_bytes(test_image_rgb)
+    result = mcap_parser_utils._maybe_decode_image([jpeg_bytes])
+    self.assertIsNotNone(result)
+
+  def test_maybe_decode_image_jpeg_correct_metadata(self):
+    test_image_rgb = np.full((48, 64, 3), [255, 0, 0], dtype=np.uint8)
+    jpeg_bytes = self._get_test_jpeg_bytes(test_image_rgb)
+    result = mcap_parser_utils._maybe_decode_image([jpeg_bytes])
+    assert result is not None
+    self.assertEqual(result.dtype, np.uint8)
+    self.assertEqual(result.shape, (48, 64, 3))
+
+  def test_maybe_decode_image_jpeg_correct_pixel_values(self):
+    test_image_rgb = np.full((48, 64, 3), [255, 0, 0], dtype=np.uint8)
+    jpeg_bytes = self._get_test_jpeg_bytes(test_image_rgb)
+    result = mcap_parser_utils._maybe_decode_image([jpeg_bytes])
+    assert result is not None
+    # Solid color survives JPEG compression well — tight tolerance.
+    np.testing.assert_allclose(result[24, 32, :], [255, 0, 0], atol=5)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="non_image_bytes",
+          data=[b"\x00\x01\x02\x03"],
+      ),
+      dict(
+          testcase_name="multi_entry_byteslist",
+          # This is how non-image uint8 data is serialized — one byte per entry.
+          data=[b"\xff", b"\xd8", b"\xff"],
+      ),
+      dict(
+          testcase_name="numeric_list",
+          data=[1.0, 2.0, 3.0],
+      ),
+  )
+  def test_maybe_decode_image_returns_none(self, data):
+    result = mcap_parser_utils._maybe_decode_image(data)
+    self.assertIsNone(result)
+
+  def test_maybe_decode_image_grayscale_jpeg(self):
+    # Create a known grayscale test image.
+    test_image_gray = np.full((48, 64), 128, dtype=np.uint8)
+
+    # Encode to JPEG (grayscale — no color conversion needed, matching C++
+    # writer behavior for 1-channel images).
+    _, jpeg_buf = cv2.imencode(".jpg", test_image_gray)
+    jpeg_bytes = jpeg_buf.tobytes()
+
+    result = mcap_parser_utils._maybe_decode_image([jpeg_bytes])
+
+    assert result is not None
+    self.assertEqual(result.dtype, np.uint8)
+    self.assertEqual(result.shape, (48, 64, 1))
+    # Solid grayscale survives JPEG compression well.
+    np.testing.assert_allclose(result[24, 32, 0], 128, atol=5)
+
+  def test_maybe_decode_image_rgba_png_rejected(self):
+    # Create a 4-channel RGBA image.
+    test_image_rgba = np.full((16, 16, 4), 128, dtype=np.uint8)
+    _, png_buf = cv2.imencode(".png", test_image_rgba)
+    png_bytes = png_buf.tobytes()
+
+    with self.assertRaisesRegex(ValueError, "Alpha-channel images"):
+      mcap_parser_utils._maybe_decode_image([png_bytes])
+
+  def test_maybe_decode_image_16bit_png_rejected(self):
+    # Create a 16-bit grayscale image.
+    test_image_16bit = np.full((16, 16), 1000, dtype=np.uint16)
+    _, png_buf = cv2.imencode(".png", test_image_16bit)
+    png_bytes = png_buf.tobytes()
+
+    with self.assertRaisesRegex(ValueError, "expected uint8"):
+      mcap_parser_utils._maybe_decode_image([png_bytes])
+
+  def test_parse_and_match_spec_single_image_value(self):
+    """Test _parse_and_match_spec single-value branch with JPEG image."""
+    # Create a JPEG-encoded image (mimicking C++ writer output).
+    test_image_rgb = np.full((48, 64, 3), [0, 255, 0], dtype=np.uint8)
+    test_image_bgr = cv2.cvtColor(test_image_rgb, cv2.COLOR_RGB2BGR)
+    _, jpeg_buf = cv2.imencode(".jpg", test_image_bgr)
+    jpeg_bytes = jpeg_buf.tobytes()
+
+    spec = specs.Array(shape=(48, 64, 3), dtype=np.uint8)
+    # Single-value branch: one key matching the prefix exactly.
+    result = mcap_parser_utils._parse_and_match_spec(
+        spec, "cam", {"cam": [jpeg_bytes]}
+    )
+
+    assert isinstance(result, np.ndarray)
+    self.assertEqual(result.dtype, np.uint8)
+    self.assertEqual(result.shape, (48, 64, 3))
+    np.testing.assert_allclose(result[24, 32, :], [0, 255, 0], atol=5)
+
+  def test_data_with_image_observations_round_trip(self):
+    """Test full write-read JPEG round-trip with image observations."""
+
+    image_height, image_width = 48, 64
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward=specs.Array(shape=(), dtype=np.float32),
+        discount=specs.Array(shape=(), dtype=np.float32),
+        observation={
+            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "cam": specs.Array(
+                shape=(image_height, image_width, 3), dtype=np.uint8
+            ),
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+        },
+    )
+    action_spec = specs.BoundedArray(
+        shape=(5,),
+        dtype=np.float32,
+        minimum=np.array([-1.0, -2.0, -1.0, -2.0, 0.0], dtype=np.float32),
+        maximum=np.array([1.0, 1.0, 2.0, 3.0, 1.0], dtype=np.float32),
+    )
+
+    logger = episodic_logger.EpisodicLogger.create(
+        episodic_logger.EpisodicLoggerConfig(
+            agent_id=_TEST_AGENT_ID,
+            task_id=_TEST_TASK_ID,
+            proprioceptive_observation_keys=[_TEST_PROPRIO_KEY],
+            output_directory=self._episode_path.full_path,
+            action_spec=action_spec,
+            timestep_spec=timestep_spec,
+            image_observation_keys=["cam"],
+            policy_extra_spec={},
+        )
+    )
+
+    # Use a solid blue image — survives JPEG compression cleanly.
+    test_image = np.full(
+        (image_height, image_width, 3), [0, 0, 255], dtype=np.uint8
+    )
+    expected_images = []
+
+    # Build timesteps manually (can't use _generate_timestep for images).
+    def _make_timestep(step_type):
+      return dm_env.TimeStep(
+          step_type=np.asarray(step_type, dtype=np.uint8),
+          reward=specs_utils.valid_value_for_spec(timestep_spec.reward),
+          discount=specs_utils.valid_value_for_spec(timestep_spec.discount),
+          observation={
+              "instruction": "test_instruction",
+              "cam": test_image.copy(),
+              _TEST_PROPRIO_KEY: specs_utils.valid_value_for_spec(
+                  timestep_spec.observation[_TEST_PROPRIO_KEY]
+              ),
+          },
+      )
+
+    initial_timestep = _make_timestep(dm_env.StepType.FIRST)
+    expected_images.append(test_image.copy())
+    logger.reset(initial_timestep)
+
+    for _ in range(_DEFAULT_NUMBER_STEPS):
+      next_timestep = _make_timestep(dm_env.StepType.MID)
+      expected_images.append(test_image.copy())
+      action = specs_utils.valid_value_for_spec(action_spec)
+      logger.record_action_and_next_timestep(
+          action=action, next_timestep=next_timestep, policy_extra={}
+      )
+
+    last_timestep = _make_timestep(dm_env.StepType.LAST)
+    expected_images.append(test_image.copy())
+    action = specs_utils.valid_value_for_spec(action_spec)
+    logger.record_action_and_next_timestep(
+        action=action, next_timestep=last_timestep, policy_extra={}
+    )
+    logger.write()
+    logger.stop()
+
+    # Read back via mcap_parser_utils.
+    mcap_proto_data = mcap_parser_utils.read_proto_data(
+        self._episode_path.full_path,
+        constants.TIMESTEP_TOPIC_NAME,
+        constants.ACTION_TOPIC_NAME,
+        constants.POLICY_EXTRA_TOPIC_NAME,
+    )
+
+    timesteps, _, _ = mcap_parser_utils.parse_examples_to_dm_env_types(
+        timestep_spec,
+        action_spec,
+        {},
+        mcap_proto_data.timesteps,
+        mcap_proto_data.actions,
+        mcap_proto_data.policy_extra,
+        constants.STEP_TYPE_KEY,
+        constants.OBSERVATION_KEY_PREFIX,
+        constants.REWARD_KEY,
+        constants.DISCOUNT_KEY,
+        constants.ACTION_KEY_PREFIX,
+        constants.POLICY_EXTRA_PREFIX,
+    )
+
+    # Validate decoded image observations.
+    self.assertLen(timesteps, len(expected_images))
+    for idx, ts in enumerate(timesteps):
+      with self.subTest(timestep=idx):
+        cam_obs = ts.observation["cam"]
+        self.assertEqual(cam_obs.dtype, np.uint8)
+        self.assertEqual(cam_obs.shape, (image_height, image_width, 3))
+        # JPEG is lossy — solid colors compress well, use atol=10.
+        np.testing.assert_allclose(
+            cam_obs,
+            expected_images[idx],
+            atol=10,
+            err_msg=f"Image mismatch at timestep {idx}",
+        )
 
 
 class EpisodicLoggerConfigSanitizationTest(parameterized.TestCase):
