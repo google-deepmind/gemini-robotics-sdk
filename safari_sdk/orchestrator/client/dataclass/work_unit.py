@@ -54,6 +54,7 @@ class WorkUnitOutcome(enum.Enum):
 
 
 class KvMsgValueType(enum.Enum):
+  """Enum for the type of value in a KvMsg."""
   KV_MSG_VALUE_TYPE_UNSPECIFIED = "KV_MSG_VALUE_TYPE_UNSPECIFIED"
   KV_MSG_VALUE_TYPE_STRING = "KV_MSG_VALUE_TYPE_STRING"
   KV_MSG_VALUE_TYPE_STRING_LIST = "KV_MSG_VALUE_TYPE_STRING_LIST"
@@ -64,6 +65,29 @@ class KvMsgValueType(enum.Enum):
   KV_MSG_VALUE_TYPE_BOOL = "KV_MSG_VALUE_TYPE_BOOL"
   KV_MSG_VALUE_TYPE_BOOL_LIST = "KV_MSG_VALUE_TYPE_BOOL_LIST"
   KV_MSG_VALUE_TYPE_JSON = "KV_MSG_VALUE_TYPE_JSON"
+
+  def num_value(self) -> int:
+    match self:
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_STRING:
+        return 1
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_STRING_LIST:
+        return 2
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_INT:
+        return 3
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_INT_LIST:
+        return 4
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT:
+        return 5
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT_LIST:
+        return 6
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL:
+        return 7
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL_LIST:
+        return 8
+      case KvMsgValueType.KV_MSG_VALUE_TYPE_JSON:
+        return 9
+      case _:
+        return 0
 
 
 class OverlayObjectIcon(enum.Enum):

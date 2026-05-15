@@ -41,7 +41,7 @@ _TASK_INSTRUCTION = flags.DEFINE_string(
 _ROBOT_TYPE = flags.DEFINE_enum(
     "robot_type",
     "aloha",
-    ["aloha", "trossen", "franka_duo", "atari"],
+    ["aloha", "trossen", "franka_duo"],
     "The robot type to use.",
 )
 
@@ -68,33 +68,18 @@ _FRANKA_DUO_JOINTS = {
     "primitive_grasp_right_hand": 1,
 }
 
-_ATARI_STEREOLAB_HEADCAM_IMAGE_SIZE = (1200, 1920)
-_ATARI_WRISTCAM_IMAGE_SIZE = (480, 640)
-_ATARI_CAMERAS = {
-    "stereolab_headcam0": _ATARI_STEREOLAB_HEADCAM_IMAGE_SIZE,
-    "left_wrist_cam": _ATARI_WRISTCAM_IMAGE_SIZE,
-    "right_wrist_cam": _ATARI_WRISTCAM_IMAGE_SIZE,
-}
-_ATARI_JOINTS = {
-    "left_arm_joint_pos": 7,
-    "right_arm_joint_pos": 7,
-    "left_hand_command": 6,
-    "right_hand_command": 6,
-    "neck_joint_pos": 3,
-    "torso_joint_pos": 3,
-}
 
 _CAMERAS = {
     "aloha": _ALOHA_CAMERAS,
     "trossen": _ALOHA_CAMERAS,
     "franka_duo": _FRANKA_DUO_CAMERAS,
-    "atari": _ATARI_CAMERAS,
+
 }
 _JOINTS = {
     "aloha": _ALOHA_JOINTS,
     "trossen": _ALOHA_JOINTS,
     "franka_duo": _FRANKA_DUO_JOINTS,
-    "atari": _ATARI_JOINTS,
+
 }
 
 _TASK_INSTRUCTION_KEY = "instruction"

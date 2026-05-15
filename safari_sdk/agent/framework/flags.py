@@ -823,3 +823,9 @@ AGENTIC_LOGGING_AGENT_SESSION_ID = flags.DEFINE_string(
     "The agent session ID to use when starting the event bus. If not set, a"
     " random UUID will be generated.",
 )
+AGENTIC_LOGGING_TAGS = flags.DEFINE_multi_string(
+    "logging.tags",
+    None,
+    "The tags to associate with the logging session. Can be specified multiple"
+    " times to set multiple tags.",
+)

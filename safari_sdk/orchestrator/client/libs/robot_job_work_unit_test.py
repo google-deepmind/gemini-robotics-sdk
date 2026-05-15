@@ -864,6 +864,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
             ),
         ],
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertTrue(response.success)
     self.assertEqual(response.robot_id, "test_robot_id")
@@ -871,6 +872,59 @@ class RobotJobWorkUnitTest(absltest.TestCase):
     self.assertEqual(response.work_unit_id, "test_work_unit_id")
     self.assertIsInstance(
         response.work_unit, robot_job_work_unit.work_unit.WorkUnit
+    )
+
+  def test_complete_work_unit_with_client_overrides(self):
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().completeWorkUnit().execute.return_value = ""
+    work_unit_lib = robot_job_work_unit.OrchestratorRobotJobWorkUnit(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    work_unit_lib.set_robot_job_info(
+        robot_job_id="test_robot_job_id", launch_command="test_launch_command"
+    )
+    work_unit_lib._current_work_unit = robot_job_work_unit.work_unit.WorkUnit(
+        robotJobId="test_robot_job_id",
+        workUnitId="test_work_unit_id",
+        context=robot_job_work_unit.work_unit.WorkUnitContext(),
+        stage=robot_job_work_unit.work_unit.WorkUnitStage.WORK_UNIT_STAGE_ROBOT_EXECUTION,
+    )
+    work_unit_lib._work_unit_in_execution_stage = True
+
+    response = work_unit_lib.complete_work_unit(
+        outcome=robot_job_work_unit.work_unit.WorkUnitOutcome.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=0.5,
+        success_score_definition="test_success_score_definition",
+        note="Work Unit completed.",
+        session_start_time_ns=1764547200000000001,
+        session_end_time_ns=1764547210000000002,
+        session_log_type="test_session_log_type",
+        session_note="test_session_note",
+        response_to_questions=[],
+        request_retry_bypass=False,
+        client_overrides=[
+            robot_job_work_unit.work_unit.KvMsg(
+                key="test_override_key",
+                type=robot_job_work_unit.work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING,
+                value=robot_job_work_unit.work_unit.KvMsgValue(
+                    stringValue="test_override_value"
+                ),
+            )
+        ],
+    )
+    self.assertTrue(response.success)
+
+    calls = mock_connection.orchestrator().completeWorkUnit.call_args_list
+    body_kwargs = [c.kwargs["body"] for c in calls if "body" in c.kwargs]
+    self.assertLen(body_kwargs, 1)
+
+    client_overrides = body_kwargs[0]["client_overrides"]
+    self.assertLen(client_overrides, 1)
+    self.assertEqual(client_overrides[0]["key"], "test_override_key")
+    self.assertEqual(client_overrides[0]["type"], 1)
+    self.assertEqual(
+        client_overrides[0]["value"]["string_value"], "test_override_value"
     )
 
   def test_complete_work_unit_missing_session_start_time_ns(self):
@@ -895,6 +949,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_note=None,
         response_to_questions=None,
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -924,6 +979,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_note=None,
         response_to_questions=None,
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -953,6 +1009,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_note=None,
         response_to_questions=None,
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -982,6 +1039,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_note="test_session_note",
         response_to_questions=None,
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -1011,6 +1069,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         session_note="test_session_note",
         response_to_questions=None,
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertFalse(response.success)
     self.assertIn(
@@ -1103,6 +1162,7 @@ class RobotJobWorkUnitTest(absltest.TestCase):
             ),
         ],
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertFalse(response.success)
     self.assertIn(

@@ -27,6 +27,7 @@ import pytz
 from google.protobuf import struct_pb2
 from safari_sdk.agent.framework import config as framework_config
 from safari_sdk.agent.framework import types
+from safari_sdk.logging.python import session_metadata as session_metadata_lib
 from safari_sdk.logging.python import stream_logger as stream_logger_lib
 from safari_sdk.protos import label_pb2
 
@@ -68,12 +69,19 @@ class EventBus:
       self._has_debug_event_been_published = False
       self._logger_start_nsec: int | None = None
       self._logger_end_nsec: int | None = None
+      session_metadata_config = None
+      if self._config.logging_tags:
+        session_metadata_config = session_metadata_lib.SessionMetadataConfig(
+            fixed_tags=self._config.logging_tags
+        )
+
       self._stream_logger: stream_logger_lib.StreamLogger = (
           stream_logger_lib.StreamLogger(
               agent_id=self._robot_id,
               output_directory=self._logging_output_directory,
               required_topics=[],
               optional_topics=[_LOGGING_TOPIC_ROBOT_AGENT_EVENTS],
+              session_metadata_config=session_metadata_config,
           )
       )
 
@@ -153,7 +161,6 @@ class EventBus:
 
   def _log_to_session_stream(self, event: types.Event):
     """Log the event as part of the event stream."""
-    # LINT.IfChange
     message = struct_pb2.Struct()
     message.fields["event_type"].string_value = event.type.value
     message.fields["event_source"].string_value = event.source.value
@@ -185,7 +192,6 @@ class EventBus:
         message=message,
         publish_time_nsec=int(publish_time_nsec.timestamp() * 1e9),
     )
-    # LINT.ThenChange(//depot/google3/robotics/logging/data_genie/enhancer_server/handlers/ssot_video_builder/ssot_agent_video_helpers.py)
 
   async def publish(self, event: types.Event):
     """Publish an event to the event bus."""

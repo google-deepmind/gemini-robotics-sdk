@@ -29,6 +29,9 @@ WORK_UNIT_OUTCOME = work_unit.WorkUnitOutcome
 WORK_UNIT_QUESTION = work_unit.Question
 QUESTION_CONDITION = work_unit.QuestionCondition
 QUESTION_ANSWER_TYPE = work_unit.AnswerType
+KV_MSG = work_unit.KvMsg
+KV_MSG_TYPE = work_unit.KvMsgValueType
+KV_MSG_VALUE = work_unit.KvMsgValue
 _RESPONSE = api_response.OrchestratorAPIResponse
 
 _ERROR_NO_ORCHESTRATOR_CONNECTION = (
@@ -218,6 +221,7 @@ class OrchestratorRobotJobWorkUnit:
     error_id = f"[Error ID: {tracer}]"
     body = {
         "robot_id": self._robot_id,
+        "robot_job_id": work_unit_response.robot_job_id,
         "work_unit_id": work_unit_response.work_unit_id,
         "tracer": tracer,
     }
@@ -261,6 +265,7 @@ class OrchestratorRobotJobWorkUnit:
     error_id = f"[Error ID: {tracer}]"
     body = {
         "robot_id": self._robot_id,
+        "robot_job_id": work_unit_response.robot_job_id,
         "work_unit_id": work_unit_response.work_unit_id,
         "tracer": tracer,
     }
@@ -304,6 +309,7 @@ class OrchestratorRobotJobWorkUnit:
     error_id = f"[Error ID: {tracer}]"
     body = {
         "robot_id": self._robot_id,
+        "robot_job_id": work_unit_response.robot_job_id,
         "work_unit_id": work_unit_response.work_unit_id,
         "tracer": tracer,
     }
@@ -362,6 +368,7 @@ class OrchestratorRobotJobWorkUnit:
     error_id = f"[Error ID: {tracer}]"
     body = {
         "robot_id": self._robot_id,
+        "robot_job_id": self._current_work_unit.robotJobId,
         "work_unit_id": self._current_work_unit.workUnitId,
         "session_log_type": session_log_type,
         "session_start_time_ns": session_start_time_ns,
@@ -400,6 +407,7 @@ class OrchestratorRobotJobWorkUnit:
       response_to_questions: list[work_unit.Question] | None,
       note: str,
       request_retry_bypass: bool,
+      client_overrides: list[KV_MSG] | None,
   ) -> _RESPONSE:
     """Set the current work unit's stage as completed."""
     if self._connection is None:
@@ -429,6 +437,7 @@ class OrchestratorRobotJobWorkUnit:
     error_id = f"[Error ID: {tracer}]"
     body = {
         "robot_id": self._robot_id,
+        "robot_job_id": work_unit_response.robot_job_id,
         "work_unit_id": work_unit_response.work_unit_id,
         "outcome": outcome.num_value(),
         "note": note,
@@ -475,6 +484,45 @@ class OrchestratorRobotJobWorkUnit:
         }
         responses.append(question)
       body["questions"] = responses
+
+    if client_overrides:
+      overrides = []
+      for override in client_overrides:
+        assert override.key is not None
+        assert override.type is not None
+        assert override.value is not None
+
+        is_valid_override = True
+        kv_value = {}
+        match override.type:
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING:
+            kv_value["string_value"] = override.value.stringValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING_LIST:
+            kv_value["string_list_value"] = override.value.stringListValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT:
+            kv_value["int_value"] = override.value.intValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT_LIST:
+            kv_value["int_list_value"] = override.value.intListValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT:
+            kv_value["float_value"] = override.value.floatValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT_LIST:
+            kv_value["float_list_value"] = override.value.floatListValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL:
+            kv_value["bool_value"] = override.value.boolValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL_LIST:
+            kv_value["bool_list_value"] = override.value.boolListValue
+          case work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_JSON:
+            kv_value["json_value"] = override.value.jsonValue
+          case _:
+            is_valid_override = False
+
+        if is_valid_override:
+          overrides.append({
+              "key": override.key,
+              "type": override.type.num_value(),
+              "value": kv_value,
+          })
+      body["client_overrides"] = overrides
 
     try:
       self._connection.orchestrator().completeWorkUnit(body=body).execute()

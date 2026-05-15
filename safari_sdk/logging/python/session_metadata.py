@@ -37,7 +37,6 @@ PolicyProviderType = Callable[[], policy_type_pb2.PolicyType]
 PolicyConfigType = policy_type_pb2.PolicyType | PolicyProviderType
 
 
-# LINT.IfChange
 @dataclasses.dataclass(frozen=True)
 class SessionMetadataConfig:
   """Configuration for session metadata.
@@ -77,9 +76,6 @@ class SessionMetadataConfig:
   orchestrator_info_provider: (
       Callable[[], orchestrator_info_pb2.OrchestratorInfo] | None
   ) = None
-
-
-# LINT.ThenChange(//depot/google3/robotics/logging/sim/sim_session_metadata.py:SimSessionMetadataConfig)
 
 
 def add_or_overwrite_session_metadata(

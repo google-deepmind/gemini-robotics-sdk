@@ -507,7 +507,7 @@ class FlywheelCliTest(parameterized.TestCase):
 
         file_dir = os.path.dirname(checkpoint_path)
         file_name = os.path.basename(checkpoint_path)
-        expected_docker_command = ["docker", "run", "-it"]
+        expected_docker_command = ["docker", "run", "-it", "--rm"]
         if not use_cpu:
           expected_docker_command.extend([
               "--gpus",

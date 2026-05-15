@@ -132,6 +132,9 @@ WORK_UNIT_OUTCOME = interface.WORK_UNIT_OUTCOME
 WORK_UNIT_QUESTION = interface.WORK_UNIT_QUESTION
 QUESTION_CONDITION = interface.QUESTION_CONDITION
 QUESTION_ANSWER_TYPE = interface.QUESTION_ANSWER_TYPE
+KV_MSG = interface.KV_MSG
+KV_MSG_TYPE = interface.KV_MSG_TYPE
+KV_MSG_VALUE = interface.KV_MSG_VALUE
 ACCEPTED_IMAGE_TYPES = interface.ACCEPTED_IMAGE_TYPES
 IMAGE_FORMAT = interface.IMAGE_FORMAT
 DRAW_CIRCLE_ICON = interface.DRAW_CIRCLE_ICON
@@ -526,6 +529,7 @@ class OrchestratorHelper:
       session_note: str | None = None,
       response_to_questions: list[WORK_UNIT_QUESTION] | None = None,
       request_retry_bypass: bool = False,
+      client_overrides: list[KV_MSG] | None = None,
   ) -> RESPONSE:
     """Sets the current work unit's stage as completed."""
     if self._interface is None:
@@ -544,6 +548,7 @@ class OrchestratorHelper:
         response_to_questions=response_to_questions,
         note=note,
         request_retry_bypass=request_retry_bypass,
+        client_overrides=client_overrides,
     )
 
   def get_artifact_uri(self, artifact_id: str) -> RESPONSE:
@@ -602,4 +607,103 @@ class OrchestratorHelper:
 
     return self._interface.set_rui_workcell_state(
         robot_id=robot_id, workcell_state_type=workcell_state_type
+    )
+
+  def create_kv_string(self, key: str, value: str) -> KV_MSG:
+    """Creates a KV message with a string value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING, value=value
+    )
+
+  def create_kv_string_list(self, key: str, value: list[str]) -> KV_MSG:
+    """Creates a KV message with a string list value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING_LIST, value=value
+    )
+
+  def create_kv_int(self, key: str, value: int) -> KV_MSG:
+    """Creates a KV message with an integer value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT, value=value
+    )
+
+  def create_kv_int_list(self, key: str, value: list[int]) -> KV_MSG:
+    """Creates a KV message with an integer list value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT_LIST, value=value
+    )
+
+  def create_kv_float(self, key: str, value: float) -> KV_MSG:
+    """Creates a KV message with a float value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_FLOAT, value=value
+    )
+
+  def create_kv_float_list(self, key: str, value: list[float]) -> KV_MSG:
+    """Creates a KV message with a float list value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_FLOAT_LIST, value=value
+    )
+
+  def create_kv_bool(self, key: str, value: bool) -> KV_MSG:
+    """Creates a KV message with a boolean value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_BOOL, value=value
+    )
+
+  def create_kv_bool_list(self, key: str, value: list[bool]) -> KV_MSG:
+    """Creates a KV message with a boolean list value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_BOOL_LIST, value=value
+    )
+
+  def create_kv_json(self, key: str, value: str) -> KV_MSG:
+    """Creates a KV message with a JSON value."""
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.create_kv_msg(
+        key=key, kv_type=KV_MSG_TYPE.KV_MSG_VALUE_TYPE_JSON, value=value
     )

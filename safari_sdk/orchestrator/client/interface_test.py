@@ -62,6 +62,47 @@ class InterfaceTest(absltest.TestCase):
           response.latest_robot_release_configs[0].key, "test_key"
       )
 
+  def test_create_kv_msg_string(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id", job_type=interface.JOB_TYPE.ALL
+    )
+    kv_msg = interface_lib.create_kv_msg(
+        key="test_key",
+        kv_type=interface.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING,
+        value="test_value",
+    )
+    self.assertEqual(kv_msg.key, "test_key")
+    self.assertEqual(
+        kv_msg.type, interface.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING
+    )
+    self.assertEqual(kv_msg.value.stringValue, "test_value")
+
+  def test_create_kv_msg_int_list(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id", job_type=interface.JOB_TYPE.ALL
+    )
+    kv_msg = interface_lib.create_kv_msg(
+        key="test_key",
+        kv_type=interface.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT_LIST,
+        value=[1, 2, 3],
+    )
+    self.assertEqual(kv_msg.key, "test_key")
+    self.assertEqual(
+        kv_msg.type, interface.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT_LIST
+    )
+    self.assertEqual(kv_msg.value.intListValue, [1, 2, 3])
+
+  def test_create_kv_msg_unsupported_type(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id", job_type=interface.JOB_TYPE.ALL
+    )
+    with self.assertRaises(ValueError):
+      interface_lib.create_kv_msg(
+          key="test_key",
+          kv_type=interface.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_UNSPECIFIED,
+          value="test_value",
+      )
+
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
       return_value=interface.current_robot._RESPONSE(
@@ -2708,6 +2749,7 @@ class InterfaceTest(absltest.TestCase):
         note="test_note",
         session_note="test_session_note",
         request_retry_bypass=False,
+        client_overrides=None,
     )
     self.assertTrue(response.success)
     self.assertEqual(response.robot_id, "test_robot_id")

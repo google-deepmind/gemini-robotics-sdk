@@ -40,6 +40,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
       image_observation_keys: Sequence[str],
       image_compression_jpeg_quality: int,
       num_of_retries: int = 1,
+      method_name: str = "sample_actions_json_flat",
       additional_observations_providers: Sequence[
           additional_observations_provider.AdditionalObservationsProvider
       ] = (),
@@ -57,6 +58,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
       image_compression_jpeg_quality: The JPEG quality for encoding images.
       num_of_retries: The number of retries for inference calls to the server
         when the connection is CLOUD.
+      method_name: The method name to call on the robotics API.
       additional_observations_providers: A sequence of providers for additional
         observations.
     """
@@ -97,6 +99,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
         robotics_api_connection=robotics_api_connection,
         num_retries=num_of_retries,
         grpc_url=grpc_url,
+        method_name=method_name,
     )
 
   def query_model(

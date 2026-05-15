@@ -1669,6 +1669,139 @@ class OrchestratorHelperTest(absltest.TestCase):
           workcell_state_type=10,
       )
 
+  def test_complete_work_unit_with_client_overrides(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.robot_job_work_unit_complete_work_unit.return_value = (
+        orchestrator_helper.interface.RESPONSE(success=True)
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    overrides = [
+        orchestrator_helper.KV_MSG(
+            key="test_key",
+            type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING,
+            value=orchestrator_helper.KV_MSG_VALUE(stringValue="test_value"),
+        )
+    ]
+    response = helper_lib.complete_work_unit(
+        outcome=orchestrator_helper.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        note="test_note",
+        client_overrides=overrides,
+    )
+    self.assertTrue(response.success)
+    mock_interface.robot_job_work_unit_complete_work_unit.assert_called_once_with(
+        outcome=orchestrator_helper.WORK_UNIT_OUTCOME.WORK_UNIT_OUTCOME_SUCCESS,
+        success_score=None,
+        success_score_definition=None,
+        session_start_time_ns=None,
+        session_end_time_ns=None,
+        session_log_type=None,
+        session_note=None,
+        response_to_questions=None,
+        note="test_note",
+        request_retry_bypass=False,
+        client_overrides=overrides,
+    )
+
+  def test_create_kv_methods_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    helper_lib.create_kv_string("k1", "v1")
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k1",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING,
+        value="v1",
+    )
+
+    helper_lib.create_kv_string_list("k2", ["v2"])
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k2",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING_LIST,
+        value=["v2"],
+    )
+
+    helper_lib.create_kv_int("k3", 3)
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k3",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT,
+        value=3,
+    )
+
+    helper_lib.create_kv_int_list("k4", [4])
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k4",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT_LIST,
+        value=[4],
+    )
+
+    helper_lib.create_kv_float("k5", 5.0)
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k5",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_FLOAT,
+        value=5.0,
+    )
+
+    helper_lib.create_kv_float_list("k6", [6.0])
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k6",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_FLOAT_LIST,
+        value=[6.0],
+    )
+
+    helper_lib.create_kv_bool("k7", True)
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k7",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_BOOL,
+        value=True,
+    )
+
+    helper_lib.create_kv_bool_list("k8", [False])
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k8",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_BOOL_LIST,
+        value=[False],
+    )
+
+    helper_lib.create_kv_json("k9", "{}")
+    mock_interface.create_kv_msg.assert_called_with(
+        key="k9",
+        kv_type=orchestrator_helper.KV_MSG_TYPE.KV_MSG_VALUE_TYPE_JSON,
+        value="{}",
+    )
+
+  def test_create_kv_methods_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    response = helper_lib.create_kv_string("k1", "v1")
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_create_kv_methods_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+    with self.assertRaises(ValueError):
+      helper_lib.create_kv_string("k1", "v1")
+
 
 class OrchestratorHelperTestWithMockInterface(absltest.TestCase):
   """Tests for OrchestratorHelper with an overridden interface."""

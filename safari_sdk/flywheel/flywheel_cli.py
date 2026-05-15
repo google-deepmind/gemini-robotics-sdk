@@ -658,7 +658,7 @@ class FlywheelCli:
     file_name = checkpoint_path.name
     try:
       print(f"\nStarting serving docker with checkpoint: {checkpoint_path} ...")
-      commands = ["docker", "run", "-it"]
+      commands = ["docker", "run", "-it", "--rm"]
 
       if not _USE_CPU.value:
         commands.extend([

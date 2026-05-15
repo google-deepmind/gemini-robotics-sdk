@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-r"""Launching the Atari agent evals with."""
+r"""Launching the agent evals."""
 
 from collections.abc import Sequence
 

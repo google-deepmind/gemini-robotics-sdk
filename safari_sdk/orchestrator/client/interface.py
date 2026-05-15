@@ -35,6 +35,9 @@ WORK_UNIT_OUTCOME = robot_job_work_unit.WORK_UNIT_OUTCOME
 WORK_UNIT_QUESTION = robot_job_work_unit.WORK_UNIT_QUESTION
 QUESTION_CONDITION = robot_job_work_unit.QUESTION_CONDITION
 QUESTION_ANSWER_TYPE = robot_job_work_unit.QUESTION_ANSWER_TYPE
+KV_MSG = robot_job_work_unit.KV_MSG
+KV_MSG_TYPE = robot_job_work_unit.KV_MSG_TYPE
+KV_MSG_VALUE = robot_job_work_unit.KV_MSG_VALUE
 
 ACCEPTED_IMAGE_TYPES = visual_overlay.AcceptedImageTypes
 IMAGE_FORMAT = visual_overlay.ImageFormat
@@ -573,6 +576,7 @@ class OrchestratorInterface:
       ),
       note: str,
       request_retry_bypass: bool,
+      client_overrides: list[KV_MSG] | None,
   ) -> RESPONSE:
     """Sets the current work unit's stage as completed."""
     assert self._robot_job_work_unit_lib is not None
@@ -588,6 +592,7 @@ class OrchestratorInterface:
           response_to_questions=response_to_questions,
           note=note,
           request_retry_bypass=request_retry_bypass,
+          client_overrides=client_overrides,
       )
 
   @_check_orchestrator_interface_requirements(
@@ -675,3 +680,57 @@ class OrchestratorInterface:
       return self._robot_job_work_unit_lib.observe_latest_work_unit(
           job_type=self._job_type
       )
+
+  def create_kv_msg(
+      self,
+      key: str,
+      kv_type: KV_MSG_TYPE,
+      value: (
+          str
+          | list[str]
+          | int
+          | list[int]
+          | float
+          | list[float]
+          | bool
+          | list[bool]
+      ),
+  ) -> KV_MSG:
+    """Creates a KV message."""
+    match kv_type:
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(stringValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_STRING_LIST:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(stringListValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT:
+        return KV_MSG(key=key, type=kv_type, value=KV_MSG_VALUE(intValue=value))
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_INT_LIST:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(intListValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_FLOAT:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(floatValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_FLOAT_LIST:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(floatListValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_BOOL:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(boolValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_BOOL_LIST:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(boolListValue=value)
+        )
+      case KV_MSG_TYPE.KV_MSG_VALUE_TYPE_JSON:
+        return KV_MSG(
+            key=key, type=kv_type, value=KV_MSG_VALUE(jsonValue=value)
+        )
+      case _:
+        raise ValueError(f"Unsupported KV message type: {kv_type}")

@@ -31,6 +31,38 @@ class WorkUnitResponseTest(absltest.TestCase):
     outcome = work_unit.WorkUnitOutcome.WORK_UNIT_OUTCOME_UNSPECIFIED
     self.assertEqual(outcome.num_value(), 0)
 
+  def test_kv_msg_value_type_num_value(self):
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING.num_value(), 1
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING_LIST.num_value(), 2
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT.num_value(), 3
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_INT_LIST.num_value(), 4
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT.num_value(), 5
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_FLOAT_LIST.num_value(), 6
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL.num_value(), 7
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_BOOL_LIST.num_value(), 8
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_JSON.num_value(), 9
+    )
+    self.assertEqual(
+        work_unit.KvMsgValueType.KV_MSG_VALUE_TYPE_UNSPECIFIED.num_value(), 0
+    )
+
   def test_pixel_location_post_init(self):
     pixel_location = work_unit.PixelLocation(x=1, y=2)
     self.assertEqual(pixel_location.x, 1)

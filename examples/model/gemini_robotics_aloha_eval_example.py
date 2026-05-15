@@ -14,8 +14,6 @@
 
 """Run Gemini Robotics Policy Eval on Aloha Robot."""
 
-# This is not a google3-compatible python file. It is intended to be run on a
-# non-corp machine.
 
 import select
 import signal

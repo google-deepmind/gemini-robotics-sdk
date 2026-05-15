@@ -311,6 +311,8 @@ class AgentFrameworkConfig:
   exclude_model_image_input_logging: bool = False
   agent_session_id: str | None = None
   non_streaming_enable_context_snapshot_logging: bool = True
+  # The tags to associate with the logging session.
+  logging_tags: list[str] = dataclasses.field(default_factory=list)
 
   def __post_init__(self):
     if (
@@ -459,6 +461,7 @@ class AgentFrameworkConfig:
       logging_session_log_type_value: str | None = None,
       exclude_model_image_input_logging: bool | None = None,
       agent_session_id: str | None = None,
+      logging_tags: list[str] | None = None,
   ) -> 'AgentFrameworkConfig':
     """Creates an AgentFrameworkConfig from flags with optional overrides."""
     if (control_mode == types.ControlMode.TERMINAL_ONLY) and (
@@ -851,5 +854,10 @@ class AgentFrameworkConfig:
             non_streaming_enable_context_snapshot_logging
             if non_streaming_enable_context_snapshot_logging is not None
             else agentic_flags.AGENTIC_NON_STREAMING_ENABLE_CONTEXT_SNAPSHOT_LOGGING.value
+        ),
+        logging_tags=(
+            logging_tags
+            if logging_tags is not None
+            else agentic_flags.AGENTIC_LOGGING_TAGS.value
         ),
     )
