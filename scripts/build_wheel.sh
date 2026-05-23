@@ -50,7 +50,7 @@ while (( $# > 0 )) ; do
   case "$1" in
     -h|--help) _usage; exit 1 ;;
     --all-python-versions)
-      PYTHON_VERSIONS=("3.11" "3.12" "3.13")
+      PYTHON_VERSIONS=("3.10" "3.11" "3.12" "3.13")
       PASS_THROUGH_ARGS+=("$1")
       shift ;;
     --python-version)

@@ -1,20 +1,22 @@
 Metadata-Version: 2.4
 Name: safari_sdk
-Version: 2.121.0
+Version: 2.132.0
 Summary: Safari SDK: the SDK for Google DeepMind Gemini Robotics models
 Author-Email: Safari SDKAuthors <safari-sdk-authors@google.com>
 License-Expression: Apache-2.0
 License-File: LICENSE
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
 Classifier: Programming Language :: Python :: 3.13
 Classifier: Intended Audience :: Science/Research
 Project-URL: homepage, https://deepmind.google/models/gemini-robotics/
 Project-URL: repository, https://github.com/google-deepmind/gemini-robotics-sdk
-Requires-Python: <3.14,>=3.11
+Requires-Python: <3.14,>=3.10
 Requires-Dist: absl-py
+Requires-Dist: contourpy<=1.3.2
 Requires-Dist: dataclasses_json
 Requires-Dist: dm-env
 Requires-Dist: evdev; sys_platform != "win32"
