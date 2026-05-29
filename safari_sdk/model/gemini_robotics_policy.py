@@ -20,6 +20,7 @@ import copy
 import dataclasses
 import logging
 import threading
+import time
 
 import dm_env
 from dm_env import specs
@@ -144,6 +145,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       self._model_output_lock = threading.Lock()
       self._actions_executed_during_inference = 0
 
+    self._last_latency_dict = self._get_empty_latency_dict()
+    self._last_extra = self._get_empty_extra_dict()
     self._initialize_episode_statistics()
 
   def _initialize_episode_statistics(self):
@@ -201,7 +204,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     Returns:
       A tuple of ((action, extra), state) with `action` indicating the action to
-      be executed, extra an empty dict and state the dummy policy state.
+      be executed, extra a dictionary containing inference latency metrics, and
+      state the dummy policy state.
     """
     del prev_state  # Unused.
 
@@ -221,7 +225,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     else:
       action = self._step_sync(timestep)
 
-    return (action, {}), self._dummy_state
+    return (action, self._last_extra), self._dummy_state
 
   @override
   def step_spec(self, timestep_spec: gdmr_types.TimeStepSpec) -> tuple[
@@ -288,7 +292,18 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     if self._action_spec is None:
       raise ValueError('action_spec is None, setup failed')
 
-    return (self._action_spec, {}), specs.Array(shape=(), dtype=np.float32)
+    extra_spec = {
+        'inference_total_ms': specs.Array(shape=(), dtype=np.float32),
+        'remote_inference_ms': specs.Array(shape=(), dtype=np.float32),
+        'network_overhead_ms': specs.Array(shape=(), dtype=np.float32),
+        'inference_sent': specs.Array(shape=(), dtype=np.uint8),
+        'actions_left': specs.Array(shape=(), dtype=np.int32),
+    }
+
+    return (
+        self._action_spec,
+        extra_spec,
+    ), specs.Array(shape=(), dtype=np.float32)
 
   def _setup(self):
     """Initializes the policy."""
@@ -361,12 +376,25 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
   def _step_sync(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """Computes an action from observations."""
     observation = timestep.observation
+    extra = self._get_empty_latency_dict()
+    inference_sent = False
     if self._should_replan():
-      self._model_output = self._query_model(observation, self._model_output)
+      self._model_output = self._query_model(
+          observation, self._model_output
+      )
+      extra = dict(self._last_latency_dict)
+      inference_sent = True
       assert self._model_output.shape[0] > 0
 
     action = self._model_output[0]
     self._model_output = self._model_output[1:]
+
+    extra['inference_sent'] = np.array(inference_sent, dtype=np.uint8)
+    extra['actions_left'] = np.array(
+        self._model_output.shape[0], dtype=np.int32
+    )
+
+    self._last_extra = extra
     return action
 
   def _step_async(self, timestep: dm_env.TimeStep) -> np.ndarray:
@@ -396,10 +424,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     """
     observation = timestep.observation
     is_initial_step = timestep.step_type == dm_env.StepType.FIRST
+    extra = self._get_empty_latency_dict()
+    inference_sent = False
+
     with self._model_output_lock:
       # If new model output is available, update the buffer.
       if self._future and self._future.done():
         new_model_output = self._future.result()
+        extra = dict(self._last_latency_dict)
         # Remove the actions that were executed while the future was running.
         self._model_output = new_model_output[
             self._actions_executed_during_inference :
@@ -415,12 +447,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
             copy.deepcopy(self._model_output),
         )
         self._actions_executed_during_inference = 0
+        inference_sent = True
 
     # If no actions left (first query), block until the future is done.
     if actions_left == 0:
       if not self._future:
         raise ValueError('No actions left and no future to generate them.')
       result_from_blocking_wait = self._future.result()
+      extra = dict(self._last_latency_dict)
       with self._model_output_lock:
         self._model_output = result_from_blocking_wait[
             self._actions_executed_during_inference :
@@ -434,6 +468,12 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       action = self._model_output[0]
       self._model_output = self._model_output[1:]
       self._actions_executed_during_inference += 1
+      actions_left = self._model_output.shape[0]
+
+    extra['inference_sent'] = np.array(inference_sent, dtype=np.uint8)
+    extra['actions_left'] = np.array(actions_left, dtype=np.int32)
+
+    self._last_extra = extra
     return action
 
   def _query_model(
@@ -459,7 +499,53 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       observation[constants.CONDITIONING_ENCODED_OBS_KEY] = (
           model_output.tolist()
       )
-    return self._model.query_model(observation)
+    query_start = time.perf_counter()
+    actions = self._model.query_model(observation)
+    query_duration_ms = (time.perf_counter() - query_start) * 1000.0
+    self._last_latency_dict = self._get_latency_statistics(query_duration_ms)
+    return actions
+
+  def _get_latency_statistics(
+      self, query_duration_ms: float
+  ) -> dict[str, np.ndarray]:
+    """Returns the latency statistics from the model."""
+    remote_time = getattr(self._model, 'last_remote_inference_time_ms', None)
+    network_time = getattr(self._model, 'last_network_overhead_ms', None)
+
+    valid_remote = isinstance(remote_time, (int, float))
+    valid_network = isinstance(network_time, (int, float))
+
+    logging.info(
+        'Inference: total=%.1fms, remote=%.1fms, network=%.1fms',
+        query_duration_ms,
+        remote_time if valid_remote else -1.0,
+        network_time if valid_network else -1.0,
+    )
+
+    return {
+        'inference_total_ms': np.array(query_duration_ms, dtype=np.float32),
+        'remote_inference_ms': np.array(
+            remote_time if valid_remote else -1.0, dtype=np.float32
+        ),
+        'network_overhead_ms': np.array(
+            network_time if valid_network else -1.0, dtype=np.float32
+        ),
+    }
+
+  def _get_empty_latency_dict(self) -> dict[str, np.ndarray]:
+    """Returns a dictionary with sentinel inference latency metrics."""
+    return {
+        'inference_total_ms': np.array(-1.0, dtype=np.float32),
+        'remote_inference_ms': np.array(-1.0, dtype=np.float32),
+        'network_overhead_ms': np.array(-1.0, dtype=np.float32),
+    }
+
+  def _get_empty_extra_dict(self) -> dict[str, np.ndarray]:
+    """Returns a dictionary with sentinel extra output metrics."""
+    extra = self._get_empty_latency_dict()
+    extra['inference_sent'] = np.array(0, dtype=np.uint8)
+    extra['actions_left'] = np.array(0, dtype=np.int32)
+    return extra
 
   @property
   def episode_statistics(self) -> EpisodeStatistics:

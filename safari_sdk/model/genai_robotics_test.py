@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import base64
+import datetime
 import json
 from unittest import mock
 
@@ -71,6 +72,8 @@ class GenaiRoboticsTest(parameterized.TestCase):
                   json.dumps(expected_output).encode("utf-8")
               ).decode("utf-8")
           ),
+          "backendRequestTime": "2024-05-01T12:00:00Z",
+          "backendResponseTime": "2024-05-01T12:00:01Z",
           "someOtherKey": "some_other_value",
       }
 
@@ -109,6 +112,8 @@ class GenaiRoboticsTest(parameterized.TestCase):
       )
       self.assertEqual(query["task_instruction"], "test_task_instruction")
       self.assertEqual(query["joints_pos"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+      self.assertEqual(response.backend_request_time, "2024-05-01T12:00:00Z")
+      self.assertEqual(response.backend_response_time, "2024-05-01T12:00:01Z")
 
   def test_genai_create_client_via_auth_library(self):
     with mock.patch("google.genai.Client", autospec=True) as mock_genai_client:
@@ -171,6 +176,31 @@ class GenaiRoboticsTest(parameterized.TestCase):
     call_args = mock_connect.call_args
     channel = call_args[0][0]
     self.assertIsNotNone(channel)
+
+  @mock.patch.object(genai_robotics, "_connect_to_grpc_json", autospec=True)
+  def test_local_client_populates_backend_times(self, mock_connect):
+    mock_func = mock.create_autospec(lambda x: "")
+    mock_func.return_value = '{"action_chunk": [0.1]}'
+    mock_connect.return_value = mock_func
+
+    client = genai_robotics.Client(
+        robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.LOCAL,
+        skip_version_check=True,
+    )
+    obs = {"task_instruction": "test_task_instruction"}
+    response = client.models.generate_content(
+        model="test_model",
+        contents=[json.dumps(obs)],
+    )
+
+    self.assertIsNotNone(response.backend_request_time)
+    self.assertIsNotNone(response.backend_response_time)
+    self.assertIsInstance(response.backend_request_time, str)
+    self.assertIsInstance(response.backend_response_time, str)
+
+    req_dt = datetime.datetime.fromisoformat(response.backend_request_time)
+    res_dt = datetime.datetime.fromisoformat(response.backend_response_time)
+    self.assertLessEqual(req_dt, res_dt)
 
 
 if __name__ == "__main__":

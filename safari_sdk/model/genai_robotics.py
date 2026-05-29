@@ -15,6 +15,7 @@
 """Forward compatibility layer for Gemini API. Will use genai in the future."""
 
 import base64
+import datetime
 import functools
 import json
 import logging
@@ -289,9 +290,17 @@ class Client:
         logging.debug('Response: %s', res)
         response = lambda: None
         response.text = base64.b64decode(res['outputBytes']).decode('utf-8')
+        response.backend_request_time = res.get('backendRequestTime')
+        response.backend_response_time = res.get('backendResponseTime')
       case _CONNECTION.LOCAL:
+        req_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        res_text = self._client(query)
+        res_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
         response = lambda: None
-        response.text = self._client(query)
+        response.text = res_text
+        response.backend_request_time = req_time
+        response.backend_response_time = res_time
       case _:
         raise ValueError(
             'Unsupported robotics_api_connection:'

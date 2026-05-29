@@ -102,6 +102,104 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
 
       np.testing.assert_equal(returned_action, np.array([[1.0], [2.0], [3.0]]))
 
+  def test_latency_metrics_are_calculated(self):
+    FLAGS.api_key = "mock_test_key"
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_resource = mock.MagicMock()
+      mock_resource.modelServing.return_value = mock.MagicMock()
+      mock_build.return_value = mock_resource
+
+      remote_model = remote_model_interface.RemoteModelInterface(
+          serve_id="test_serve_id",
+          robotics_api_connection=constants.RoboticsApiConnectionType.CLOUD,
+          task_instruction_key="test_instruction_key",
+          proprioceptive_observation_keys=("test_joint_1",),
+          image_observation_keys=("test_camera_1",),
+          image_compression_jpeg_quality=75,
+      )
+
+      returned_action = np.array([[1.0], [2.0], [3.0]])
+      encoded_response = mock.MagicMock()
+      encoded_response.text = json.dumps(
+          {"action_chunk": returned_action.tolist()}
+      )
+      encoded_response.backend_request_time = "2026-05-15T01:00:00.000000Z"
+      encoded_response.backend_response_time = "2026-05-15T01:00:00.500000Z"
+
+      remote_model._client.models.generate_content = mock.MagicMock(
+          return_value=encoded_response
+      )
+
+      observation = {
+          "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+          "test_joint_1": np.array([0.0]),
+          "test_instruction_key": np.array(
+              "test_task_instruction", dtype=np.object_
+          ),
+      }
+
+      # Mock time.perf_counter to control client_round_trip_ms
+      with mock.patch("time.perf_counter", side_effect=[100.0, 101.0]):
+        remote_model.query_model(observation)
+
+      # client_round_trip_ms = (101.0 - 100.0) * 1000 = 1000.0 ms
+      # remote_inference_time = 500.0 ms
+      # network_overhead = 1000.0 - 500.0 = 500.0 ms
+
+      self.assertEqual(remote_model.last_remote_inference_time_ms, 500.0)
+      self.assertEqual(remote_model.last_network_overhead_ms, 500.0)
+
+  def test_latency_metrics_fallback_on_invalid_timestamps(self):
+    FLAGS.api_key = "mock_test_key"
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_resource = mock.MagicMock()
+      mock_resource.modelServing.return_value = mock.MagicMock()
+      mock_build.return_value = mock_resource
+
+      remote_model = remote_model_interface.RemoteModelInterface(
+          serve_id="test_serve_id",
+          robotics_api_connection=constants.RoboticsApiConnectionType.CLOUD,
+          task_instruction_key="test_instruction_key",
+          proprioceptive_observation_keys=("test_joint_1",),
+          image_observation_keys=("test_camera_1",),
+          image_compression_jpeg_quality=75,
+      )
+
+      returned_action = np.array([[1.0], [2.0], [3.0]])
+      encoded_response = mock.MagicMock()
+      encoded_response.text = json.dumps(
+          {"action_chunk": returned_action.tolist()}
+      )
+      # Case 1: Missing timestamps
+      encoded_response.backend_request_time = None
+      encoded_response.backend_response_time = None
+
+      remote_model._client.models.generate_content = mock.MagicMock(
+          return_value=encoded_response
+      )
+
+      observation = {
+          "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+          "test_joint_1": np.array([0.0]),
+          "test_instruction_key": np.array(
+              "test_task_instruction", dtype=np.object_
+          ),
+      }
+
+      remote_model.query_model(observation)
+
+      self.assertIsNone(remote_model.last_remote_inference_time_ms)
+      self.assertIsNone(remote_model.last_network_overhead_ms)
+
+      # Case 2: Invalid timestamp strings
+      encoded_response.backend_request_time = "invalid_time"
+      encoded_response.backend_response_time = "invalid_time"
+
+      remote_model.query_model(observation)
+
+      self.assertIsNone(remote_model.last_remote_inference_time_ms)
+      self.assertIsNone(remote_model.last_network_overhead_ms)
+
   def test_cloud_genai_has_observations_updated(self):
     FLAGS.api_key = "mock_test_key"
     mock_build = self.enter_context(

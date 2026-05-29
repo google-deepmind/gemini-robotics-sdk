@@ -162,7 +162,16 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         action_spec,
         gdmr_types.UnboundedArraySpec(shape=(2,), dtype=np.float32),
     )
-    self.assertEqual(extra_output_spec, {})
+    self.assertEqual(
+        extra_output_spec,
+        {
+            "inference_total_ms": specs.Array(shape=(), dtype=np.float32),
+            "remote_inference_ms": specs.Array(shape=(), dtype=np.float32),
+            "network_overhead_ms": specs.Array(shape=(), dtype=np.float32),
+            "inference_sent": specs.Array(shape=(), dtype=np.uint8),
+            "actions_left": specs.Array(shape=(), dtype=np.int32),
+        },
+    )
     self.assertEqual(policy_state_spec, specs.Array(shape=(), dtype=np.float32))
 
   def test_step_spec_with_float64_dtype(self):
@@ -399,7 +408,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     model_interface.query_model.reset_mock()
 
     # First step, should trigger a query.
-    (action, unused_extra), policy_state = policy.step(
+    (action, extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
@@ -410,32 +419,93 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
 
     np.testing.assert_equal(model_observation, observation)
     np.testing.assert_equal(action, [1.0])
+    # Verify extra contains latency data (sentinel values since mock doesn't
+    # set them)
+    self.assertIn("inference_total_ms", extra)
+    self.assertGreaterEqual(extra["inference_total_ms"], 0.0)
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(1, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(2, dtype=np.int32)
+    )
 
     model_interface.query_model.reset_mock()
 
     # Second step, should not trigger a query.
-    (action, unused_extra), policy_state = policy.step(
+    (action, extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
     np.testing.assert_equal(action, [2.0])
     model_interface.query_model.assert_not_called()
+    # Verify extra contains sentinel values on non-inference step
+    np.testing.assert_equal(
+        extra["inference_total_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(0, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(1, dtype=np.int32)
+    )
 
     # Third step, should not trigger a query.
-    (action, unused_extra), policy_state = policy.step(
+    (action, extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
-    model_interface.query_model.assert_not_called()
-
     np.testing.assert_equal(action, [3.0])
+    model_interface.query_model.assert_not_called()
+    # Verify extra contains sentinel values on non-inference step
+    np.testing.assert_equal(
+        extra["inference_total_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(0, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(0, dtype=np.int32)
+    )
+
     # Fourth step, should trigger a query.
-    (action, unused_extra), unused_policy_state = policy.step(
+    (action, extra), unused_policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
     np.testing.assert_equal(action, [1.0])
     model_interface.query_model.assert_called_once()
+    self.assertGreaterEqual(extra["inference_total_ms"], 0.0)
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(1, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(2, dtype=np.int32)
+    )
 
   def test_step_async_policy(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -478,7 +548,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     model_interface.query_model.reset_mock()
 
     # First step, should trigger a query.
-    (action, unused_extra), policy_state = policy.step(
+    (action, extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
@@ -490,31 +560,90 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(model_observation, observation)
 
     np.testing.assert_equal(action, [1.0])
+    # Verify extra contains latency data
+    self.assertIn("inference_total_ms", extra)
+    self.assertGreaterEqual(extra["inference_total_ms"], 0.0)
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(1, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(2, dtype=np.int32)
+    )
     model_interface.query_model.reset_mock()
 
     # Second step, should not trigger a query.
-    (action, unused_extra), policy_state = policy.step(
+    (action, extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
     np.testing.assert_equal(action, [2.0])
     model_interface.query_model.assert_not_called()
+    # Verify extra contains sentinel values on non-inference step
+    np.testing.assert_equal(
+        extra["inference_total_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(0, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(1, dtype=np.int32)
+    )
 
     # Third step, should not trigger a query.
-    (action, unused_extra), policy_state = policy.step(
+    (action, extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
     np.testing.assert_equal(action, [3.0])
     model_interface.query_model.assert_not_called()
+    np.testing.assert_equal(
+        extra["inference_total_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(0, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(0, dtype=np.int32)
+    )
 
     # Fourth step, should trigger a query.
-    (action, unused_extra), unused_policy_state = policy.step(
+    (action, extra), unused_policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
     np.testing.assert_equal(action, [1.0])
     model_interface.query_model.assert_called_once()
+    self.assertGreaterEqual(extra["inference_total_ms"], 0.0)
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(-1.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(1, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(2, dtype=np.int32)
+    )
 
   def test_async_policy_increases_action_stall_count(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -569,6 +698,129 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         policy_state,
     )
     self.assertEqual(policy.episode_statistics.action_stall_count, 1)
+
+  def test_step_async_future_done(self):
+    model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
+
+    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=2,
+        inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+        model_interface=model_interface,
+    )
+
+    model_interface.query_model.return_value = np.array(
+        [[1.0], [2.0], [3.0], [4.0], [5.0]]
+    )
+
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward={},
+        discount={},
+        observation={
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+            "test_instruction_key": specs.StringArray(()),
+        },
+    )
+
+    policy.step_spec(timestep_spec)
+    policy_state = policy.initial_state()
+
+    observation = {
+        "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+        "test_joint_1": np.array([0.0]),
+        "test_instruction_key": np.array(
+            "test_task_instruction", dtype=np.object_
+        ),
+    }
+
+    model_interface.query_model.reset_mock()
+
+    # Step 1: Triggers initial query and consumes one action.
+    policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+
+    # Step 2: actions_left = 4. 5 - 4 = 1 < 2. No replan. Consumes 1 action.
+    policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+
+    # Step 3: actions_left = 3. 5 - 3 = 2 >= 2. Triggers replan (async).
+    # Consumes 1 action.
+    policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+
+    self.assertIsNotNone(policy._future)
+    assert policy._future is not None
+    # Wait for the future to complete.
+    policy._future.result()
+
+    # Step 4: Now self._future is done. Should hit line 436.
+    policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+
+    self.assertIsNone(policy._future)
+
+  def test_get_latency_statistics_with_valid_metrics(self):
+    model_interface = mock.create_autospec(
+        remote_model_interface.RemoteModelInterface
+    )
+    model_interface.last_remote_inference_time_ms = 100.0
+    model_interface.last_network_overhead_ms = 50.0
+
+    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=3,
+        inference_mode=constants.InferenceMode.SYNCHRONOUS,
+        model_interface=model_interface,
+    )
+
+    model_interface.query_model.return_value = np.array([[1.0]])
+
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward={},
+        discount={},
+        observation={
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+            "test_instruction_key": specs.StringArray(()),
+        },
+    )
+    policy.step_spec(timestep_spec)
+
+    policy_state = policy.initial_state()
+    observation = {
+        "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+        "test_joint_1": np.array([0.0]),
+        "test_instruction_key": np.array("test", dtype=np.object_),
+    }
+
+    (_, extra), _ = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+
+    np.testing.assert_equal(
+        extra["remote_inference_ms"], np.array(100.0, dtype=np.float32)
+    )
+    np.testing.assert_equal(
+        extra["network_overhead_ms"], np.array(50.0, dtype=np.float32)
+    )
 
   def test_model_action_not_2d_raises_error(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -659,8 +911,8 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     # First step.
     # Buffer is empty.
     # Should call query_model.
-    # Returns [1, 2, 3].
-    # Consumes [1]. Buffer: [2, 3].
+    # Returns [1, 2, 3, 4, 5].
+    # Consumes [1]. Buffer: [2, 3, 4, 5].
     (action, unused_extra), policy_state = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
@@ -673,22 +925,28 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     model_interface.query_model.reset_mock()
 
     # Second step.
-    # Buffer: [2, 3].
-    # actions_left = 2.
+    # Buffer: [2, 3, 4, 5].
+    # actions_left = 4.
     # min_replan = 1.
-    # num_per_req = 3.
+    # num_per_req = 5.
     # actions_executed_during_inference = 1
     # _should_replan logic:
-    #  actions_left = self._model_output.shape[0] -> 2.
-    #  3 - 2 = 1.
+    #  actions_left = self._model_output.shape[0] -> 4.
+    #  5 - 4 = 1.
     #  1 >= 1. True.
     # Triggers new query (async).
-    (action, unused_extra), _ = policy.step(
+    (action, extra), _ = policy.step(
         dm_env.transition(reward=0.0, discount=1.0, observation=observation),
         policy_state,
     )
     # Action is the first element of the buffer: [2].
     np.testing.assert_equal(action, [2.0])
+    np.testing.assert_equal(
+        extra["inference_sent"], np.array(1, dtype=np.uint8)
+    )
+    np.testing.assert_equal(
+        extra["actions_left"], np.array(3, dtype=np.int32)
+    )
     # Wait for async execution by checking the future.
     # The policy should have submitted a future.
     self.assertIsNotNone(policy._future)

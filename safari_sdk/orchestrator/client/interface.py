@@ -31,10 +31,13 @@ from safari_sdk.orchestrator.client.libs import visual_overlay
 JOB_TYPE = robot_job.JobType
 
 WORK_UNIT = robot_job_work_unit.WORK_UNIT
+WORK_UNIT_CONTEXT = robot_job_work_unit.WORK_UNIT_CONTEXT
 WORK_UNIT_OUTCOME = robot_job_work_unit.WORK_UNIT_OUTCOME
 WORK_UNIT_QUESTION = robot_job_work_unit.WORK_UNIT_QUESTION
 QUESTION_CONDITION = robot_job_work_unit.QUESTION_CONDITION
 QUESTION_ANSWER_TYPE = robot_job_work_unit.QUESTION_ANSWER_TYPE
+POLICY_DETAILS = robot_job_work_unit.POLICY_DETAILS
+SCENE_PRESET_DETAILS = robot_job_work_unit.SCENE_PRESET_DETAILS
 KV_MSG = robot_job_work_unit.KV_MSG
 KV_MSG_TYPE = robot_job_work_unit.KV_MSG_TYPE
 KV_MSG_VALUE = robot_job_work_unit.KV_MSG_VALUE

@@ -17,9 +17,9 @@
 from collections.abc import Sequence
 from concurrent import futures
 import copy
-import enum
 import json
 import logging
+import sys
 import time
 
 import dm_env
@@ -32,6 +32,14 @@ from safari_sdk.model import constants
 from safari_sdk.model import genai_robotics
 from safari_sdk.model import observation_to_model_query_contents
 
+# This can be deleted after Python 3.10 is deprecated, then we can also use
+# enum.StrEnum again instead of StrEnum.
+if sys.version_info >= (3, 11):
+  from enum import StrEnum  # pylint: disable=g-importing-member,g-import-not-at-top
+else:
+  from backports.strenum import StrEnum  # pylint: disable=g-importing-member,g-import-not-at-top
+
+
 THINKING_KEY = "thinking"
 
 
@@ -42,7 +50,7 @@ class MethodNames:
   GENERATE = "generate"
 
 
-class ThinkingStrategy(enum.StrEnum):
+class ThinkingStrategy(StrEnum):
   """How to interpret the model output.
 
   Synchronous means action call waits for thinking call to complete.

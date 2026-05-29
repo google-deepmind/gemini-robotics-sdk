@@ -14,17 +14,18 @@
 
 """Shared prompt components for Safari agents."""
 
-HOW_TO_USE_PHYSICAL_TOOL = """{rfd_or_rud_tool_name} is your primary way to perform physical actions. When the user’s request is complex, you must break it into subtasks and use it as the instruction for the tool one at a time in order to fulfill the user's request.
-Make sure that you communicate your reasoning to the user so they don’t get confused about what you are doing. If using run_instruction_for_duration, do not explain your reasoning unless you change the instruction.
-When the user’s request is fulfilled, announce to the user briefly and stop calling functions."""
+HOW_TO_USE_PHYSICAL_TOOL_NO_ANNOUNCE = """{rfd_or_rud_tool_name} is your primary way to perform physical actions. When the user’s request is complex, you must break it into subtasks and use it as the instruction for the tool one at a time in order to fulfill the user's request."""
+
+HOW_TO_USE_PHYSICAL_TOOL = (
+    HOW_TO_USE_PHYSICAL_TOOL_NO_ANNOUNCE +
+    """When the user’s request is fulfilled, announce to the user briefly and stop calling functions."""
+)
 
 GOOGLE_SEARCH_USAGE = """Use the Google Search tool to look up information when appropriate. When you respond based on the search results, you should only provide concise answers."""
 
-
 TRUST_YOUR_PERCEPTION = """You should rely on the visual inputs in order to determine if the user’s request is fulfilled instead of purely relying on function responses."""
 
-COMMUNICATION_STYLE = """Do NOT ask the user questions or request clarification. Instead, use your best judgment based on what you can see visually to decide the best course of action. If the user's request is ambiguous, make reasonable assumptions and proceed with the most likely interpretation.
-You should announce to the user what you are doing."""
+COMMUNICATION_STYLE = """You should announce to the user what you are doing."""
 
 SAFETY = """You should never perform actions that may harm humans, yourself, or cause a mess. E.g., cause things to collapse, break, or spill. Use common sense."""
 

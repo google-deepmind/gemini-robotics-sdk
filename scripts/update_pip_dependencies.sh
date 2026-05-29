@@ -26,7 +26,8 @@ SAFARI_DIR="$(realpath "${SCRIPTS_DIR}/..")"
 # Setup virtual environment and install pip-tools.
 VENV_DIR="$(mktemp -d)"
 echo "Creating virtual environment and installing pip-tools in ${VENV_DIR}."
-python3 -m venv "${VENV_DIR}"
+# Use earliest supported Python version to most conservatively pick dependencies.
+python3.10 -m venv "${VENV_DIR}"
 source "${VENV_DIR}/bin/activate"
 pip install --require-hashes -r "${SCRIPTS_DIR}/base_tooling_requirements.txt"
 

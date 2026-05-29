@@ -53,6 +53,7 @@ class GenAIOrchestratorHealth(
   NORMAL = "NORMAL"
   ERROR_QUOTA_EXCEEDED = "ERROR_QUOTA_EXCEEDED"
   ERROR_OTHER = "ERROR_OTHER"
+  IDLE_NO_TOOL_CALLS = "IDLE_NO_TOOL_CALLS"
 
 
 class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
@@ -325,6 +326,9 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
           continue
 
         # No tool calls — model returned final text, we're done.
+        await self._publish_health_status(
+            GenAIOrchestratorHealth.IDLE_NO_TOOL_CALLS, None
+        )
         await self._publish_event(
             event_bus.EventType.MODEL_TURN_COMPLETE,
             True,

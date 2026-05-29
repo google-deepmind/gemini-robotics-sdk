@@ -15,7 +15,10 @@
 """ModelInterface implementation for querying remote models."""
 
 from collections.abc import Mapping, Sequence
+import datetime
 import json
+import time
+from typing import Any
 
 from dm_env import specs
 import jax
@@ -101,6 +104,8 @@ class RemoteModelInterface(model_interface.ModelInterface):
         grpc_url=grpc_url,
         method_name=method_name,
     )
+    self._last_remote_inference_time_ms = None
+    self._last_network_overhead_ms = None
 
   def query_model(
       self,
@@ -127,10 +132,16 @@ class RemoteModelInterface(model_interface.ModelInterface):
           image_compression_jpeg_quality=self._image_compression_jpeg_quality,
       )
 
+    start_time_sec = time.perf_counter()
     response = self._client.models.generate_content(
         model=self._serve_id,
         contents=serialized_contents,
     )
+    end_time_sec = time.perf_counter()
+    client_round_trip_ms = (end_time_sec - start_time_sec) * 1000.0
+
+    # Calculate remote inference time
+    self._update_latency_metrics(response, client_round_trip_ms)
 
     # Parse the response text (assuming its JSON containing the action)
     if response.text:
@@ -164,3 +175,39 @@ class RemoteModelInterface(model_interface.ModelInterface):
       )
 
     return action_chunk
+
+  def _update_latency_metrics(
+      self, response: Any, client_round_trip_ms: float
+  ) -> None:
+    """Calculates and updates remote inference time and network overhead."""
+    backend_req_time = getattr(response, "backend_request_time", None)
+    backend_res_time = getattr(response, "backend_response_time", None)
+
+    if isinstance(backend_req_time, str) and isinstance(backend_res_time, str):
+      try:
+        req_dt = datetime.datetime.fromisoformat(
+            backend_req_time.replace("Z", "+00:00")
+        )
+        res_dt = datetime.datetime.fromisoformat(
+            backend_res_time.replace("Z", "+00:00")
+        )
+        self._last_remote_inference_time_ms = (
+            res_dt - req_dt
+        ).total_seconds() * 1000.0
+        self._last_network_overhead_ms = max(
+            0.0, client_round_trip_ms - self._last_remote_inference_time_ms
+        )
+      except (ValueError, TypeError):
+        self._last_remote_inference_time_ms = None
+        self._last_network_overhead_ms = None
+    else:
+      self._last_remote_inference_time_ms = None
+      self._last_network_overhead_ms = None
+
+  @property
+  def last_remote_inference_time_ms(self) -> float | None:
+    return self._last_remote_inference_time_ms
+
+  @property
+  def last_network_overhead_ms(self) -> float | None:
+    return self._last_network_overhead_ms

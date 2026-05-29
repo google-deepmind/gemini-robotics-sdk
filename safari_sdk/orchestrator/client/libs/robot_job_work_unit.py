@@ -25,10 +25,13 @@ from safari_sdk.orchestrator.client.dataclass import work_unit
 from safari_sdk.orchestrator.client.libs import robot_job
 
 WORK_UNIT = work_unit.WorkUnit
+WORK_UNIT_CONTEXT = work_unit.WorkUnitContext
 WORK_UNIT_OUTCOME = work_unit.WorkUnitOutcome
 WORK_UNIT_QUESTION = work_unit.Question
 QUESTION_CONDITION = work_unit.QuestionCondition
 QUESTION_ANSWER_TYPE = work_unit.AnswerType
+POLICY_DETAILS = work_unit.PolicyDetails
+SCENE_PRESET_DETAILS = work_unit.ScenePresetDetails
 KV_MSG = work_unit.KvMsg
 KV_MSG_TYPE = work_unit.KvMsgValueType
 KV_MSG_VALUE = work_unit.KvMsgValue
