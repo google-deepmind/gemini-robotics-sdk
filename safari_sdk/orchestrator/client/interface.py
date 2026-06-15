@@ -14,6 +14,7 @@
 
 """Central interface to access external API to Orchestrator API functions."""
 
+import datetime
 import functools
 import random
 import threading
@@ -23,6 +24,7 @@ from safari_sdk.orchestrator.client.dataclass import api_response
 from safari_sdk.orchestrator.client.libs import artifact
 from safari_sdk.orchestrator.client.libs import current_robot
 from safari_sdk.orchestrator.client.libs import operator_event
+from safari_sdk.orchestrator.client.libs import robot_event
 from safari_sdk.orchestrator.client.libs import robot_job
 from safari_sdk.orchestrator.client.libs import robot_job_work_unit
 from safari_sdk.orchestrator.client.libs import rui_workcell_state
@@ -121,12 +123,17 @@ class OrchestratorInterface:
       self,
       *,
       robot_id: str,
-      job_type: JOB_TYPE,
+      # TODO: Remove once users have migrated to job_type_codes.
+      job_type: JOB_TYPE | None = None,
+      # TODO: Remove default None value once job_type is removed.
+      job_type_codes: list[str] | None = None,
       hostname: str | None = None,
       observer_mode: bool = False,
   ):
     self._robot_id = robot_id
+    # TODO: Remove once users have migrated to job_type_codes.
     self._job_type = job_type
+    self._job_type_codes = job_type_codes
     self._hostname = hostname
     self._observer_mode = observer_mode
 
@@ -137,6 +144,7 @@ class OrchestratorInterface:
     self._robot_job_lib = None
     self._robot_job_work_unit_lib = None
     self._operator_event_lib = None
+    self._robot_event_lib = None
     self._artifact_lib = None
     self._rui_workcell_state_lib = None
     self._visual_overlay = {}
@@ -173,7 +181,9 @@ class OrchestratorInterface:
     self._robot_job_lib = robot_job.OrchestratorRobotJob(
         connection=self._connection,
         robot_id=self._robot_id,
+        # TODO: Remove once users have migrated to job_type_codes.
         job_type=self._job_type,
+        job_type_codes=self._job_type_codes,
     )
     self._robot_job_work_unit_lib = (
         robot_job_work_unit.OrchestratorRobotJobWorkUnit(
@@ -182,6 +192,10 @@ class OrchestratorInterface:
         )
     )
     self._operator_event_lib = operator_event.OrchestratorOperatorEvent(
+        connection=self._connection,
+        robot_id=self._robot_id,
+    )
+    self._robot_event_lib = robot_event.OrchestratorRobotEvent(
         connection=self._connection,
         robot_id=self._robot_id,
     )
@@ -285,6 +299,38 @@ class OrchestratorInterface:
           event_timestamp=event_timestamp,
           resetter_id=resetter_id,
           event_note=event_note,
+      )
+
+  @_check_orchestrator_interface_requirements(
+      observer_check="disallow",
+      require_connection=True,
+      required_libs=["_robot_event_lib"],
+  )
+  def add_robot_event(
+      self,
+      event_type: str,
+      payload: dict[str, object],
+      event_timestamp: datetime.datetime | str | None = None,
+  ) -> RESPONSE:
+    """Creates a new config-driven robot event.
+
+    Args:
+      event_type: Config-driven event type string (e.g. "break_ergo",
+        "battery_level_info").
+      payload: Dictionary of event properties validated against partner config.
+      event_timestamp: Optional timestamp of the event. Can be a
+        datetime.datetime object or an RFC 3339 string. If not set, the server
+        will use the commit time.
+
+    Returns:
+      OrchestratorAPIResponse with success status.
+    """
+    assert self._robot_event_lib is not None
+    with self._rpc_lock:
+      return self._robot_event_lib.add_robot_event(
+          event_type=event_type,
+          payload=payload,
+          event_timestamp=event_timestamp,
       )
 
   @_check_orchestrator_interface_requirements(
@@ -681,7 +727,9 @@ class OrchestratorInterface:
     assert self._robot_job_work_unit_lib is not None
     with self._rpc_lock:
       return self._robot_job_work_unit_lib.observe_latest_work_unit(
-          job_type=self._job_type
+          # TODO: Remove once users migrated to job_type_codes.
+          job_type=self._job_type,
+          job_type_codes=self._job_type_codes,
       )
 
   def create_kv_msg(

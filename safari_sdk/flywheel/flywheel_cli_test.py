@@ -1561,6 +1561,11 @@ class FlywheelCliTest(parameterized.TestCase):
     self.assertIn("test_task_id", output)
     self.assertIn("2024-12-01", output)
     self.assertIn("2024-12-02", output)
+    self.assertIn("100", output)
+    self.assertIn("200", output)
+    self.assertNotIn("Success count", output)
+    self.assertNotIn("50", output)
+    self.assertNotIn("150", output)
 
   @parameterized.named_parameters(
       (

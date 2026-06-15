@@ -56,6 +56,40 @@ class OrchestratorHelperTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertEqual(response.robot_id, "test_robot_id")
 
+  def test_job_type_codes_only_valid(self):
+    helper = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type_codes=["test_code"],
+    )
+    self.assertEqual(helper._job_type_codes, ["test_code"])
+    self.assertIsNone(helper._job_type)
+
+  def test_job_type_only_valid(self):
+    helper = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    self.assertEqual(helper._job_type, orchestrator_helper.JOB_TYPE.ALL)
+    self.assertIsNone(helper._job_type_codes)
+
+  def test_both_job_type_and_job_type_codes_valid(self):
+    helper = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        job_type_codes=["test_code"],
+    )
+    self.assertEqual(helper._job_type, orchestrator_helper.JOB_TYPE.ALL)
+    self.assertEqual(helper._job_type_codes, ["test_code"])
+
+  def test_both_job_type_and_job_type_codes_empty_raises_value_error(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        "OrchestratorHelper: job_type_code must be set.",
+    ):
+      orchestrator_helper.OrchestratorHelper(
+          robot_id="test_robot_id",
+      )
+
   def test_connect_no_robot_id_and_no_hostname_bad(self):
     with self.assertRaisesRegex(
         ValueError,
@@ -505,6 +539,61 @@ class OrchestratorHelperTest(absltest.TestCase):
           event_timestamp=123456789,
           resetter_id="test_resetter_id",
           event_note="test_event_note",
+      )
+
+  def test_add_robot_event_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.add_robot_event.return_value = (
+        orchestrator_helper.interface.RESPONSE(success=True)
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.add_robot_event(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        event_timestamp="2026-05-29T17:11:46Z",
+    )
+    self.assertTrue(response.success)
+    mock_interface.add_robot_event.assert_called_once_with(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        event_timestamp="2026-05-29T17:11:46Z",
+    )
+
+  def test_add_robot_event_bad_without_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+
+    response = helper_lib.add_robot_event(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        event_timestamp="2026-05-29T17:11:46Z",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, orchestrator_helper._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  def test_add_robot_event_bad_with_raise_error(self):
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+        raise_error=True,
+    )
+
+    with self.assertRaises(ValueError):
+      helper_lib.add_robot_event(
+          event_type="break_ergo",
+          payload={"operator_id": "user123"},
+          event_timestamp="2026-05-29T17:11:46Z",
       )
 
   def test_request_work_unit_good(self):
@@ -1816,13 +1905,15 @@ class OrchestratorHelperTestWithMockInterface(absltest.TestCase):
     def __init__(
         self,
         robot_id: str,
-        job_type: orchestrator_helper.JOB_TYPE,
+        job_type: orchestrator_helper.JOB_TYPE | None = None,
+        job_type_codes: list[str] | None = None,
         hostname: str | None = None,
         observer_mode: bool = False,
     ):
       super().__init__(
           robot_id=robot_id,
           job_type=job_type,
+          job_type_codes=job_type_codes,
           hostname=hostname,
           observer_mode=observer_mode,
       )

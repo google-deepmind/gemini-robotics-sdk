@@ -39,6 +39,38 @@ class RobotJobTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertIsInstance(response.robot_job, robot_job.robot_job.RobotJob)
 
+  def test_job_type_codes_only_valid(self):
+    mock_connection = mock.MagicMock()
+    robot_job_lib = robot_job.OrchestratorRobotJob(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+        job_type_codes=["test_code"],
+    )
+    self.assertEqual(robot_job_lib._job_type_codes, ["test_code"])
+    # Verify defaults are set cleanly
+    self.assertEqual(robot_job_lib._job_type, robot_job.JobType.ALL)
+
+  def test_job_type_only_valid(self):
+    mock_connection = mock.MagicMock()
+    robot_job_lib = robot_job.OrchestratorRobotJob(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+        job_type=robot_job.JobType.COLLECTION,
+    )
+    self.assertEqual(robot_job_lib._job_type, robot_job.JobType.COLLECTION)
+    self.assertEmpty(robot_job_lib._job_type_codes)
+
+  def test_both_job_type_and_job_type_codes_valid(self):
+    mock_connection = mock.MagicMock()
+    robot_job_lib = robot_job.OrchestratorRobotJob(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+        job_type=robot_job.JobType.EVALUATION,
+        job_type_codes=["test_code"],
+    )
+    self.assertEqual(robot_job_lib._job_type, robot_job.JobType.EVALUATION)
+    self.assertEqual(robot_job_lib._job_type_codes, ["test_code"])
+
   def test_get_current_robot_job_bad(self):
     mock_connection = mock.MagicMock()
     robot_job_lib = robot_job.OrchestratorRobotJob(

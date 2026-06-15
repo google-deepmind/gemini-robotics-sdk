@@ -15,6 +15,7 @@
 import sys
 from dm_env import specs
 import numpy as np
+from google.protobuf import struct_pb2
 from absl.testing import absltest
 from absl.testing import parameterized
 from safari_sdk.logging.python import constants
@@ -372,6 +373,83 @@ class MetadataUtilsTest(parameterized.TestCase):
         spec_proto.action[constants.ACTION_KEY_PREFIX].shape,
         [1, 2, 3],
     )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="none",
+          value=None,
+          validator=lambda self, val: self.assertEqual(
+              val.null_value, struct_pb2.NULL_VALUE
+          ),
+      ),
+      dict(
+          testcase_name="bool",
+          value=True,
+          validator=lambda self, val: self.assertTrue(val.bool_value),
+      ),
+      dict(
+          testcase_name="int",
+          value=42,
+          validator=lambda self, val: self.assertEqual(val.number_value, 42.0),
+      ),
+      dict(
+          testcase_name="float",
+          value=3.14,
+          validator=lambda self, val: self.assertEqual(val.number_value, 3.14),
+      ),
+      dict(
+          testcase_name="string",
+          value="hello",
+          validator=lambda self, val: self.assertEqual(
+              val.string_value, "hello"
+          ),
+      ),
+      dict(
+          testcase_name="dict",
+          value={"a": 1, "b": "two"},
+          validator=lambda self, val: (
+              self.assertEqual(val.struct_value.fields["a"].number_value, 1.0),
+              self.assertEqual(
+                  val.struct_value.fields["b"].string_value, "two"
+              ),
+          ),
+      ),
+      dict(
+          testcase_name="list",
+          value=[1, "two"],
+          validator=lambda self, val: (
+              self.assertEqual(val.list_value.values[0].number_value, 1.0),
+              self.assertEqual(val.list_value.values[1].string_value, "two"),
+          ),
+      ),
+  )
+  def test_to_struct_value(self, value, validator):
+    val = session_metadata_lib._to_struct_value(value)
+    validator(self, val)
+
+  def test_add_or_overwrite_session_metadata_with_various_types(self):
+    session = session_metadata_lib.metadata_pb2.Session()
+    config = session_metadata_lib.SessionMetadataConfig(
+        dynamic_metadata_provider=lambda: {
+            "str_key": "str_val",
+            "int_key": 42,
+            "bool_key": True,
+            "dict_key": {"nested_key": "nested_val"},
+            "list_key": [1, 2, 3],
+        }
+    )
+    session_metadata_lib.add_or_overwrite_session_metadata(session, config)
+
+    labels = {l.key: l.label_value for l in session.labels}
+    self.assertEqual(labels["str_key"].string_value, "str_val")
+    self.assertEqual(labels["int_key"].number_value, 42.0)
+    self.assertTrue(labels["bool_key"].bool_value)
+    self.assertEqual(
+        labels["dict_key"].struct_value.fields["nested_key"].string_value,
+        "nested_val",
+    )
+    self.assertEqual(labels["list_key"].list_value.values[0].number_value, 1.0)
+
 
 if __name__ == "__main__":
   absltest.main()

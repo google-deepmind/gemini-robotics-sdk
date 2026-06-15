@@ -271,5 +271,105 @@ class UploadDataDirectoryTest(parameterized.TestCase):
     )
 
 
+class UploadSingleFilePublicTest(parameterized.TestCase):
+
+  @mock.patch.object(upload_data, '_check_session_size')
+  @mock.patch.object(upload_data, '_upload_file')
+  @mock.patch.object(upload_data.auth, 'get_api_key')
+  def test_upload_single_file_success(
+      self,
+      mock_get_api_key,
+      mock_upload_file,
+      mock_check_session_size,
+  ):
+    del mock_check_session_size
+    mock_get_api_key.return_value = 'test_api_key_123'
+    mock_upload_file.return_value = (200, 'OK')
+
+    temp_dir = self.create_tempdir()
+    file_path = temp_dir.create_file(
+        'data.mcap', content='dummy content'
+    ).full_path
+
+    success, msg = upload_data.upload_single_file(
+        api_endpoint='https://example.com/upload',
+        file_path=file_path,
+        robot_id='test_agent_001',
+    )
+
+    self.assertTrue(success)
+    self.assertIn('Uploaded successfully', msg)
+    self.assertTrue(os.path.exists(file_path + '.uploaded'))
+    self.assertFalse(os.path.exists(file_path))
+
+    mock_upload_file.assert_called_once_with(
+        api_endpoint='https://example.com/upload',
+        agent_id='test_agent_001',
+        filename='data.mcap',
+        file_content_bytes=b'dummy content',
+        api_key='test_api_key_123',
+        now=mock.ANY,
+    )
+
+  @mock.patch.object(upload_data.auth, 'get_api_key')
+  def test_upload_single_file_no_api_key(self, mock_get_api_key):
+    mock_get_api_key.return_value = None
+    with self.assertRaisesRegex(ValueError, 'No API key found.'):
+      upload_data.upload_single_file(
+          api_endpoint='https://example.com/upload',
+          file_path='some_file.mcap',
+          robot_id='test_agent_001',
+      )
+
+  @mock.patch.object(upload_data.auth, 'get_api_key')
+  def test_upload_single_file_not_mcap(self, mock_get_api_key):
+    mock_get_api_key.return_value = 'test_api_key_123'
+    with self.assertRaisesRegex(ValueError, 'File must be an MCAP file.'):
+      upload_data.upload_single_file(
+          api_endpoint='https://example.com/upload',
+          file_path='some_file.txt',
+          robot_id='test_agent_001',
+      )
+
+  @mock.patch.object(upload_data.auth, 'get_api_key')
+  def test_upload_single_file_not_found(self, mock_get_api_key):
+    mock_get_api_key.return_value = 'test_api_key_123'
+    with self.assertRaises(FileNotFoundError):
+      upload_data.upload_single_file(
+          api_endpoint='https://example.com/upload',
+          file_path='non_existent_file.mcap',
+          robot_id='test_agent_001',
+      )
+
+  @mock.patch.object(upload_data, '_check_session_size')
+  @mock.patch.object(upload_data, '_upload_file')
+  @mock.patch.object(upload_data.auth, 'get_api_key')
+  def test_upload_single_file_api_failure(
+      self,
+      mock_get_api_key,
+      mock_upload_file,
+      mock_check_session_size,
+  ):
+    del mock_check_session_size
+    mock_get_api_key.return_value = 'test_api_key_123'
+    mock_upload_file.return_value = (400, 'Bad Request')
+
+    temp_dir = self.create_tempdir()
+    file_path = temp_dir.create_file(
+        'data.mcap', content='dummy content'
+    ).full_path
+
+    success, msg = upload_data.upload_single_file(
+        api_endpoint='https://example.com/upload',
+        file_path=file_path,
+        robot_id='test_agent_001',
+    )
+
+    self.assertFalse(success)
+    self.assertEqual(msg, 'Bad Request')
+    self.assertFalse(os.path.exists(file_path + '.uploaded'))
+    self.assertTrue(os.path.exists(file_path))
+
+
 if __name__ == '__main__':
   absltest.main()

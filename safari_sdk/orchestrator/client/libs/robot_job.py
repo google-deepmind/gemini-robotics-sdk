@@ -44,6 +44,7 @@ _ERROR_EMPTY_ROBOT_JOB_ID = (
 )
 
 
+# TODO: Remove once users have migrated to job_type_code.
 class JobType(enum.Enum):
   """Type of robot job."""
   # This "ALL" enum value is an unique usage, where it maps to the default proto
@@ -63,12 +64,24 @@ class OrchestratorRobotJob:
       *,
       connection: discovery.Resource,
       robot_id: str,
-      job_type: JobType,
+      # TODO: Remove once users have migrated to job_type_code.
+      job_type: JobType | None = None,
+      # TODO: Remove default None value once job_type is removed.
+      job_type_codes: list[str] | None = None,
   ):
     """Initializes the robot job handler."""
     self._connection = connection
     self._robot_id = robot_id
+    # TODO: Remove once users have migrated to job_type_code.
     self._job_type = job_type
+    self._job_type_codes = job_type_codes
+
+    # TODO: Remove once users have migrated to job_type_code.
+    if self._job_type is None:
+      self._job_type = JobType.ALL
+    # TODO: Remove once users have migrated to job_type_code.
+    if self._job_type_codes is None:
+      self._job_type_codes = []
 
     self._current_robot_job: robot_job.RobotJob | None = None
 
@@ -93,11 +106,17 @@ class OrchestratorRobotJob:
     if self._connection is None:
       return _RESPONSE(error_message=_ERROR_NO_ORCHESTRATOR_CONNECTION)
 
+    # TODO: Remove once users have migrated to job_type_code.
+    assert self._job_type is not None
+    assert self._job_type_codes is not None
+
     tracer = time.time_ns()
     error_id = f"[Error ID: {tracer}]"
     body = {
         "robot_id": self._robot_id,
+        # TODO: Remove once users have migrated to job_type_code.
         "type": self._job_type.value,
+        "robot_job_types": self._job_type_codes,
         "tracer": tracer,
     }
 

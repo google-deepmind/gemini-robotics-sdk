@@ -45,13 +45,13 @@ class OrchestratorAPIResponse:
       specified within the current work unit.
     project_id: Project ID for the current robot job and work unit.
     robot_id: Robot ID for the current robot job and work unit.
-    robot_job: Actual RobotJob dataclass object, containing all the values
-      of the current robot job.
+    robot_job: Actual RobotJob dataclass object, containing all the values of
+      the current robot job.
     robot_job_id: Robot job ID for the current robot job and work unit.
     launch_command: Launch command for the current robot job.
     work_unit_id: Work unit ID for the current work unit.
-    work_unit: Actual WorkUnit dataclass object, containing all the values
-      of the current work unit.
+    work_unit: Actual WorkUnit dataclass object, containing all the values of
+      the current work unit.
     work_unit_stage: Current stage of the work unit, if any.
     operator_id: Current operator ID for the robot, if any.
     is_operational: Whether the robot is operational.
@@ -65,6 +65,7 @@ class OrchestratorAPIResponse:
     artifact_uri: Download URI for the specified artifact.
     latest_robot_release_configs: Latest robot release configs for the fleet.
     artifact_id: Artifact ID for the uploaded text log artifact.
+    event_id: Event ID for the recorded robot event.
   """
 
   success: bool = False
@@ -91,3 +92,4 @@ class OrchestratorAPIResponse:
   artifact_uri: str | None = None
   latest_robot_release_configs: list[work_unit_data.KvMsg] | None = None
   artifact_id: str | None = None
+  event_id: str | None = None

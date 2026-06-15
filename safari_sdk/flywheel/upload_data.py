@@ -172,3 +172,54 @@ def upload_data_directory(
       )
     else:
       print(f'No .mcap files found in {data_directory}.')
+
+
+def upload_single_file(
+    api_endpoint,
+    file_path,
+    robot_id,
+):
+  """Upload a single file."""
+  api_key = auth.get_api_key()
+  if not api_key:
+    raise ValueError('No API key found.')
+
+  if not file_path.endswith('.mcap'):
+    raise ValueError('File must be an MCAP file.')
+
+  if not os.path.exists(file_path):
+    raise FileNotFoundError(f'File not found: {file_path}')
+
+  with open(file_path, 'rb') as f:
+    file_content_bytes = f.read()
+  file_size_mb = len(file_content_bytes) / (1024 * 1024)
+
+  _check_session_size(file_content_bytes)
+
+  t_start = time.time()
+  status_code, reason = _upload_file(
+      api_endpoint=api_endpoint,
+      agent_id=robot_id,
+      filename=os.path.basename(file_path),
+      file_content_bytes=file_content_bytes,
+      api_key=api_key,
+      now=datetime.datetime.now(pytz.timezone('America/Los_Angeles')),
+  )
+  t_end = time.time()
+
+  if status_code == 200:
+    uploaded_file_path = file_path + '.uploaded'
+    os.rename(file_path, uploaded_file_path)
+    upload_speed_mb_s = file_size_mb / (t_end - t_start)
+    print(
+        f'Uploaded {os.path.basename(file_path)} ({file_size_mb:.2f} MB) and'
+        f' renamed to {uploaded_file_path} in {t_end - t_start:.2f}s'
+        f' ({upload_speed_mb_s:.2f} MB/s)'
+    )
+    return True, f'Uploaded successfully in {t_end - t_start:.2f}s'
+  else:
+    print(
+        f'Failed to upload {os.path.basename(file_path)}'
+        f' ({file_size_mb:.2f} MB): {reason}'
+    )
+    return False, reason

@@ -39,11 +39,11 @@ _ROBOT_ID = flags.DEFINE_string(
     required=True,
 )
 
-_JOB_TYPE = flags.DEFINE_enum_class(
-    name="job_type",
-    default=orchestrator_helper.JOB_TYPE.ALL,
-    enum_class=orchestrator_helper.JOB_TYPE,
-    help="Type of job to run.",
+_JOB_TYPE_CODE_NAMES = flags.DEFINE_multi_string(
+    name="job_type_code_names",
+    default=None,
+    help="Job type code names to run.",
+    required=True,
 )
 
 # The flags below are optional.
@@ -63,6 +63,7 @@ def _print_orchestrator_work_unit_info(
   """Prints out details of the given work unit dataclass."""
   print(f" Work Unit dataclass: {work_unit}\n")
   print(" ----------------------------------------------------------------\n")
+  print(f" Robot Job type: {work_unit.obfuscatedJobTypeCode}")
   print(f" Robot Job ID: {work_unit.robotJobId}")
   print(f" Work Unit ID: {work_unit.workUnitId}")
   print(f" Work Unit stage: {work_unit.stage}")
@@ -209,7 +210,7 @@ def main(argv: Sequence[str]) -> None:
   print(" - Initializing and connecting to orchestrator -\n")
   orchestrator_client = orchestrator_helper.OrchestratorHelper(
       robot_id=_ROBOT_ID.value,
-      job_type=_JOB_TYPE.value,
+      job_type_codes=_JOB_TYPE_CODE_NAMES.value,
       observer_mode=True,
       raise_error=_RAISE_ERROR.value,
   )

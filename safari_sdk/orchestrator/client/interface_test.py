@@ -103,6 +103,31 @@ class InterfaceTest(absltest.TestCase):
           value="test_value",
       )
 
+  def test_job_type_codes_only_valid(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type_codes=["test_code"],
+    )
+    self.assertEqual(interface_lib._job_type_codes, ["test_code"])
+    self.assertIsNone(interface_lib._job_type)
+
+  def test_job_type_only_valid(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.COLLECTION,
+    )
+    self.assertEqual(interface_lib._job_type, interface.JOB_TYPE.COLLECTION)
+    self.assertIsNone(interface_lib._job_type_codes)
+
+  def test_both_job_type_and_job_type_codes_valid(self):
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.EVALUATION,
+        job_type_codes=["test_code"],
+    )
+    self.assertEqual(interface_lib._job_type, interface.JOB_TYPE.EVALUATION)
+    self.assertEqual(interface_lib._job_type_codes, ["test_code"])
+
   @mock.patch(
       "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
       return_value=interface.current_robot._RESPONSE(
@@ -220,6 +245,14 @@ class InterfaceTest(absltest.TestCase):
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
         event_note="test_event_note",
+    )
+    self.assertFalse(response.success)
+    self.assertEqual(response.error_message, interface._ERROR_IN_OBSERVER_MODE)
+
+    response = interface_lib.add_robot_event(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        note="test_note",
     )
     self.assertFalse(response.success)
     self.assertEqual(response.error_message, interface._ERROR_IN_OBSERVER_MODE)
@@ -614,6 +647,71 @@ class InterfaceTest(absltest.TestCase):
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
         event_note="test_event_note",
+    )
+
+    # Assertions
+    self.assertFalse(response.success)
+    self.assertEqual(
+        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
+    )
+
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  def test_add_robot_event(self, *_):
+    # Mock auth.get_service
+    mock_auth_get_service = self.enter_context(
+        mock.patch.object(interface.auth, "get_service", autospec=True)
+    )
+    mock_connection = mock.MagicMock()
+    mock_auth_get_service.return_value = mock_connection
+
+    # Mock robot_event.OrchestratorRobotEvent
+    mock_robot_event_class = self.enter_context(
+        mock.patch.object(
+            interface.robot_event, "OrchestratorRobotEvent", autospec=True
+        )
+    )
+    mock_robot_event = mock_robot_event_class.return_value
+    mock_robot_event.add_robot_event.return_value = interface._SUCCESS
+
+    # Create OrchestratorInterface instance
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    # Connect
+    interface_lib.connect()
+
+    # Call add_robot_event
+    response = interface_lib.add_robot_event(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        event_timestamp="2026-05-29T17:11:46Z",
+    )
+
+    # Assertions
+    self.assertTrue(response.success)
+    mock_robot_event.add_robot_event.assert_called_once_with(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        event_timestamp="2026-05-29T17:11:46Z",
+    )
+
+  def test_add_robot_event_no_connection(self):
+    # Create OrchestratorInterface instance
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    # Call add_robot_event without connect
+    response = interface_lib.add_robot_event(
+        event_type="break_ergo",
+        payload={"operator_id": "user123"},
+        event_timestamp="2026-05-29T17:11:46Z",
     )
 
     # Assertions

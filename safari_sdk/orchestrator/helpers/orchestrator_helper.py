@@ -123,6 +123,7 @@ mock binary at:
   orchestrator/example_client_sdk_robot_and_operator_info.py.
 """
 
+import datetime
 from safari_sdk.orchestrator.client import interface
 
 RESPONSE = interface.RESPONSE
@@ -158,6 +159,11 @@ _ERROR_BOTH_ROBOT_ID_AND_HOSTNAME_SET = (
     " wish to use hostname instead of robot_id, please set the value of"
     " robot_id as an empty string."
 )
+# TODO: Remove once users have migrated to job_type_code.
+_ERROR_NO_JOB_TYPE_CODE_SET = (
+    "OrchestratorHelper: job_type_code must be set. If you do not know what the"
+    " job_type_code is, please contact the TTP team."
+)
 
 
 class OrchestratorHelper:
@@ -166,7 +172,9 @@ class OrchestratorHelper:
   _interface: interface.OrchestratorInterface | None = None
   _interface_type: type[interface.OrchestratorInterface] | None = None
   _robot_id: str | None
-  _job_type: JOB_TYPE
+  # TODO: Remove once users have migrated to job_type_code.
+  _job_type: JOB_TYPE | None
+  _job_type_codes: list[str] | None
   _raise_error: bool
   _hostname: str | None
 
@@ -174,7 +182,10 @@ class OrchestratorHelper:
       self,
       *,
       robot_id: str,
-      job_type: JOB_TYPE,
+      # TODO: Remove once users have migrated to job_type_code.
+      job_type: JOB_TYPE | None = None,
+      # TODO: Remove default None value once job_type is removed.
+      job_type_codes: list[str] | None = None,
       raise_error: bool = False,
       hostname: str | None = None,
       observer_mode: bool = False,
@@ -184,7 +195,10 @@ class OrchestratorHelper:
 
     Args:
       robot_id: The ID of the robot to connect to the orchestrator server.
-      job_type: The type of job to connect to the orchestrator server.
+      job_type: [Deprecated] Please use job_type_code instead. The type of job
+        to connect to the orchestrator server.
+      job_type_codes: List of code names of the job type to request from the
+        orchestrator server.
       raise_error: Whether to raise an error if the orchestrator server returns
         an error.
       hostname: [Optional] The hostname of the robot to connect as. This is used
@@ -197,7 +211,9 @@ class OrchestratorHelper:
     self._interface_type = interface_type or interface.OrchestratorInterface
     self._interface = None
     self._robot_id = robot_id
+    # TODO: Remove once users have migrated to job_type_code.
     self._job_type = job_type
+    self._job_type_codes = job_type_codes
     self._raise_error = raise_error
     self._hostname = hostname
     self._observer_mode = observer_mode
@@ -208,6 +224,10 @@ class OrchestratorHelper:
     if robot_id and hostname:
       raise ValueError(_ERROR_BOTH_ROBOT_ID_AND_HOSTNAME_SET)
 
+    # TODO: Update this once users have migrated to job_type_code.
+    if not job_type and not job_type_codes:
+      raise ValueError(_ERROR_NO_JOB_TYPE_CODE_SET)
+
   def connect(self) -> RESPONSE:
     """Connects to the orchestrator server."""
     if self._interface is not None:
@@ -215,7 +235,9 @@ class OrchestratorHelper:
 
     self._interface = self._interface_type(
         robot_id=self._robot_id,
+        # TODO: Remove once users have migrated to job_type_code.
         job_type=self._job_type,
+        job_type_codes=self._job_type_codes,
         hostname=self._hostname,
         observer_mode=self._observer_mode,
     )
@@ -295,6 +317,36 @@ class OrchestratorHelper:
         event_timestamp=event_timestamp,
         resetter_id=resetter_id,
         event_note=event_note,
+    )
+
+  def add_robot_event(
+      self,
+      event_type: str,
+      payload: dict[str, object],
+      event_timestamp: datetime.datetime | str | None = None,
+  ) -> RESPONSE:
+    """Creates a new config-driven robot event.
+
+    Args:
+      event_type: Config-driven event type string (e.g. "break_ergo",
+        "battery_level_info").
+      payload: Dictionary of event properties validated against partner config.
+      event_timestamp: Optional timestamp of the event. Can be a
+        datetime.datetime object or an RFC 3339 string. If not set, the server
+        will use the commit time.
+
+    Returns:
+      OrchestratorAPIResponse with success status.
+    """
+    if self._interface is None:
+      if self._raise_error:
+        raise ValueError(_ERROR_NO_ACTIVE_CONNECTION)
+      return RESPONSE(error_message=_ERROR_NO_ACTIVE_CONNECTION)
+
+    return self._interface.add_robot_event(
+        event_type=event_type,
+        payload=payload,
+        event_timestamp=event_timestamp,
     )
 
   def request_work_unit(self) -> RESPONSE:

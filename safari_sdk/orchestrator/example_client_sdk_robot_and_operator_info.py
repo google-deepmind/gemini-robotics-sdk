@@ -39,11 +39,11 @@ _ROBOT_ID = flags.DEFINE_string(
     required=True,
 )
 
-_JOB_TYPE = flags.DEFINE_enum_class(
-    name="job_type",
-    default=orchestrator_helper.JOB_TYPE.ALL,
-    enum_class=orchestrator_helper.JOB_TYPE,
-    help="Type of job to run.",
+_JOB_TYPE_CODE_NAMES = flags.DEFINE_multi_string(
+    name="job_type_code_names",
+    default=None,
+    help="Job type code names to run.",
+    required=True,
 )
 
 # The flags below are optional.
@@ -128,7 +128,7 @@ def main(argv: Sequence[str]) -> None:
   print(" - Initializing and connecting to orchestrator -\n")
   orchestrator_client = orchestrator_helper.OrchestratorHelper(
       robot_id=_ROBOT_ID.value,
-      job_type=_JOB_TYPE.value,
+      job_type_codes=_JOB_TYPE_CODE_NAMES.value,
       raise_error=_RAISE_ERROR.value,
   )
   response = orchestrator_client.connect()

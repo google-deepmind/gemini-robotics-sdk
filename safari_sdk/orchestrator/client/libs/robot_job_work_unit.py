@@ -547,15 +547,30 @@ class OrchestratorRobotJobWorkUnit:
         work_unit=self._current_work_unit,
     )
 
-  def observe_latest_work_unit(self, job_type: robot_job.JobType) -> _RESPONSE:
+  def observe_latest_work_unit(
+      self,
+      # TODO: Remove once users have migrated to job_type_codes.
+      job_type: robot_job.JobType | None = None,
+      # TODO: Remove default None value once job_type is removed.
+      job_type_codes: list[str] | None = None,
+  ) -> _RESPONSE:
     """Observes the latest work unit."""
     if self._connection is None:
       return _RESPONSE(error_message=_ERROR_NO_ORCHESTRATOR_CONNECTION)
 
+    # TODO: Remove once users have migrated to job_type_codes.
+    if job_type is None:
+      job_type = robot_job.JobType.ALL
+    # TODO: Remove once users have migrated to job_type_codes.
+    if job_type_codes is None:
+      job_type_codes = []
+
     tracer = time.time_ns()
     error_id = f"[Error ID: {tracer}]"
     body = {
+        # TODO: Remove once users have migrated to job_type_codes.
         "job_type": job_type.value,
+        "robot_job_types": job_type_codes,
         "robot_id": self._robot_id,
         "tracer": tracer,
     }

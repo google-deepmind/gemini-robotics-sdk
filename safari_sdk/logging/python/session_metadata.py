@@ -17,6 +17,7 @@
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import sys
+from typing import Any
 
 from dm_env import specs
 import numpy as np
@@ -71,11 +72,37 @@ class SessionMetadataConfig:
   control_timestep_seconds: float = 0.0
   fixed_tags: Sequence[str] = ()
   dynamic_episode_taggers: Sequence[Callable[[], Sequence[str]]] = ()
-  dynamic_metadata_provider: Callable[[], Mapping[str, str]] | None = None
+  dynamic_metadata_provider: Callable[[], Mapping[str, Any]] | None = None
   is_success_provider: Callable[[], bool] | None = None
   orchestrator_info_provider: (
       Callable[[], orchestrator_info_pb2.OrchestratorInfo] | None
   ) = None
+
+
+def _to_struct_value(value: Any) -> struct_pb2.Value:
+  """Converts a value to a struct_pb2.Value."""
+  if value is None:
+    return struct_pb2.Value(null_value=struct_pb2.NULL_VALUE)
+  elif isinstance(value, bool):
+    return struct_pb2.Value(bool_value=value)
+  elif isinstance(value, (int, float)):
+    return struct_pb2.Value(number_value=float(value))
+  elif isinstance(value, str):
+    return struct_pb2.Value(string_value=value)
+  elif isinstance(value, dict):
+    return struct_pb2.Value(
+        struct_value=struct_pb2.Struct(
+            fields={k: _to_struct_value(v) for k, v in value.items()}
+        )
+    )
+  elif isinstance(value, (list, tuple)):
+    return struct_pb2.Value(
+        list_value=struct_pb2.ListValue(
+            values=[_to_struct_value(v) for v in value]
+        )
+    )
+  else:
+    raise ValueError(f"Unsupported type: {type(value)}")
 
 
 def add_or_overwrite_session_metadata(
@@ -119,7 +146,7 @@ def add_or_overwrite_session_metadata(
       session.labels.append(
           label_pb2.LabelMessage(
               key=key,
-              label_value=struct_pb2.Value(string_value=value),
+              label_value=_to_struct_value(value),
           )
       )
 

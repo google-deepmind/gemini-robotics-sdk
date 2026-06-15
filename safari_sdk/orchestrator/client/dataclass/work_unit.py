@@ -586,6 +586,7 @@ class WorkUnit:
   stage: WorkUnitStage | None = None
   outcome: WorkUnitOutcome | None = None
   note: str | None = None
+  obfuscatedJobTypeCode: str | None = None
 
   def __post_init__(self):
     if self.stage is None:

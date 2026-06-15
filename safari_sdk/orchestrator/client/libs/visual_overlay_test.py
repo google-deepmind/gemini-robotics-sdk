@@ -871,6 +871,96 @@ class RendererTest(absltest.TestCase):
         text='test', font_scale=0.75, thickness=2, icon_object=container
     )
 
+  def test_get_image_as_bytes_png(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    response = renderer.get_image_as_bytes(
+        img_format=visual_overlay.ImageFormat.PNG
+    )
+
+    self.assertTrue(response.success)
+    self.assertIsInstance(response.visual_overlay_image, bytes)
+    self.assertNotEmpty(response.visual_overlay_image)
+
+  def test_render_overlay_with_empty_label(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    renderer.add_single_object(
+        overlay_object=visual_overlay.visual_overlay_icon.DrawCircleIcon(
+            object_id='test_object_id_1',
+            overlay_text_label='',
+            rgb_hex_color_value='FF0000',
+            layer_order=1,
+            x=50,
+            y=50,
+        )
+    )
+    response = renderer.render_overlay()
+    self.assertTrue(response.success)
+
+    scene_objects = [
+        _work_unit.SceneObject(
+            objectId='test_object_id_2',
+            evaluationLocation=_work_unit.FixedLocation(
+                overlayIcon=_work_unit.OverlayObjectIcon.OVERLAY_OBJECT_ICON_CIRCLE,
+                location=_work_unit.PixelVector(
+                    coordinate=_work_unit.PixelLocation(x=10, y=10)
+                ),
+            ),
+            sceneReferenceImageArtifactId='test_artifact_id_1',
+        ),
+    ]
+    response = renderer.load_scene_objects_from_work_unit(scene_objects)
+    self.assertTrue(response.success)
+    response = renderer.render_overlay()
+    self.assertTrue(response.success)
+
+  def test_generate_xy_position_with_no_overruns_left_top(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    image_width, image_height = renderer._overlay_image.size
+
+    # Left overrun
+    ideal_x, _ = renderer._generate_xy_position_with_no_overruns(
+        x=-10,
+        y=100,
+        x_offset=0,
+        y_offset=0,
+        image_width=image_width,
+        image_height=image_height,
+        text_width=10,
+        text_height=10,
+        text_baseline=5,
+    )
+    self.assertEqual(ideal_x, 5)
+
+    # Top overrun
+    _, ideal_y = renderer._generate_xy_position_with_no_overruns(
+        x=100,
+        y=-10,
+        x_offset=0,
+        y_offset=0,
+        image_width=image_width,
+        image_height=image_height,
+        text_width=10,
+        text_height=10,
+        text_baseline=5,
+    )
+    self.assertEqual(ideal_y, 15)  # 5 + text_height
+
+  def test_convert_color_to_tuple_invalid(self):
+    renderer = visual_overlay.OrchestratorRenderer(
+        scene_reference_image_data=_reference_image_metadata_1
+    )
+    with self.assertRaises(AssertionError):
+      renderer._convert_color_to_tuple('FF')
+
+    with self.assertRaises(ValueError):
+      renderer._convert_color_to_tuple('ZZZZZZ')
+
 
 if __name__ == '__main__':
   absltest.main()

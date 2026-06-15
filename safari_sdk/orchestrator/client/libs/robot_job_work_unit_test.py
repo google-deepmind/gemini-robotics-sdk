@@ -42,6 +42,65 @@ class RobotJobWorkUnitTest(absltest.TestCase):
         response.work_unit, robot_job_work_unit.work_unit.WorkUnit
     )
 
+  def test_observe_latest_work_unit_job_type_codes_only_valid(self):
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().observeCurrentWorkUnit().execute.return_value = {
+        "workUnit": {"workUnitId": "test_wu_id"}
+    }
+    work_unit_lib = robot_job_work_unit.OrchestratorRobotJobWorkUnit(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    response = work_unit_lib.observe_latest_work_unit(
+        job_type_codes=["test_code"]
+    )
+    self.assertTrue(response.success)
+
+    calls = mock_connection.orchestrator().observeCurrentWorkUnit.call_args_list
+    # First call is orchestrator().observeCurrentWorkUnit(),
+    # second holds body=...
+    body = calls[1].kwargs["body"]
+    self.assertEqual(body["robot_job_types"], ["test_code"])
+    self.assertEqual(body["job_type"], robot_job.JobType.ALL.value)
+
+  def test_observe_latest_work_unit_job_type_only_valid(self):
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().observeCurrentWorkUnit().execute.return_value = {
+        "workUnit": {"workUnitId": "test_wu_id"}
+    }
+    work_unit_lib = robot_job_work_unit.OrchestratorRobotJobWorkUnit(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    response = work_unit_lib.observe_latest_work_unit(
+        job_type=robot_job.JobType.COLLECTION
+    )
+    self.assertTrue(response.success)
+
+    calls = mock_connection.orchestrator().observeCurrentWorkUnit.call_args_list
+    body = calls[1].kwargs["body"]
+    self.assertEqual(body["robot_job_types"], [])
+    self.assertEqual(body["job_type"], robot_job.JobType.COLLECTION.value)
+
+  def test_observe_latest_work_unit_valid_job_type_and_job_type_codes(self):
+    mock_connection = mock.MagicMock()
+    mock_connection.orchestrator().observeCurrentWorkUnit().execute.return_value = {
+        "workUnit": {"workUnitId": "test_wu_id"}
+    }
+    work_unit_lib = robot_job_work_unit.OrchestratorRobotJobWorkUnit(
+        connection=mock_connection,
+        robot_id="test_robot_id",
+    )
+    response = work_unit_lib.observe_latest_work_unit(
+        job_type=robot_job.JobType.EVALUATION, job_type_codes=["test_code"]
+    )
+    self.assertTrue(response.success)
+
+    calls = mock_connection.orchestrator().observeCurrentWorkUnit.call_args_list
+    body = calls[1].kwargs["body"]
+    self.assertEqual(body["robot_job_types"], ["test_code"])
+    self.assertEqual(body["job_type"], robot_job.JobType.EVALUATION.value)
+
   def test_get_current_work_unit_bad(self):
 
     mock_connection = mock.MagicMock()

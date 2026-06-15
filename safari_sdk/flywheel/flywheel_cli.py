@@ -509,23 +509,19 @@ class FlywheelCli:
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
     elif response.get("taskDates"):
-      headers = ["Robot id", "Task id", "Date", "Count", "Success count"]
+      headers = ["Robot id", "Task id", "Date", "Count"]
       rows = []
       for task_date in response.get("taskDates"):
         robot_id = task_date.get("robotId")
         task_id = task_date.get("taskId")
         dates = task_date.get("dates")
         daily_counts = task_date.get("dailyCounts")
-        success_counts = task_date.get("successCounts")
-        for date, daily_count, success_count in zip(
-            dates, daily_counts, success_counts
-        ):
+        for date, daily_count in zip(dates, daily_counts):
           rows.append([
               str(robot_id),
               str(task_id),
               _format_date(date),
               str(daily_count),
-              str(success_count),
           ])
       _print_responsive_table(headers, rows)
     else:
