@@ -17,11 +17,57 @@
 # See README.md for more details.
 #
 # Usage:
-#   bash scripts/update_pip_dependencies.sh
+#   bash scripts/update_pip_dependencies.sh [-h|--help] [--build_in_docker] [--no_build_in_docker]
+# If no flags are provided, the script will run the dependency update directly
+# on the host machine.
 
 set -e
-SCRIPTS_DIR="$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
-SAFARI_DIR="$(realpath "${SCRIPTS_DIR}/..")"
+
+function _usage() {
+  echo "Usage: $0 [-h|--help] [--build_in_docker] [--no_build_in_docker]"
+  echo "  -h|--help: Show this help message and exit."
+  echo "  --build_in_docker: Run the dependency update inside a manylinux docker container."
+  echo "  --no_build_in_docker: Run the dependency update directly on the host machine."
+}
+
+BUILD_IN_DOCKER="UNSET"
+IS_G3=false
+
+while (( $# > 0 )) ; do
+  case "$1" in
+    -h|--help) _usage; exit 1 ;;
+    --build_in_docker|--build-in-docker)
+      BUILD_IN_DOCKER=true
+      shift ;;
+    --no_build_in_docker|--no-build_in_docker|--nobuild_in_docker|--no-build-in-docker)
+      BUILD_IN_DOCKER=false
+      shift ;;
+    *) echo "Unknown option: $1"; _usage; exit 1 ;;
+  esac
+done
+
+
+# Fallback for open source.
+if [[ "${BUILD_IN_DOCKER}" == "UNSET" ]]; then
+  BUILD_IN_DOCKER=false
+fi
+
+SCRIPTS_DIR="${SCRIPTS_DIR:-$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")}"
+SAFARI_DIR="${SAFARI_DIR:-$(realpath "${SCRIPTS_DIR}/..")}"
+
+if ${BUILD_IN_DOCKER}; then
+
+  # Setup virtual environment and install pip-tools in a manylinux docker container.
+  echo "Running dependency update in manylinux docker container."
+  DOCKER_SCRIPTS_DIR="${SAFARI_DIR}/scripts"
+
+  docker run --rm -i -u "$(id -u):$(id -g)" \
+    -e HOME=/tmp \
+    -v "${SAFARI_DIR}:/code" \
+    quay.io/pypa/manylinux_2_28_x86_64:latest bash "/code/scripts/update_pip_dependencies.sh" --no_build_in_docker
+
+  exit 0
+fi
 
 # Setup virtual environment and install pip-tools.
 VENV_DIR="$(mktemp -d)"
@@ -37,7 +83,7 @@ pip install --require-hashes -r "${SCRIPTS_DIR}/base_tooling_requirements.txt"
 # based on pypi. This could lead to issues if the two don't have the exact
 # same dependencies; you want the pinned dependencies to be compatible with both
 # safari-sdk and safari-sdk-logging.
-if [[ -z "$(pip-compile --strip-extras  "${SAFARI_DIR}/subpackages/logging/pyproject.toml" 2>&1 | grep -Ev '^#')" ]]; then
+if [[ -z "$(pip-compile --strip-extras  "${SAFARI_DIR}/subpackages/logging/pyproject.toml" | grep -Ev '^#')" ]]; then
   # No dependencies - safe to ignore logging.
   echo "Temporarily removing safari-sdk-logging from pyproject for dependency"
   echo "resolution."

@@ -143,7 +143,7 @@ class VersionNegotiationE2ETest(absltest.TestCase):
             channel, '2.122.0', timeout=5.0
         )
       self.assertEqual(result['supported_protocols'], ['json'])
-      self.assertEqual(result['server_version'], 'unknown')
+      self.assertNotIn('server_version', result)
       # Verify a warning was issued.
       self.assertTrue(
           any('UNIMPLEMENTED' in str(warning.message)
@@ -215,7 +215,7 @@ class VersionNegotiationE2ETest(absltest.TestCase):
           channel, '2.122.0', timeout=1.0
       )
     self.assertEqual(result['supported_protocols'], ['json'])
-    self.assertEqual(result['server_version'], 'unknown')
+    self.assertNotIn('server_version', result)
     self.assertTrue(
         any('UNAVAILABLE' in str(warning.message) for warning in w),
         f'Expected UNAVAILABLE warning, got: {[str(x.message) for x in w]}',

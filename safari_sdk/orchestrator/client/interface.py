@@ -672,15 +672,19 @@ class OrchestratorInterface:
       self,
       source_file_name: str,
       text_file_bytes: bytes,
+      robot_job_id: str | None = None,
   ) -> RESPONSE:
     """Uploads a text log artifact."""
     assert self._artifact_lib is not None
     assert self._robot_job_lib is not None
-    with self._rpc_lock:
-      robot_job_response = self._robot_job_lib.get_current_robot_job()
-    if not robot_job_response.success:
-      return robot_job_response
-    robot_job_id = robot_job_response.robot_job_id
+
+    if not robot_job_id:
+      with self._rpc_lock:
+        robot_job_response = self._robot_job_lib.get_current_robot_job()
+      if not robot_job_response.success:
+        return robot_job_response
+      robot_job_id = robot_job_response.robot_job_id
+
     with self._rpc_lock:
       return self._artifact_lib.upload_text_log_artifact(
           robot_job_id=robot_job_id,

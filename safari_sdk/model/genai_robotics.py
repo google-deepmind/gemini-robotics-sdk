@@ -27,6 +27,7 @@ import warnings
 from google import genai
 from google.genai import types
 import grpc
+import msgpack
 import numpy as np
 from packaging import version as packaging_version
 import tensorflow as tf
@@ -41,6 +42,9 @@ _LOCAL_SERVICE_NAME = 'gemini_robotics'
 # Minimum server version this client requires. Bump when the client starts
 # relying on server-side features that older servers don't have.
 _MIN_SERVER_VERSION = '0.0.0'
+# Server versions >= this threshold use msgpack serialization and raw image
+# bytes instead of JSON + base64.  Older servers keep the legacy JSON protocol.
+_MSGPACK_MIN_SERVER_VERSION = '2.0.0'
 
 
 def update_robotics_content_to_genai_format(
@@ -173,6 +177,7 @@ class Client:
     self._method_name = method_name
     self._robotics_api_connection = robotics_api_connection
     self._num_retries = num_retries
+    self._server_version: str | None = None
     match self._robotics_api_connection:
       case _CONNECTION.CLOUD:
         service = auth.get_service()
@@ -190,8 +195,13 @@ class Client:
           url = 'grpc://' + url
         channel = grpc.insecure_channel(url[7:])
         if not skip_version_check:
-          _check_server_compatibility(channel, _sdk_version.__version__)
-        self._client = _connect_to_grpc_json(channel, method_name)
+          server_info = _check_server_compatibility(
+              channel, _sdk_version.__version__
+          )
+          self._server_version = server_info.get('server_version')
+        self._client = _connect_to_grpc_json(
+            channel, method_name, use_msgpack=self._use_msgpack
+        )
         self.models: Any = lambda: None
         self.models.generate_content = functools.partial(
             self._robotics_generate_content,
@@ -206,6 +216,17 @@ class Client:
             f'Unsupported robotics_api_connection: {robotics_api_connection}.'
             ' Only cloud, cloud_genai, and local are supported.'
         )
+
+  @property
+  def _use_msgpack(self) -> bool:
+    """Whether to use msgpack serialization instead of JSON.
+
+    Returns True when the server version is >= _MSGPACK_MIN_SERVER_VERSION
+    (i.e. grodv2+). Falls back to False for None or older servers.
+    """
+    if self._server_version is None:
+      return False
+    return not _version_lt(self._server_version, _MSGPACK_MIN_SERVER_VERSION)
 
   def _robotics_generate_content(
       self,
@@ -243,12 +264,14 @@ class Client:
 
     for key, value in input_query.items():
       if key.startswith('images/'):
-        query[key] = base64.b64encode(
-            _coerced_to_image_bytes(
-                contents[value],
-                image_compression_jpeg_quality=image_compression_jpeg_quality,
-            )
-        ).decode('utf-8')
+        image_bytes = _coerced_to_image_bytes(
+            contents[value],
+            image_compression_jpeg_quality=image_compression_jpeg_quality,
+        )
+        if self._use_msgpack:
+          query[key] = image_bytes
+        else:
+          query[key] = base64.b64encode(image_bytes).decode('utf-8')
       elif isinstance(value, (str, int, float)):
         query[key] = value
       elif isinstance(value, list):
@@ -267,14 +290,18 @@ class Client:
         )
     match self._robotics_api_connection:
       case _CONNECTION.CLOUD:
+        if self._use_msgpack:
+          input_bytes = base64.b64encode(
+              msgpack.packb(query)
+          ).decode('utf-8')
+        else:
+          input_bytes = base64.b64encode(
+              json.dumps(query).encode('utf-8')
+          ).decode('utf-8')
         req_body = {
             'modelId': model,
             'methodName': self._method_name,
-            'inputBytes': (
-                base64.b64encode(json.dumps(query).encode('utf-8')).decode(
-                    'utf-8'
-                )
-            ),
+            'inputBytes': input_bytes,
             'requestId': time.time_ns(),
         }
         if timeout_ms:
@@ -289,7 +316,15 @@ class Client:
         res = req.execute(num_retries=self._num_retries)
         logging.debug('Response: %s', res)
         response = lambda: None
-        response.text = base64.b64decode(res['outputBytes']).decode('utf-8')
+        if self._use_msgpack:
+          response_data = msgpack.unpackb(
+              base64.b64decode(res['outputBytes']), raw=False
+          )
+          response.text = json.dumps(response_data)
+        else:
+          response.text = base64.b64decode(
+              res['outputBytes']
+          ).decode('utf-8')
         response.backend_request_time = res.get('backendRequestTime')
         response.backend_response_time = res.get('backendResponseTime')
       case _CONNECTION.LOCAL:
@@ -352,12 +387,14 @@ def _is_list_of_numbers(value):
 def _connect_to_grpc_json(
     channel: grpc.Channel,
     method_name: str,
+    use_msgpack: bool = False,
 ) -> Callable[[dict[str, Any]], str]:
-  """Creates a JSON query function over an existing gRPC channel.
+  """Creates a query function over an existing gRPC channel.
 
   Args:
     channel: An open gRPC channel.
     method_name: The name of the method to call on the gRPC server.
+    use_msgpack: If True, use msgpack serialization. Otherwise use JSON.
 
   Returns:
     A callable that takes a query dict and returns the server's JSON response
@@ -371,8 +408,14 @@ def _connect_to_grpc_json(
   )
 
   def query(query: dict[str, Any]) -> str:
-    encoded_query = json.dumps(query).encode('utf-8')
-    return grpc_stub(encoded_query).decode('utf-8')
+    if use_msgpack:
+      encoded_query = msgpack.packb(query)
+      response_bytes = grpc_stub(encoded_query)
+      response = msgpack.unpackb(response_bytes, raw=False)
+      return json.dumps(response)
+    else:
+      encoded_query = json.dumps(query).encode('utf-8')
+      return grpc_stub(encoded_query).decode('utf-8')
 
   return query
 
@@ -414,7 +457,8 @@ def _check_server_compatibility(
     timeout: Seconds to wait for the server response.
 
   Returns:
-    A dict with at least 'supported_protocols' and 'server_version' keys.
+    A dict with at least 'supported_protocols'. May also contain
+      'server_version' if the server reported one.
 
   Raises:
     RuntimeError: If the client version is below the server's
@@ -437,8 +481,8 @@ def _check_server_compatibility(
           f'Upgrade: pip install --upgrade google-genai>={min_client}'
       )
 
-    server_ver = server_info.get('server_version', 'unknown')
-    if server_ver != 'unknown' and _version_lt(server_ver, _MIN_SERVER_VERSION):
+    server_ver = server_info.get('server_version')
+    if server_ver is not None and _version_lt(server_ver, _MIN_SERVER_VERSION):
       warnings.warn(
           f'Server version {server_ver} is older than the minimum '
           f'this client supports ({_MIN_SERVER_VERSION}). '
@@ -453,7 +497,7 @@ def _check_server_compatibility(
         'Proceeding with JSON protocol.',
         stacklevel=2,
     )
-    return {'supported_protocols': ['json'], 'server_version': 'unknown'}
+    return {'supported_protocols': ['json']}
 
   except grpc.RpcError as e:
     status = e.code()  # pytype: disable=attribute-error
@@ -474,4 +518,4 @@ def _check_server_compatibility(
       )
     else:
       raise
-    return {'supported_protocols': ['json'], 'server_version': 'unknown'}
+    return {'supported_protocols': ['json']}

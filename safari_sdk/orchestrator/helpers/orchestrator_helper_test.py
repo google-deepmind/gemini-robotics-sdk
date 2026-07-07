@@ -1641,6 +1641,37 @@ class OrchestratorHelperTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertEqual(response.artifact_id, "test_uploaded_artifact_id")
 
+  def test_upload_text_log_artifact_with_job_id_good(self):
+    mock_interface = mock.create_autospec(
+        spec=orchestrator_helper.interface.OrchestratorInterface, instance=True
+    )
+    mock_interface.upload_text_log_artifact.return_value = (
+        orchestrator_helper.interface.RESPONSE(
+            success=True,
+            artifact_id="test_uploaded_artifact_id",
+        )
+    )
+    helper_lib = orchestrator_helper.OrchestratorHelper(
+        robot_id="test_robot_id",
+        job_type=orchestrator_helper.JOB_TYPE.ALL,
+    )
+    helper_lib._interface = mock_interface
+
+    response = helper_lib.upload_text_log_artifact(
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+        robot_job_id="explicit_robot_job_id",
+    )
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact_id, "test_uploaded_artifact_id")
+
+    # Verify the interface was called with the correct robot_job_id
+    mock_interface.upload_text_log_artifact.assert_called_once_with(
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+        robot_job_id="explicit_robot_job_id",
+    )
+
   def test_upload_text_log_artifact_bad_without_raise_error(self):
     helper_lib = orchestrator_helper.OrchestratorHelper(
         robot_id="test_robot_id",

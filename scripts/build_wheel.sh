@@ -38,7 +38,7 @@ function _usage() {
 # Handle the docker-related arguments. All other arguments are handled later.
 SCRIPTS_DIR="$(realpath "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
 SAFARI_DIR="$(realpath "${SCRIPTS_DIR}/..")"
-PYTHON_VERSIONS=("3")
+PYTHON_VERSIONS=("3.12")
 DOCKER_IMAGE=""
 BUILD_DOCKER_IMAGE=false
 UPLOAD_TARGET=()
@@ -85,7 +85,7 @@ if ${BUILD_DOCKER_IMAGE}; then
 fi
 if [[ -n "${DOCKER_IMAGE}" ]]; then
   echo "*** Building wheel inside of docker image ${DOCKER_IMAGE}"
-  docker_args=("--rm" "-u" "$(id -u):$(id -g)" "-v" "${SAFARI_DIR}:/safari")
+  docker_args=("--rm" "-v" "${SAFARI_DIR}:/safari")
   if [[ "${UPLOAD_TARGET[1]}" == *python.pkg.dev* ]]; then
     adc_path=".config/gcloud/application_default_credentials.json"
     docker_args+=("-e" "HOME=/home/user" "-v" "${HOME}/${adc_path}:/home/user/${adc_path}:ro")
@@ -100,9 +100,13 @@ fi
 rm -rf "${SAFARI_DIR}"/wheelhouse/*
 
 # Generate the revision info file. This is a no-op if not built from a git repository.
-if [[ -f ${SAFARI_DIR}/scripts/generate_revision_info.sh ]]; then
-  ${SAFARI_DIR}/scripts/generate_revision_info.sh "${SAFARI_DIR}/safari_sdk/revision_info.txt" || true
-fi
+${SAFARI_DIR}/scripts/generate_revision_info.sh "${SAFARI_DIR}/safari_sdk/revision_info.txt" || true
+# Set up ccache to cache across Kokoro, local machines, and Docker mounts.
+export CCACHE_BASEDIR="${SAFARI_DIR}"
+export CCACHE_NOHASHDIR="1"
+
+# Find all pyproject.toml files under the repository root.
+mapfile -t ALL_PYPROJECTS < <(find "${SAFARI_DIR}" -name pyproject.toml)
 
 # Build each python version.
 for py_version in "${PYTHON_VERSIONS[@]}"; do
@@ -113,7 +117,9 @@ for py_version in "${PYTHON_VERSIONS[@]}"; do
   source "${VENV_DIR}/bin/activate"
   pip install --require-hashes -r "${SCRIPTS_DIR}/base_tooling_requirements.txt"
   mkdir -p "${SAFARI_DIR}/wheelhouse"
-  python -m build --wheel "${SAFARI_DIR}" --outdir "${SAFARI_DIR}/dist"
+
+  echo "*** Building package: ${SAFARI_DIR}"
+  pip wheel -v "${SAFARI_DIR}" --no-deps -w "${SAFARI_DIR}/dist"
 
   # auditwheel repair: Converts 'linux_x86_64' wheels into portable
   # 'manylinux' wheels by bundling external shared library dependencies
@@ -128,6 +134,10 @@ for py_version in "${PYTHON_VERSIONS[@]}"; do
   # Deactivate the venv.
   deactivate
 done
+
+# The Docker container runs as root, so the generated wheels are owned by root.
+# Change the ownership to match the repository directory.
+chown -R --reference="${SAFARI_DIR}" "${SAFARI_DIR}/wheelhouse"
 
 echo "*** Wheel files are in the wheelhouse folder:"
 ls -l "${SAFARI_DIR}/wheelhouse"

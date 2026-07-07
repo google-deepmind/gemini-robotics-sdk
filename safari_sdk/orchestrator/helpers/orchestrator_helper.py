@@ -628,6 +628,7 @@ class OrchestratorHelper:
       self,
       source_file_name: str,
       text_file_bytes: bytes,
+      robot_job_id: str | None = None,
   ) -> RESPONSE:
     """Uploads a text log artifact."""
     if self._interface is None:
@@ -638,6 +639,7 @@ class OrchestratorHelper:
     return self._interface.upload_text_log_artifact(
         source_file_name=source_file_name,
         text_file_bytes=text_file_bytes,
+        robot_job_id=robot_job_id,
     )
 
   def load_rui_workcell_state(self, robot_id: str) -> RESPONSE:

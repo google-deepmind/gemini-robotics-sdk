@@ -412,7 +412,10 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
   def test_local_connection_passes_serve_id_as_grpc_url(
       self, mock_insecure_channel, mock_connect_json, mock_compat
   ):
-    del mock_compat  # Not asserted; just prevents real server call.
+    mock_compat.return_value = {
+        "server_version": "1.0.0",
+        "supported_protocols": ["json"],
+    }
     mock_channel = mock.MagicMock()
     mock_insecure_channel.return_value = mock_channel
     mock_connect_json.return_value = mock.MagicMock()
@@ -427,7 +430,34 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
     self.assertIsNotNone(remote_model)
     mock_insecure_channel.assert_called_once_with("10.0.0.5:10100")
     mock_connect_json.assert_called_once_with(
-        mock_channel, "sample_actions_json_flat"
+        mock_channel, "sample_actions_json_flat", use_msgpack=False
+    )
+
+  @mock.patch.object(genai_robotics, "_check_server_compatibility")
+  @mock.patch.object(genai_robotics, "_connect_to_grpc_json")
+  @mock.patch.object(genai_robotics.grpc, "insecure_channel")
+  def test_local_connection_server_version_2_uses_msgpack(
+      self, mock_insecure_channel, mock_connect_json, mock_compat
+  ):
+    mock_compat.return_value = {
+        "server_version": "2.0.0",
+        "supported_protocols": ["msgpack"],
+    }
+    mock_channel = mock.MagicMock()
+    mock_insecure_channel.return_value = mock_channel
+    mock_connect_json.return_value = mock.MagicMock()
+    remote_model = remote_model_interface.RemoteModelInterface(
+        serve_id="grpc://10.0.0.5:10100",
+        robotics_api_connection=constants.RoboticsApiConnectionType.LOCAL,
+        task_instruction_key="test_instruction_key",
+        proprioceptive_observation_keys=("test_joint_1",),
+        image_observation_keys=("test_camera_1",),
+        image_compression_jpeg_quality=75,
+    )
+    self.assertIsNotNone(remote_model)
+    mock_insecure_channel.assert_called_once_with("10.0.0.5:10100")
+    mock_connect_json.assert_called_once_with(
+        mock_channel, "sample_actions_json_flat", use_msgpack=True
     )
 
 if __name__ == "__main__":

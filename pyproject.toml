@@ -47,6 +47,7 @@ dependencies = [
   "lark~=1.2",
   "mcap-protobuf-support",
   "mediapy",
+  "msgpack",
   "mujoco>=3.3.6",
   "opencv-python",
   "overrides",

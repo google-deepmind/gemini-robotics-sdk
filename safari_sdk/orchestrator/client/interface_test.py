@@ -3343,6 +3343,55 @@ class InterfaceTest(absltest.TestCase):
     self.assertTrue(response.success)
     self.assertEqual(response.artifact_id, "test_uploaded_artifact_id")
 
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.current_robot.OrchestratorCurrentRobotInfo.get_current_robot_info",
+      return_value=interface.current_robot._RESPONSE(success=True),
+  )
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.robot_job.OrchestratorRobotJob.get_current_robot_job",
+  )
+  @mock.patch(
+      "safari_sdk.orchestrator.client.libs.artifact.OrchestratorArtifact.upload_text_log_artifact",
+      return_value=interface.RESPONSE(
+          success=True,
+          artifact_id="test_uploaded_artifact_id",
+      ),
+  )
+  def test_upload_text_log_artifact_with_job_id_good(
+      self, mock_upload, mock_get_job, _
+  ):
+    FLAGS.api_key = "mock_test_key"
+    interface_lib = interface.OrchestratorInterface(
+        robot_id="test_robot_id",
+        job_type=interface.JOB_TYPE.ALL,
+    )
+
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_build.return_value = mock.Mock(
+          spec=interface.auth.discovery.Resource
+      )
+      response = interface_lib.connect()
+      self.assertTrue(response.success)
+
+    response = interface_lib.upload_text_log_artifact(
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+        robot_job_id="explicit_robot_job_id",
+    )
+    self.assertTrue(response.success)
+    self.assertEqual(response.artifact_id, "test_uploaded_artifact_id")
+
+    # Verify get_current_robot_job was NOT called
+    mock_get_job.assert_not_called()
+
+    # Verify upload was called with the correct robot_job_id
+    mock_upload.assert_called_once_with(
+        robot_job_id="explicit_robot_job_id",
+        robot_id="test_robot_id",
+        source_file_name="test_log.txt",
+        text_file_bytes=b"test log content",
+    )
+
   def test_upload_text_log_artifact_bad_active_connection(self):
     FLAGS.api_key = None
     interface_lib = interface.OrchestratorInterface(

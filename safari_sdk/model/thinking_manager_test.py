@@ -108,11 +108,15 @@ class ThinkingManagerTest(parameterized.TestCase):
     self.mock_client.models.generate_content.assert_called_once()
 
     # Set up for second call.
-    event = threading.Event()
+    event_started = threading.Event()
+    event_continue = threading.Event()
+    started_event = threading.Event()
 
     def wait_and_return(*args, **kwargs):
       del args, kwargs  # Unused.
-      event.wait()
+      started_event.set()
+      event_started.set()
+      event_continue.wait()
       return mock.Mock(text='{"text": "new mocked thinking"}')
 
     self.mock_client.models.generate_content.side_effect = wait_and_return
@@ -123,16 +127,19 @@ class ThinkingManagerTest(parameterized.TestCase):
       obs = manager.get_additional_observations(
           self.timestep, should_replan=True
       )
+    started_event.wait(timeout=5.0)
     self.assertEqual(
         obs[thinking_manager.THINKING_KEY], "mocked thinking"
     )  # returns stale thinking
+
+    self.assertTrue(event_started.wait(timeout=5.0))
     self.assertEqual(self.mock_client.models.generate_content.call_count, 2)
     future = manager._thinking_future
     self.assertIsNotNone(future)
     self.assertTrue(future.running())
 
     # Allow thread to complete and wait for it
-    event.set()
+    event_continue.set()
     future.result()  # this blocks until done.
 
     # Third call.
@@ -143,6 +150,73 @@ class ThinkingManagerTest(parameterized.TestCase):
     self.assertEqual(
         self.mock_client.models.generate_content.call_count, 2
     )  # no new call
+
+  def test_thinking_progress_flow(self):
+    """Test the THINKING_PROGRESS thinking cycle."""
+    manager = self._create_manager(
+        thinking_manager.ThinkingStrategy.THINKING_PROGRESS
+    )
+
+    # First call should be synchronous because it's the first time we call it.
+    obs = manager.get_additional_observations(
+        self.timestep, should_replan=False)
+    self.assertEqual(obs[thinking_manager.THINKING_KEY], "mocked thinking")
+    self.mock_client.models.generate_content.assert_called_once()
+
+    # Set up for subsequent calls.
+    event_2_started = threading.Event()
+    event_2_continue = threading.Event()
+    event_3_started = threading.Event()
+
+    side_effect_calls = [0]
+
+    def dynamic_side_effect(*args, **kwargs):
+      del args, kwargs
+      side_effect_calls[0] += 1
+      if side_effect_calls[0] == 1:
+        event_2_started.set()
+        event_2_continue.wait()
+        return mock.Mock(text='{"text": "new mocked thinking"}')
+      elif side_effect_calls[0] == 2:
+        event_3_started.set()
+        return mock.Mock(text='{"text": "third mocked thinking"}')
+      return mock.Mock(text='{"text": "default"}')
+
+    self.mock_client.models.generate_content.side_effect = dynamic_side_effect
+    self.timestep = self.timestep._replace(step_type=dm_env.StepType.MID)
+
+    # Second call. Asynchronous.
+    obs = manager.get_additional_observations(
+        self.timestep, should_replan=False
+    )
+    self.assertEqual(
+        obs[thinking_manager.THINKING_KEY], "mocked thinking"
+    )  # returns stale thinking
+
+    # Wait for the second call to at least start in the background thread
+    self.assertTrue(event_2_started.wait(timeout=5.0))
+    self.assertEqual(self.mock_client.models.generate_content.call_count, 2)
+
+    future = manager._thinking_future
+    self.assertIsNotNone(future)
+    self.assertTrue(future.running())
+
+    # Allow 2nd call to complete
+    event_2_continue.set()
+    future.result()  # wait for it to finish
+
+    # Third call. It should collect the result and trigger a new one.
+    obs = manager.get_additional_observations(
+        self.timestep, should_replan=False
+    )
+    self.assertEqual(obs[thinking_manager.THINKING_KEY], "new mocked thinking")
+
+    # Wait for the third call to start in the background thread
+    self.assertTrue(event_3_started.wait(timeout=5.0))
+    self.assertEqual(
+        self.mock_client.models.generate_content.call_count, 3
+    )
+    self.assertIsNotNone(manager._thinking_future)
 
   def test_no_thinking_when_strategy_is_none(self):
     """Ensure no thinking occurs when the strategy is NONE."""
@@ -284,6 +358,15 @@ class ThinkingManagerTest(parameterized.TestCase):
           think_interval_seconds=5,
           method_name="generate_next_step",
       ),
+      dict(
+          testcase_name="thinking_progress",
+          strategy=thinking_manager.ThinkingStrategy.THINKING_PROGRESS,
+          is_async=True,
+          think_every_chunk=False,
+          think_every_n_seconds=False,
+          think_every_step=True,
+          method_name="generate_next_step",
+      ),
   )
   def test_thinking_strategy_properties(
       self,
@@ -293,10 +376,12 @@ class ThinkingManagerTest(parameterized.TestCase):
       think_every_n_seconds: bool,
       method_name: str,
       think_interval_seconds: int = -1,
+      think_every_step: bool = False,
   ):
     self.assertEqual(strategy.is_asynchronous, is_async)
     self.assertEqual(strategy.think_every_chunk, think_every_chunk)
     self.assertEqual(strategy.think_every_n_seconds, think_every_n_seconds)
+    self.assertEqual(strategy.think_every_step, think_every_step)
     self.assertEqual(strategy.method_name, method_name)
     if think_every_n_seconds:
       self.assertEqual(strategy.think_interval_seconds, think_interval_seconds)

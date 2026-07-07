@@ -61,6 +61,8 @@ class ThinkingStrategy(StrEnum):
   # Think every chunk.
   THINK_START_OF_CHUNK_SYNCHRONOUS = "think_start_of_chunk_synchronous"
   THINK_START_OF_CHUNK_ASYNCHRONOUS = "think_start_of_chunk_asynchronous"
+  # Think every step asynchronously.
+  THINKING_PROGRESS = "thinking_progress"
   # Think every chunk, only for motion description.
   THINK_MOTION_DESCRIPTION_START_OF_CHUNK_SYNCHRONOUS = (
       "think_motion_description_start_of_chunk_synchronous"
@@ -144,6 +146,7 @@ class ThinkingStrategy(StrEnum):
   @property
   def is_asynchronous(self) -> bool:
     return self in (
+        self.THINKING_PROGRESS,
         self.THINK_START_OF_CHUNK_ASYNCHRONOUS,
         self.THINK_EVERY_3_SECONDS_ASYNCHRONOUS,
         self.THINK_EVERY_5_SECONDS_ASYNCHRONOUS,
@@ -171,6 +174,10 @@ class ThinkingStrategy(StrEnum):
         self.THINK_NEXT_STEP_START_OF_CHUNK_ASYNCHRONOUS,
     )
 
+  @property
+  def think_every_step(self) -> bool:
+    return self == self.THINKING_PROGRESS
+
   def should_think(
       self,
       time_step: dm_env.TimeStep,
@@ -190,6 +197,8 @@ class ThinkingStrategy(StrEnum):
     if self == self.NONE:
       return False
     # If the first step, always think.
+    if self == self.THINKING_PROGRESS:
+      return True
     if time_step.first():
       return True
     # If think_every_chunk, think when inference_step is 0.
@@ -268,6 +277,8 @@ class ThinkingStrategy(StrEnum):
   @property
   def method_name(self) -> str:
     """Returns the method name for the thinking client."""
+    if self == ThinkingStrategy.THINKING_PROGRESS:
+      return MethodNames.NEXT_STEP
     if "motion_description" in self:
       return MethodNames.MOTION_DESCRIPTION
     if "next_step" in self:
@@ -416,6 +427,9 @@ class ThinkingManager(
     # If the first step, always think.
     if is_first_step:
       return True
+    # If think_every_step, always think.
+    if self._thinking_strategy.think_every_step:
+      return True
     # If think_every_chunk, think when it's time to replan.
     if self._thinking_strategy.think_every_chunk and should_replan:
       return True
@@ -430,18 +444,23 @@ class ThinkingManager(
 
   def _query_thinking(self, observation: dict[str, np.ndarray]) -> str:
     """Queries the model for thinking."""
-    contents = observation_to_model_query_contents.observation_to_model_query_contents(
-        observation=observation,
-        string_observations_keys=[self._task_instruction_key],
-        task_instruction_key=self._task_instruction_key,
-        proprioceptive_observation_keys=self._proprioceptive_observation_keys,
-        image_observation_keys=self._image_observation_keys,
-    )
-    response = self._thinking_client.models.generate_content(
-        model=self._thinking_serve_id,
-        contents=contents,
-    )
-    return json.loads(response.text)["text"]
+    try:
+      contents = observation_to_model_query_contents.observation_to_model_query_contents(
+          observation=observation,
+          string_observations_keys=[self._task_instruction_key],
+          task_instruction_key=self._task_instruction_key,
+          proprioceptive_observation_keys=self._proprioceptive_observation_keys,
+          image_observation_keys=self._image_observation_keys,
+      )
+      response = self._thinking_client.models.generate_content(
+          model=self._thinking_serve_id,
+          contents=contents,
+      )
+      response_text = json.loads(response.text)["text"]
+      return response_text
+    except Exception as e:  # pylint: disable=broad-except
+      logging.exception("Thinking query failed: %s", e)
+      return ""
 
 
 class MultiThinkingManager(
@@ -528,9 +547,13 @@ class MultiThinkingManager(
 
     # If manager is next_step, save its result.
     if manager.thinking_strategy.method_name == MethodNames.NEXT_STEP:
-      self._latest_next_step = self._remove_next_step_prefix(
-          thinking_obs
-      )
+      if manager.thinking_strategy == ThinkingStrategy.THINKING_PROGRESS:
+        # Do not need to parse the next step if it is the thinking progress.
+        self._latest_next_step = thinking_obs
+      else:
+        self._latest_next_step = self._remove_next_step_prefix(
+            thinking_obs
+        )
 
     return thinking_obs
 
@@ -550,8 +573,15 @@ class MultiThinkingManager(
 
     sorted_responses = sorted(responses_with_order, key=lambda item: item[0])
     self._last_thinking_response_value = " ".join(
-        [response.item() for _, response in sorted_responses]
+        [response.item() for _, response in sorted_responses if response]
     )
+    if (
+        len(self._managers) == 1
+        and self._managers[0].thinking_strategy
+        == ThinkingStrategy.THINKING_PROGRESS
+    ):
+      return {}
+
     return {THINKING_KEY: np.array(self._last_thinking_response_value)}
 
   @override
@@ -575,6 +605,13 @@ class MultiThinkingManager(
   @override
   def get_additional_observations_spec(self) -> dict[str, specs.Array]:
     """Returns the spec for the single aggregated thinking string."""
+    if (
+        len(self._managers) == 1
+        and self._managers[0].thinking_strategy
+        == ThinkingStrategy.THINKING_PROGRESS
+    ):
+      # We only want to output thinking progress value for
+      return {}
     return self._managers[0].get_additional_observations_spec()
 
   @override

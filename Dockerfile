@@ -28,26 +28,27 @@ RUN { \
     rm -rf /var/cache/dnf
 
 # 2. Set shared environment variables
-# Added GDMR_BUILD_DIR to define the global build/cache path
-# This flag must be set in all stages to ensure the cache is both
-# populated and used.
+ENV GDMR_DIR="/opt/gdmr"
 ENV PATH="/usr/lib64/ccache:${PATH}" \
-    CCACHE_DIR="/root/.cache/ccache" \
+    GDMR_BUILD_DIR="${GDMR_DIR}/build" \
+    CCACHE_DIR="${GDMR_DIR}/ccache" \
     CCACHE_NOHASHDIR="1" \
-    CCACHE_BASEDIR="/" \
-    PIP_NO_CACHE_DIR="1" \
-    GDMR_BUILD_DIR="/opt/gdmr/build"
+    PIP_NO_CACHE_DIR="1"
 
 # ==============================================================================
 # STAGE 2: Builder (Warms up the caches)
 # ==============================================================================
 FROM base AS builder
 
-WORKDIR /tmp
+WORKDIR /tmp/safari_sdk
+
+ENV CCACHE_BASEDIR="/tmp/safari_sdk"
+
 COPY . .
 
 # 3. Run build to populate /opt/gdmr/build/cache and /root/.cache/ccache
-RUN python3.12 -m pip install subpackages/logging
+RUN ln -snf ../../safari_sdk ./subpackages/logging/safari_sdk && \
+    python3.12 -m pip install ./subpackages/logging
 
 # ==============================================================================
 # STAGE 3: Final CI Runner
@@ -55,9 +56,8 @@ RUN python3.12 -m pip install subpackages/logging
 FROM base AS final
 
 # 4. Copy only the compiled caches from the builder stage
-# Updated to drop the `/safari` namespace and copy the unified cache
-COPY --from=builder /opt/gdmr/build/cache /opt/gdmr/build/cache
-COPY --from=builder /root/.cache/ccache /root/.cache/ccache
+COPY --from=builder ${GDMR_BUILD_DIR}/cache ${GDMR_BUILD_DIR}/cache
+COPY --from=builder ${CCACHE_DIR} ${CCACHE_DIR}
 
 WORKDIR /
 CMD ["/bin/bash"]

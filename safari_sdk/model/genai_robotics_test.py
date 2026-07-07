@@ -20,11 +20,12 @@ from unittest import mock
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
-from google.genai import types
+from google.genai import types  # pytype: disable=import-error
+import msgpack  # pytype: disable=import-error
 import numpy as np
 import tensorflow as tf
 
-from safari_sdk.model import genai_robotics
+from safari_sdk.model import genai_robotics  # pytype: disable=import-error
 
 FLAGS = flags.FLAGS
 FLAGS.mark_as_parsed()
@@ -52,7 +53,8 @@ class GenaiRoboticsTest(parameterized.TestCase):
           http=mock.ANY,
       )
 
-  def test_robotics_api_generate_content(self):
+  def test_robotics_api_generate_content_legacy_json(self):
+    """Tests the legacy JSON protocol (server_version='unknown' / < 2.0.0)."""
     with mock.patch("googleapiclient.discovery.build") as mock_build:
       mock_service = mock.Mock()
       mock_build.return_value = mock_service
@@ -103,9 +105,11 @@ class GenaiRoboticsTest(parameterized.TestCase):
       self.assertIsInstance(call_body["requestId"], int)
       self.assertEqual(call_body["modelOptions"]["timeout"]["seconds"], 1)
       self.assertEqual(call_body["modelOptions"]["timeout"]["nanos"], 500000000)
+      # Legacy path uses JSON encoding.
       query = json.loads(
           base64.b64decode(call_body["inputBytes"]).decode("utf-8")
       )
+      # Images are base64-encoded in the legacy JSON path.
       self.assertEqual(
           query["images/overhead_cam"],
           base64.b64encode(image_bytes).decode("utf-8"),
@@ -115,13 +119,67 @@ class GenaiRoboticsTest(parameterized.TestCase):
       self.assertEqual(response.backend_request_time, "2024-05-01T12:00:00Z")
       self.assertEqual(response.backend_response_time, "2024-05-01T12:00:01Z")
 
+  def test_robotics_api_generate_content_msgpack(self):
+    """Tests the msgpack protocol (server_version >= 2.0.0 / grodv2)."""
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_service = mock.Mock()
+      mock_build.return_value = mock_service
+      FLAGS.api_key = "test_api_key"
+
+      client = genai_robotics.Client(
+          use_robotics_api=True,
+      )
+      # Simulate a grodv2 server.
+      client._server_version = "2.1.0"
+
+      image = np.zeros((100, 100, 3), dtype=np.uint8)
+      image_bytes = tf.io.encode_jpeg(image).numpy()
+      expected_output = {"action_chunk": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]}
+
+      mock_cm_custom = mock_service.modelServing.return_value.cmCustom
+      mock_cm_custom.return_value.execute.return_value = {
+          "outputBytes": (
+              base64.b64encode(msgpack.packb(expected_output)).decode("utf-8")
+          ),
+          "backendRequestTime": "2024-05-01T12:00:00Z",
+          "backendResponseTime": "2024-05-01T12:00:01Z",
+      }
+
+      obs = {
+          "images/overhead_cam": 0,
+          "task_instruction": "test_task_instruction",
+          "joints_pos": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      }
+
+      response = client.models.generate_content(
+          model="test_model",
+          contents=[
+              types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+              json.dumps(obs),
+          ],
+      )
+      self.assertEqual(response.text, json.dumps(expected_output))
+      mock_cm_custom.assert_called_once()
+      call_body = mock_cm_custom.call_args.kwargs["body"]
+      # Msgpack path uses msgpack encoding.
+      query = msgpack.unpackb(
+          base64.b64decode(call_body["inputBytes"]), raw=False
+      )
+      # Images are raw bytes in the msgpack path.
+      self.assertEqual(
+          query["images/overhead_cam"],
+          image_bytes,
+      )
+      self.assertEqual(query["task_instruction"], "test_task_instruction")
+      self.assertEqual(query["joints_pos"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
   def test_genai_create_client_via_auth_library(self):
     with mock.patch("google.genai.Client", autospec=True) as mock_genai_client:
       FLAGS.api_key = "test_api_key"
 
       client = genai_robotics.Client(
           robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.CLOUD_GENAI,
-          project="test_project"
+          project="test_project",
       )
       self.assertIsNotNone(client)
       mock_genai_client.assert_called_once_with(

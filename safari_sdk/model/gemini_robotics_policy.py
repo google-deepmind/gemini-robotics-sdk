@@ -30,6 +30,7 @@ import numpy as np
 import tree
 from typing_extensions import override
 
+from safari_sdk.model import action_chunk_resampling
 from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 from safari_sdk.model import model_interface as model_interface_lib
@@ -70,6 +71,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       image_compression_jpeg_quality: int = 95,
       num_retries: int = 1,
       action_conditioning_chunk_length: int | None = None,
+      action_conditioning_resample_factor: float | None = None,
       model_interface: model_interface_lib.ModelInterface | None = None,
   ):
     """Initializes the evaluation policy.
@@ -102,6 +104,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         that is used to condition the model from the available action chunk when
         the inference mode is ASYNCHRONOUS. If None, the model will receive all
         remaining actions not consumed so far from the available action chunk.
+      action_conditioning_resample_factor: A resampling factor applied to the
+        action chunk to be used to condition the next model query. When set and
+        > 1, performs a linear interpolation between the actions in the
+        conditioning chunk to resample them in accordance with the factor
+        specified. (for example, a factor of 2 will effectively select every
+        other action from the conditioning chunk). If None or 1.0, no
+        resampling is performed. Currently only supported in ASYNCHRONOUS mode
+        and must be >= 1.
       model_interface: Internal use only.
     """
     if model_interface is None:
@@ -129,13 +139,20 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     self._min_replan_interval = min_replan_interval
     self._action_conditioning_chunk_length = action_conditioning_chunk_length
+    self._action_conditioning_resample_factor = (
+        action_conditioning_resample_factor or 1.0
+    )
+    if self._action_conditioning_resample_factor < 1.0:
+      raise ValueError(
+          'Only action conditioning resample factor >= 1.0 is supported.'
+      )
 
     self._dummy_state = np.zeros(())
 
     self._model_output = np.array([])
+    self._current_action_index = 0
     self._action_spec: gdmr_types.UnboundedArraySpec | None = None
     self._timestep_spec: gdmr_types.TimeStepSpec | None = None
-    self._num_of_actions_per_request = 0
 
     # Threading setup
     self._inference_mode = inference_mode
@@ -177,6 +194,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       self._future = None
 
     self._model_output = np.array([])
+    self._current_action_index = 0
     for provider in self._additional_observations_providers:
       provider.reset()
 
@@ -323,7 +341,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     }
     empty_observation.update(non_empty_strings)
 
-    self._actions_buffer = self._query_model(empty_observation, np.array([]))
+    self._actions_buffer = self._query_model(empty_observation)
 
     # We support only sequence of actions, that is a 2D array with (num_actions,
     # action_dim) shape.
@@ -333,27 +351,33 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
           f' {self._actions_buffer.shape}.'
       )
     # First axis is the number of actions.
-    self._num_of_actions_per_request = self._actions_buffer.shape[0]
-    # Assert that the num_of_actions_per_request would be greater than the min
-    # replan interval + action_conditioning_chunk_length. If not, the length of
-    # the conditioning used to query the model in ASYNCHRONOUS mode would end up
-    # being less than desired action_conditioning_chunk_length.
+    num_of_actions_per_request = self._actions_buffer.shape[0]
+    # Verify and warn if the num_of_actions_per_request is not greater than
+    # the min replan interval + action_conditioning_chunk_length (accounting for
+    # action_conditioning_resample_factor). If not, the effective length of the
+    # action_conditioning chunk used to query the model would end up being less
+    # than the desired action_conditioning_chunk_length in ASYNCHRONOUS mode.
     if (
         self._inference_mode == constants.InferenceMode.ASYNCHRONOUS
         and self._action_conditioning_chunk_length is not None
     ):
       required_buffer_size = (
-          self._action_conditioning_chunk_length + self._min_replan_interval
+          action_chunk_resampling.resampled_to_min_source_length(
+              resampled_length=self._action_conditioning_chunk_length,
+              resample_factor=self._action_conditioning_resample_factor,
+          )
+          + self._min_replan_interval
       )
-      if self._num_of_actions_per_request < required_buffer_size:
+      if num_of_actions_per_request < required_buffer_size:
         raise ValueError(
             'Number of actions per request must be greater than the sum of the'
-            ' action conditioning chunk length and the minimum replan'
-            f' interval. Got {self._num_of_actions_per_request} actions per'
-            f' request, but require more than {required_buffer_size} actions.'
-            ' (Action conditioning chunk length:'
-            f' {self._action_conditioning_chunk_length}, min replan interval:'
-            f' {self._min_replan_interval})'
+            ' action conditioning chunk length (after resampling if needed) and'
+            ' the minimum replan interval. Got'
+            f' {num_of_actions_per_request} actions per request, but'
+            f' require more than {required_buffer_size} actions.'
+            f' (Action conditioning chunk length:'
+            f' {self._action_conditioning_chunk_length},'
+            f' min replan interval: {self._min_replan_interval})'
         )
 
     self._action_spec = gdmr_types.UnboundedArraySpec(
@@ -364,12 +388,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
   def _should_replan(self) -> bool:
     """Returns whether the policy should replan."""
     assert self._action_spec is not None
-    actions_left = self._model_output.shape[0]
-    if (
-        self._num_of_actions_per_request - actions_left
-    ) >= self._min_replan_interval:
+    # Handle the case where the model is empty. This is after initial_state is
+    # called.
+    if self._model_output.size == 0:
       return True
-    if actions_left == 0:
+    actions_left = self._model_output.shape[0] - self._current_action_index
+    if self._current_action_index >= self._min_replan_interval:
+      return True
+    if actions_left <= 0:
       return True
     return False
 
@@ -379,19 +405,18 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     extra = self._get_empty_latency_dict()
     inference_sent = False
     if self._should_replan():
-      self._model_output = self._query_model(
-          observation, self._model_output
-      )
+      self._model_output = self._query_model(observation)
+      self._current_action_index = 0
       extra = dict(self._last_latency_dict)
       inference_sent = True
       assert self._model_output.shape[0] > 0
 
-    action = self._model_output[0]
-    self._model_output = self._model_output[1:]
+    action = self._model_output[self._current_action_index, :]
+    self._current_action_index += 1
 
     extra['inference_sent'] = np.array(inference_sent, dtype=np.uint8)
     extra['actions_left'] = np.array(
-        self._model_output.shape[0], dtype=np.int32
+        self._model_output.shape[0] - self._current_action_index, dtype=np.int32
     )
 
     self._last_extra = extra
@@ -405,12 +430,9 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     2. If no Gemini query is pending and the action buffer is less than the
        minimum replan interval, trigger a new query.
     3. If the action buffer is empty (first query) trigger a new query.
-    4. If there is more than one action in the buffer, consume the first
-       action and remove it from the buffer.
-    5. If only one action is in the buffer, consume it without removing it (we
-    will keep outputting this action until a new action is generated, this is an
-    edge case that should not happen in practice). This results in a quasi-async
-    implementation.
+    4. If there is more than one action in the buffer, update the index of the
+       action to be executed and return it.
+    5. If no actions are left, this will block until the next chunk is received.
 
     Args:
       timestep: An instance of environment `TimeStep`.
@@ -430,45 +452,44 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     with self._model_output_lock:
       # If new model output is available, update the buffer.
       if self._future and self._future.done():
-        new_model_output = self._future.result()
+        self._model_output = self._future.result()
+        # Update the index of the first action keeping in account the actions
+        # that were executed while the future was running.
+        self._current_action_index = self._actions_executed_during_inference
         extra = dict(self._last_latency_dict)
-        # Remove the actions that were executed while the future was running.
-        self._model_output = new_model_output[
-            self._actions_executed_during_inference :
-        ]
         self._future = None
-      actions_left = self._model_output.shape[0]
+
+      actions_left = self._model_output.shape[0] - self._current_action_index
 
       # If not enough actions left and not generating, trigger a replan.
       if self._should_replan() and self._future is None:
+        model_input_for_async = self._prepare_model_input_for_async(observation)
         self._future = self._executor.submit(
             self._query_model,
-            copy.deepcopy(observation),
-            copy.deepcopy(self._model_output),
+            model_input_for_async,
         )
         self._actions_executed_during_inference = 0
         inference_sent = True
 
     # If no actions left (first query), block until the future is done.
-    if actions_left == 0:
+    if actions_left <= 0:
       if not self._future:
         raise ValueError('No actions left and no future to generate them.')
       result_from_blocking_wait = self._future.result()
       extra = dict(self._last_latency_dict)
       with self._model_output_lock:
-        self._model_output = result_from_blocking_wait[
-            self._actions_executed_during_inference :
-        ]
+        self._model_output = result_from_blocking_wait
+        self._current_action_index = self._actions_executed_during_inference
         self._future = None
       if not is_initial_step:
         self._episode_statistics.action_stall_count += 1
 
     # Consume the action.
     with self._model_output_lock:
-      action = self._model_output[0]
-      self._model_output = self._model_output[1:]
+      action = self._model_output[self._current_action_index]
+      self._current_action_index += 1
       self._actions_executed_during_inference += 1
-      actions_left = self._model_output.shape[0]
+      actions_left = self._model_output.shape[0] - self._current_action_index
 
     extra['inference_sent'] = np.array(inference_sent, dtype=np.uint8)
     extra['actions_left'] = np.array(actions_left, dtype=np.int32)
@@ -476,29 +497,44 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._last_extra = extra
     return action
 
+  def _prepare_model_input_for_async(
+      self,
+      model_input: dict[str, np.ndarray],
+  ) -> dict[str, np.ndarray]:
+    """Prepares the model input for async model inference.
+
+    Creates a deep copy of the model input and adds necessary changes to account
+    for async inference.
+
+    Args:
+      model_input: The current model input dictionary.
+
+    Returns:
+      A deep copy of the model input, with changes for async inference.
+    """
+    model_input_copy = copy.deepcopy(model_input)
+    # If needed, resample the conditioning chunk by the resampling factor before
+    # trimming it to the desired action conditioning chunk length.
+    remaining_actions = self._model_output[self._current_action_index :]
+    if remaining_actions.size > 0:
+      if self._action_conditioning_resample_factor > 1:
+        remaining_actions = action_chunk_resampling.apply_linear_resampling(
+            action_chunk=remaining_actions,
+            resample_factor=self._action_conditioning_resample_factor,
+        )
+      conditioning_chunk = remaining_actions[
+          : self._action_conditioning_chunk_length
+      ]
+      model_input_copy[constants.CONDITIONING_ENCODED_OBS_KEY] = (
+          conditioning_chunk.tolist()
+      )
+    return model_input_copy
+
   def _query_model(
       self,
       observation: dict[str, np.ndarray],
-      model_output: np.ndarray,
   ) -> np.ndarray:
     """Queries the model with the given observation and task instruction."""
-    # Conditioning on what the model has left to output in ASYNCHRONOUS mode
-    # and accounting for the action_conditioning_chunk_length if set.
-    if (
-        self._inference_mode == constants.InferenceMode.ASYNCHRONOUS
-        and model_output.size > 0
-    ):
-      # Trim the model output to the action conditioning chunk length if set.
-      # If None, the model will still receive all remaining actions not consumed
-      # so far from the available action chunk.
-      # NOTE: It is safe to use and reassign the model_output variable here
-      # because its value is a deep copy of the original dictionary which
-      # means that we don't need the lock and does not affect the current
-      # model_output variable used in the step method.
-      model_output = model_output[: self._action_conditioning_chunk_length]
-      observation[constants.CONDITIONING_ENCODED_OBS_KEY] = (
-          model_output.tolist()
-      )
     query_start = time.perf_counter()
     actions = self._model.query_model(observation)
     query_duration_ms = (time.perf_counter() - query_start) * 1000.0

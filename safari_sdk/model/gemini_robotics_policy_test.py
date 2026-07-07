@@ -962,11 +962,27 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     # Conditioning should match expected.
     np.testing.assert_allclose(conditioning, expected_conditioning_chunk)
 
-  def test_action_conditioning_chunk_length_validation(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="without_resampling",
+          resample_factor=None,
+          actions_size=3,
+      ),
+      dict(
+          testcase_name="with_resampling",
+          resample_factor=2.0,
+          actions_size=4,
+      ),
+  )
+  def test_action_conditioning_chunk_length_validation(
+      self, resample_factor, actions_size
+  ):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
 
-    # min_replan_interval=2, chunk_length=2. Sum = 4.
-    # returns actions size 3. 3 <= 4. Should raise ValueError.
+    # min_replan_interval=2, chunk_length=2.
+    # Without resampling: required size = 2 + 2 = 4. Size 3 -> error.
+    # With resampling (2.0): required size =
+    # resampled_to_min_source_length(2, 2.0) + 2 = 3 + 2 = 5. Size 4 -> error.
     policy = gemini_robotics_policy.GeminiRoboticsPolicy(
         serve_id="test_serve_id",
         task_instruction_key="test_instruction_key",
@@ -975,11 +991,12 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         min_replan_interval=2,
         inference_mode=constants.InferenceMode.ASYNCHRONOUS,
         action_conditioning_chunk_length=2,
+        action_conditioning_resample_factor=resample_factor,
         model_interface=model_interface,
     )
 
-    # Action is size 3.
-    actions = np.array([[1.0], [2.0], [3.0]])
+    # Action has parameterized size.
+    actions = np.zeros((actions_size, 1))
     model_interface.query_model.return_value = actions
 
     timestep_spec = gdmr_types.TimeStepSpec(
@@ -993,9 +1010,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         },
     )
 
-    with self.assertRaises(
-        ValueError,
-    ):
+    with self.assertRaises(ValueError):
       policy.step_spec(timestep_spec)
 
   def test_default_model_interface_object(self):
@@ -1174,6 +1189,83 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
 
       self.assertNotEqual(str(setup_observation["test_instruction_key"]), "")
       self.assertNotEqual(str(setup_observation["second_string_obs"]), "")
+
+  def test_prepare_model_input_with_action_conditioning_resampling(self):
+    model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
+    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=1,
+        inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+        action_conditioning_resample_factor=2.0,
+        model_interface=model_interface,
+    )
+
+    # Action chunk is size 7. The first action is consumed on step 1,
+    # leaving 6 actions
+    # for the next resampled conditioning chunk.
+    actions = np.array([[-1.0], [0.0], [1.0], [2.0], [3.0], [4.0], [5.0]])
+    model_interface.query_model.return_value = actions
+
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward={},
+        discount={},
+        observation={
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+            "test_instruction_key": specs.StringArray(()),
+        },
+    )
+
+    policy.step_spec(timestep_spec)
+    policy_state = policy.initial_state()
+
+    observation = {
+        "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+        "test_joint_1": np.array([0.0]),
+        "test_instruction_key": np.array(
+            "test_task_instruction", dtype=np.object_
+        ),
+    }
+
+    model_interface.query_model.reset_mock()
+
+    # First step.
+    # Buffer is empty and queries model. Returns actions.
+    # Consumes [-1.0]. Buffer has remaining elements: [0, 1, 2, 3, 4, 5].
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    model_interface.query_model.assert_called_once()
+    np.testing.assert_equal(action, [-1.0])
+    model_interface.query_model.reset_mock()
+
+    # Second step.
+    # Buffer has remaining actions.
+    # Since min_replan_interval=1 and self._current_action_index = 1 >= 1,
+    # a query is sent.
+    (action, _), _ = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    np.testing.assert_equal(action, [0.0])
+
+    # Wait for the future to finish to ensure the async query completes.
+    self.assertIsNotNone(policy._future)
+    policy._future.result()  # pytype: disable=attribute-error
+
+    # Verify model was queried with the correct resampled conditioning chunk.
+    model_interface.query_model.assert_called_once()
+    call_args = model_interface.query_model.call_args[0][0]
+    self.assertIn(constants.CONDITIONING_ENCODED_OBS_KEY, call_args)
+    self.assertEqual(
+        call_args[constants.CONDITIONING_ENCODED_OBS_KEY],
+        [[0.0], [2.5], [5.0]],
+    )
 
 
 if __name__ == "__main__":

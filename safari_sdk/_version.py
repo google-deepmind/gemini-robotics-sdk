@@ -16,5 +16,4 @@
 # the version to be a plain string surrounded by quotes. Do not evaluate any
 # python expressions, including string formatting, variable substitution, etc.
 """Release version of the Safari SDK."""
-
-__version__ = "2.121.0"
+__version__ = "2.144.0"
