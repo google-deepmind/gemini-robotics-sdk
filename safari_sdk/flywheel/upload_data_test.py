@@ -87,7 +87,85 @@ class UploadFileTest(absltest.TestCase):
     self.assertEqual(status_code, 200)
     self.assertEqual(reason, 'OK')
 
-    mock_post.assert_called_once()
+    mock_post.assert_called_once_with(
+        api_endpoint,
+        params={'key': api_key},
+        headers=mock.ANY,
+        data=mock.ANY,
+        timeout=(30, 300),
+    )
+
+  @mock.patch.object(upload_data.requests, 'post')
+  def test_upload_file_custom_timeout(self, mock_post):
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_response.reason = 'OK'
+    mock_post.return_value = mock_response
+
+    upload_data._upload_file(
+        api_endpoint='https://example.com/upload',
+        agent_id='test_agent',
+        filename='data.mcap',
+        file_content_bytes=b'data',
+        api_key='key',
+        now=datetime.datetime(2023, 10, 26, 10, 0, 0, tzinfo=pytz.utc),
+        timeout=(10, 60),
+    )
+    mock_post.assert_called_once_with(
+        'https://example.com/upload',
+        params={'key': 'key'},
+        headers=mock.ANY,
+        data=mock.ANY,
+        timeout=(10, 60),
+    )
+
+  @mock.patch.object(upload_data.requests, 'post')
+  def test_upload_file_timeout_exception(self, mock_post):
+    mock_post.side_effect = upload_data.requests.exceptions.Timeout(
+        'Connection timed out'
+    )
+    status_code, reason = upload_data._upload_file(
+        api_endpoint='https://example.com/upload',
+        agent_id='test_agent',
+        filename='data.mcap',
+        file_content_bytes=b'data',
+        api_key='key',
+        now=datetime.datetime(2023, 10, 26, 10, 0, 0, tzinfo=pytz.utc),
+    )
+    self.assertEqual(status_code, 408)
+    self.assertEqual(reason, 'Request Timeout')
+
+  @mock.patch.object(upload_data.requests, 'post')
+  def test_upload_file_connection_error(self, mock_post):
+    mock_post.side_effect = upload_data.requests.exceptions.ConnectionError(
+        'Failed to connect'
+    )
+    status_code, reason = upload_data._upload_file(
+        api_endpoint='https://example.com/upload',
+        agent_id='test_agent',
+        filename='data.mcap',
+        file_content_bytes=b'data',
+        api_key='key',
+        now=datetime.datetime(2023, 10, 26, 10, 0, 0, tzinfo=pytz.utc),
+    )
+    self.assertEqual(status_code, 503)
+    self.assertIn('Service Unavailable', reason)
+
+  @mock.patch.object(upload_data.requests, 'post')
+  def test_upload_file_generic_request_exception(self, mock_post):
+    mock_post.side_effect = upload_data.requests.exceptions.RequestException(
+        'Generic failure'
+    )
+    status_code, reason = upload_data._upload_file(
+        api_endpoint='https://example.com/upload',
+        agent_id='test_agent',
+        filename='data.mcap',
+        file_content_bytes=b'data',
+        api_key='key',
+        now=datetime.datetime(2023, 10, 26, 10, 0, 0, tzinfo=pytz.utc),
+    )
+    self.assertEqual(status_code, 500)
+    self.assertIn('HTTP Request Failed', reason)
 
 
 class UploadDataDirectoryTest(parameterized.TestCase):
@@ -130,6 +208,7 @@ class UploadDataDirectoryTest(parameterized.TestCase):
                 file_content_bytes=b'dummy file content 1',
                 api_key='test_api_key_123',
                 now=mock.ANY,
+                timeout=(30, 300),
             ),
             mock.call(
                 api_endpoint='https://example.com/upload',
@@ -138,6 +217,7 @@ class UploadDataDirectoryTest(parameterized.TestCase):
                 file_content_bytes=b'dummy file content 2',
                 api_key='test_api_key_123',
                 now=mock.ANY,
+                timeout=(30, 300),
             ),
             mock.call(
                 api_endpoint='https://example.com/upload',
@@ -146,6 +226,7 @@ class UploadDataDirectoryTest(parameterized.TestCase):
                 file_content_bytes=b'dummy file content 3',
                 api_key='test_api_key_123',
                 now=mock.ANY,
+                timeout=(30, 300),
             ),
         ],
     )
@@ -309,6 +390,7 @@ class UploadSingleFilePublicTest(parameterized.TestCase):
         file_content_bytes=b'dummy content',
         api_key='test_api_key_123',
         now=mock.ANY,
+        timeout=(30, 300),
     )
 
   @mock.patch.object(upload_data.auth, 'get_api_key')

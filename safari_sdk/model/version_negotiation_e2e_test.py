@@ -142,7 +142,7 @@ class VersionNegotiationE2ETest(absltest.TestCase):
         result = genai_robotics._check_server_compatibility(
             channel, '2.122.0', timeout=5.0
         )
-      self.assertEqual(result['supported_protocols'], ['json'])
+      self.assertEqual(result['supported_protocols'], ['msgpack', 'json'])
       self.assertNotIn('server_version', result)
       # Verify a warning was issued.
       self.assertTrue(
@@ -214,7 +214,7 @@ class VersionNegotiationE2ETest(absltest.TestCase):
       result = genai_robotics._check_server_compatibility(
           channel, '2.122.0', timeout=1.0
       )
-    self.assertEqual(result['supported_protocols'], ['json'])
+    self.assertEqual(result['supported_protocols'], ['msgpack', 'json'])
     self.assertNotIn('server_version', result)
     self.assertTrue(
         any('UNAVAILABLE' in str(warning.message) for warning in w),

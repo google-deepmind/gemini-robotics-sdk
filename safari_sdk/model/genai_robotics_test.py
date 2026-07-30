@@ -21,6 +21,8 @@ from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 from google.genai import types  # pytype: disable=import-error
+from googleapiclient.errors import HttpError
+import grpc
 import msgpack  # pytype: disable=import-error
 import numpy as np
 import tensorflow as tf
@@ -29,6 +31,20 @@ from safari_sdk.model import genai_robotics  # pytype: disable=import-error
 
 FLAGS = flags.FLAGS
 FLAGS.mark_as_parsed()
+
+
+class FakeRpcError(grpc.RpcError):
+
+  def __init__(self, code, details="gRPC error"):
+    super().__init__()
+    self._code = code
+    self._details = details
+
+  def code(self):
+    return self._code
+
+  def details(self):
+    return self._details
 
 
 class GenaiRoboticsTest(parameterized.TestCase):
@@ -259,6 +275,72 @@ class GenaiRoboticsTest(parameterized.TestCase):
     req_dt = datetime.datetime.fromisoformat(response.backend_request_time)
     res_dt = datetime.datetime.fromisoformat(response.backend_response_time)
     self.assertLessEqual(req_dt, res_dt)
+
+  @parameterized.named_parameters(
+      ("rate_limit_429", 429, "Rate limit exceeded"),
+      ("service_unavailable_503", 503, "Service unavailable"),
+      ("bad_request_400", 400, "Bad request"),
+  )
+  def test_robotics_api_http_error_propagation(self, status_code, reason):
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_service = mock.Mock()
+      mock_build.return_value = mock_service
+      FLAGS.api_key = "test_api_key"
+
+      client = genai_robotics.Client(
+          robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.CLOUD,
+      )
+      mock_cm_custom = mock_service.modelServing.return_value.cmCustom
+
+      resp = mock.Mock()
+      resp.status = status_code
+      resp.reason = reason
+      mock_cm_custom.return_value.execute.side_effect = HttpError(
+          resp, b"Error content"
+      )
+
+      obs = {"task_instruction": "test_task"}
+      with self.assertRaises(HttpError) as ctx:
+        client.models.generate_content(
+            model="test_model",
+            contents=[json.dumps(obs)],
+        )
+      self.assertEqual(ctx.exception.resp.status, status_code)
+
+  @parameterized.named_parameters(
+      ("unavailable", grpc.StatusCode.UNAVAILABLE),
+      ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED),
+  )
+  @mock.patch.object(genai_robotics, "_connect_to_grpc_json", autospec=True)
+  def test_local_generate_content_grpc_error_propagation(
+      self, status_code, mock_connect
+  ):
+    mock_func = mock.Mock(side_effect=FakeRpcError(status_code))
+    mock_connect.return_value = mock_func
+
+    client = genai_robotics.Client(
+        robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.LOCAL,
+        skip_version_check=True,
+    )
+    obs = {"task_instruction": "test_task"}
+    with self.assertRaises(grpc.RpcError):
+      client.models.generate_content(
+          model="test_model",
+          contents=[json.dumps(obs)],
+      )
+
+  @parameterized.named_parameters(
+      ("unimplemented", grpc.StatusCode.UNIMPLEMENTED),
+      ("unavailable", grpc.StatusCode.UNAVAILABLE),
+      ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED),
+  )
+  def test_check_server_compatibility_grpc_errors(self, status_code):
+    mock_channel = mock.Mock()
+    mock_stub = mock.Mock(side_effect=FakeRpcError(status_code))
+    mock_channel.unary_unary.return_value = mock_stub
+
+    res = genai_robotics._check_server_compatibility(mock_channel, "1.0.0")
+    self.assertEqual(res, {"supported_protocols": ["msgpack", "json"]})
 
 
 if __name__ == "__main__":

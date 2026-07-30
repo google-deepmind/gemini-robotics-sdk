@@ -306,6 +306,13 @@ class NonStreamingHandler(abc.ABC):
     self._latency_and_retries_per_query: list[tuple[int, float]] = []
     # Number of words in thinking/thought tokens per query
     self._num_thinking_words_per_query: list[int] = []
+    # Number of parallel tool calls the model emitted per generation step,
+    # counted *before* any filtering/selection (e.g. i_am_done preference).
+    self._num_parallel_calls_per_step: list[int] = []
+    # Model text output per generation step (truncated to first 500 chars).
+    self._model_text_output_per_step: list[str] = []
+    # Thinking text output per query
+    self._thinking_text_per_query: list[str] = []
     self._context_compression_occurred = False
 
   async def _publish_context_compression_event(
@@ -429,12 +436,16 @@ class NonStreamingHandler(abc.ABC):
       num_retries: int,
       total_time_seconds: float,
       num_thinking_words: int = 0,
+      model_text_output: str = "",
+      thinking_text: str = "",
   ) -> None:
-    """Records retry count, elapsed time, and thinking words."""
+    """Records retry count, elapsed time, thinking words, model text, and thinking text."""
     self._latency_and_retries_per_query.append(
         (num_retries, total_time_seconds)
     )
     self._num_thinking_words_per_query.append(num_thinking_words)
+    self._model_text_output_per_step.append(model_text_output[:500])
+    self._thinking_text_per_query.append(thinking_text)
 
   def _start_image_stitching(self) -> None:
     if self._enable_image_stitching:
@@ -880,6 +891,9 @@ class NonStreamingHandler(abc.ABC):
                 self._latency_and_retries_per_query
             ),
             "num_thinking_words_per_query": self._num_thinking_words_per_query,
+            "num_parallel_calls_per_step": self._num_parallel_calls_per_step,
+            "model_text_output_per_step": self._model_text_output_per_step,
+            "thinking_text_per_query": self._thinking_text_per_query,
         },
     )
 

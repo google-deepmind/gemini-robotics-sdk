@@ -140,6 +140,7 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
     self._function_call_timestamp = None
     self._pending_tool_results = asyncio.Queue()
     self._context_compression_occurred = False
+    self._num_parallel_calls_per_step = []
     self._clear_image_state()
     self._start_image_stitching()
     if self._config.enable_bootup_test:
@@ -228,14 +229,24 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
         response, num_retries = await self._retry_wrapper(self._call_model)
         query_elapsed = time.time() - query_start_time
 
-        # Count thinking words before recording result.
+        # Count thinking words and collect thinking text before recording
+        # result.
         num_thinking_words = 0
+        thinking_text_parts = []
         if response.candidates and response.candidates[0].content:
           for part in response.candidates[0].content.parts or []:
             if hasattr(part, "thought") and part.thought and part.text:
               num_thinking_words += len(part.text.split())
+              thinking_text_parts.append(part.text)
+        thinking_text = "\n".join(thinking_text_parts)
+        # Extract model text output for logging.
+        model_text_output = str(getattr(response, "text", "") or "")
         self._record_query_result(
-            num_retries, query_elapsed, num_thinking_words
+            num_retries,
+            query_elapsed,
+            num_thinking_words,
+            model_text_output=model_text_output,
+            thinking_text=thinking_text,
         )
         await self._maybe_publish_health_event(None)
 
@@ -261,6 +272,11 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
         # NOTE: We must keep the full response including thought_signature
         # for Gemini 3 models, as it's required for function calling.
         model_content = response.candidates[0].content
+        if model_content is None:
+          raise ValueError(
+              "Model content is None. Finish reason:"
+              f" {response.candidates[0].finish_reason}"
+          )
 
         # Publish model thinking trace before any pruning.
         thought_texts = []
@@ -300,6 +316,40 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
               parts=pruned_parts,
           )
 
+        # Check for tool calls — if present, handle them and loop again.
+        tool_calls = self._extract_tool_calls(model_content)
+        executed_tool_calls = []
+        if tool_calls:
+          self._num_parallel_calls_per_step.append(len(tool_calls))
+          if len(tool_calls) > 1:
+            logging.warning(
+                "!!! MULTIPLE FUNCTION CALLS DETECTED: %d calls in a single"
+                " turn: %s. The system prompt specifies ONLY ONE function call"
+                " at a time. Only the first one will be executed.",
+                len(tool_calls),
+                [tc.name for tc in tool_calls],
+            )
+            # Filter model_content to only keep the first function call
+            filtered_parts = []
+            found_first_fc = False
+            for part in model_content.parts:
+              if part.function_call:
+                if not found_first_fc:
+                  filtered_parts.append(part)
+                  found_first_fc = True
+              else:
+                filtered_parts.append(part)
+            model_content = types.Content(
+                role=model_content.role, parts=filtered_parts
+            )
+            executed_tool_calls = [tool_calls[0]]
+          else:
+            executed_tool_calls = tool_calls
+        else:
+          self._num_parallel_calls_per_step.append(0)
+
+        # Add model response to history (potentially filtered to only 1 tool
+        # call)
         self._conversation_history.append(model_content)
 
         # Publish the model turn so downstream listeners can process it.
@@ -308,18 +358,8 @@ class UnaryGenAIHandler(nonstreaming_handler.NonStreamingHandler):
             model_content,
         )
 
-        # Check for tool calls — if present, handle them and loop again.
-        tool_calls = self._extract_tool_calls(model_content)
-        if tool_calls:
-          if len(tool_calls) > 1:
-            logging.warning(
-                "!!! MULTIPLE FUNCTION CALLS DETECTED: %d calls in a single"
-                " turn: %s. The system prompt specifies ONLY ONE function call"
-                " at a time.",
-                len(tool_calls),
-                [tc.name for tc in tool_calls],
-            )
-          await self._handle_tool_calls(tool_calls)
+        if executed_tool_calls:
+          await self._handle_tool_calls(executed_tool_calls)
           # Reset empty candidates retries after successful tool handling.
           remaining_empty_candidates_retries = _EMPTY_CANDIDATES_INNER_RETRIES
           trigger = "tool_call_continuation"

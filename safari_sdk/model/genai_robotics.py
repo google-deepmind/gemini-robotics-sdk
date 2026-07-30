@@ -149,6 +149,7 @@ class Client:
       num_retries: int = 1,
       grpc_url: str | None = None,
       skip_version_check: bool = False,
+      timeout: int | None = None,
       **kwargs,
   ):
     """Initializes the GenAI Robotics Client.
@@ -171,6 +172,7 @@ class Client:
       skip_version_check: If True, skip the server version check when using
         `_CONNECTION.LOCAL`. Useful for benchmarking or when the server is
         not yet running at client construction time.
+      timeout: Timeout in seconds for remote model inference requests.
       **kwargs: Additional keyword arguments to pass to the `genai.Client` when
         using `_CONNECTION.CLOUD_GENAI`.
     """
@@ -180,12 +182,24 @@ class Client:
     self._server_version: str | None = None
     match self._robotics_api_connection:
       case _CONNECTION.CLOUD:
-        service = auth.get_service()
+        if timeout is not None:
+          service = auth.get_service(timeout=timeout)
+        else:
+          service = auth.get_service()
         self._client = service.modelServing()
         self.models: Any = lambda: None
+
+        partial_kwargs = {
+            'image_compression_jpeg_quality': image_compression_jpeg_quality,
+        }
+        if timeout is not None:
+          partial_kwargs['config'] = types.GenerateContentConfig(
+              http_options=types.HttpOptions(timeout=timeout * 1000)
+          )
+
         self.models.generate_content = functools.partial(
             self._robotics_generate_content,
-            image_compression_jpeg_quality=image_compression_jpeg_quality,
+            **partial_kwargs
         )
       case _CONNECTION.LOCAL:
         url = grpc_url or os.environ.get('GOOGLE_GEMINI_BASE_URL')
@@ -281,7 +295,10 @@ class Client:
           )
         query[key] = value
       elif isinstance(value, np.ndarray):
-        query[key] = value.tolist()
+        res = value.tolist()
+        if isinstance(res, bytes):
+          res = res.decode('utf-8', errors='ignore')
+        query[key] = res
       elif isinstance(value, tf.Tensor):
         query[key] = value.numpy().tolist()
       else:
@@ -292,7 +309,7 @@ class Client:
       case _CONNECTION.CLOUD:
         if self._use_msgpack:
           input_bytes = base64.b64encode(
-              msgpack.packb(query)
+              msgpack.packb(query, use_bin_type=True)
           ).decode('utf-8')
         else:
           input_bytes = base64.b64encode(
@@ -409,7 +426,7 @@ def _connect_to_grpc_json(
 
   def query(query: dict[str, Any]) -> str:
     if use_msgpack:
-      encoded_query = msgpack.packb(query)
+      encoded_query = msgpack.packb(query, use_bin_type=True)
       response_bytes = grpc_stub(encoded_query)
       response = msgpack.unpackb(response_bytes, raw=False)
       return json.dumps(response)
@@ -497,7 +514,7 @@ def _check_server_compatibility(
         'Proceeding with JSON protocol.',
         stacklevel=2,
     )
-    return {'supported_protocols': ['json']}
+    return {'supported_protocols': ['msgpack', 'json']}
 
   except grpc.RpcError as e:
     status = e.code()  # pytype: disable=attribute-error
@@ -518,4 +535,4 @@ def _check_server_compatibility(
       )
     else:
       raise
-    return {'supported_protocols': ['json']}
+    return {'supported_protocols': ['msgpack', 'json']}

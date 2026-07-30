@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import threading
 from unittest import mock
 
 from absl import flags
@@ -27,7 +28,6 @@ from safari_sdk.model import constants
 from safari_sdk.model import gemini_robotics_policy
 from safari_sdk.model import model_interface as model_interface_lib
 from safari_sdk.model import remote_model_interface
-
 
 FLAGS = flags.FLAGS
 FLAGS.mark_as_parsed()
@@ -170,9 +170,67 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
             "network_overhead_ms": specs.Array(shape=(), dtype=np.float32),
             "inference_sent": specs.Array(shape=(), dtype=np.uint8),
             "actions_left": specs.Array(shape=(), dtype=np.int32),
+            "action_chunk": specs.Array(shape=(3, 2), dtype=np.float32),
         },
     )
     self.assertEqual(policy_state_spec, specs.Array(shape=(), dtype=np.float32))
+
+  def test_two_policies_with_different_action_shapes_are_isolated(self):
+    model_interface_1 = mock.create_autospec(model_interface_lib.ModelInterface)
+    model_interface_2 = mock.create_autospec(model_interface_lib.ModelInterface)
+
+    policy_1 = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id_1",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=3,
+        inference_mode=constants.InferenceMode.SYNCHRONOUS,
+        model_interface=model_interface_1,
+    )
+
+    policy_2 = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id_2",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=3,
+        inference_mode=constants.InferenceMode.SYNCHRONOUS,
+        model_interface=model_interface_2,
+    )
+
+    # Model 1 produces 3x2 actions
+    model_interface_1.query_model.return_value = np.array(
+        [[1.0, 2.0], [2.0, 3.0], [3.0, 4.0]], dtype=np.float32
+    )
+    # Model 2 produces 5x4 actions
+    model_interface_2.query_model.return_value = np.zeros(
+        (5, 4), dtype=np.float32
+    )
+
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward={},
+        discount={},
+        observation={
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+            "test_instruction_key": specs.StringArray(()),
+        },
+    )
+
+    (_, extra_spec_1), _ = policy_1.step_spec(timestep_spec)
+    (_, extra_spec_2), _ = policy_2.step_spec(timestep_spec)
+
+    # Verify each policy took on the shape of its respective model
+    self.assertEqual(extra_spec_1["action_chunk"].shape, (3, 2))
+    self.assertEqual(extra_spec_2["action_chunk"].shape, (5, 4))
+
+    # Prove dictionaries are isolated and not leaking into one another
+    self.assertNotEqual(
+        extra_spec_1["action_chunk"].shape,
+        extra_spec_2["action_chunk"].shape,
+    )
 
   def test_step_spec_with_float64_dtype(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -432,9 +490,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(1, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(2, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(2, dtype=np.int32))
 
     model_interface.query_model.reset_mock()
 
@@ -458,9 +514,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(0, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(1, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(1, dtype=np.int32))
 
     # Third step, should not trigger a query.
     (action, extra), policy_state = policy.step(
@@ -482,9 +536,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(0, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(0, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(0, dtype=np.int32))
 
     # Fourth step, should trigger a query.
     (action, extra), unused_policy_state = policy.step(
@@ -503,9 +555,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(1, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(2, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(2, dtype=np.int32))
 
   def test_step_async_policy(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -572,9 +622,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(1, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(2, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(2, dtype=np.int32))
     model_interface.query_model.reset_mock()
 
     # Second step, should not trigger a query.
@@ -597,9 +645,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(0, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(1, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(1, dtype=np.int32))
 
     # Third step, should not trigger a query.
     (action, extra), policy_state = policy.step(
@@ -620,9 +666,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(0, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(0, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(0, dtype=np.int32))
 
     # Fourth step, should trigger a query.
     (action, extra), unused_policy_state = policy.step(
@@ -641,9 +685,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(1, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(2, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(2, dtype=np.int32))
 
   def test_async_policy_increases_action_stall_count(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -771,6 +813,129 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     )
 
     self.assertIsNone(policy._future)
+
+  def test_step_async_hold_last_conditioning_action(self):
+    model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
+
+    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=1,
+        inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+        action_conditioning_chunk_length=2,
+        hold_last_conditioning_action=True,
+        model_interface=model_interface,
+    )
+
+    # Action chunk is size 5.
+    actions_1 = np.array([[1.0], [2.0], [3.0], [4.0], [5.0]])
+    # actions_2 starts with the conditioning actions from actions_1:
+    # [2.0], [3.0]
+    actions_2 = np.array([[2.0], [3.0], [30.0], [40.0], [50.0]])
+
+    query_called_event = threading.Event()
+    query_proceed_event = threading.Event()
+
+    call_count = 0
+
+    def query_model_side_effect(_):
+      nonlocal call_count
+      call_count += 1
+      if call_count <= 2:
+        return actions_1
+      else:
+        query_called_event.set()
+        query_proceed_event.wait()
+        return actions_2
+
+    model_interface.query_model.side_effect = query_model_side_effect
+
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward={},
+        discount={},
+        observation={
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
+            "test_instruction_key": specs.StringArray(()),
+        },
+    )
+
+    policy.step_spec(timestep_spec)
+    policy_state = policy.initial_state()
+
+    observation = {
+        "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+        "test_joint_1": np.array([0.0]),
+        "test_instruction_key": np.array(
+            "test_task_instruction", dtype=np.object_
+        ),
+    }
+
+    # Step 1: Initial query. Consumes [1.0].
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    self.assertEqual(action, [1.0])
+
+    # Step 2: Triggers async query. Consumes [2.0].
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    self.assertEqual(action, [2.0])
+
+    # Verify query was called and is pending.
+    self.assertTrue(query_called_event.wait(timeout=5))
+    future = policy._future
+    self.assertIsNotNone(future)
+    assert future is not None
+    self.assertFalse(future.done())
+
+    # Step 3: Future still pending. 1 < L (2). Consumes [3.0].
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    self.assertEqual(action, [3.0])
+
+    # Step 4: Future still pending. 2 >= L (2). Quasi-async triggers. Returns
+    # [3.0].
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    self.assertEqual(action, [3.0])
+
+    # Step 5: Future still pending. 3 >= L (2). Quasi-async triggers. Returns
+    # [3.0].
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    self.assertEqual(action, [3.0])
+
+    # Allow query to proceed.
+    query_proceed_event.set()
+    future = policy._future
+    self.assertIsNotNone(future)
+    assert future is not None
+    future.result()
+
+    # Step 6: Future is done. Transition to new chunk.
+    # We executed 2 conditioning actions [2.0], [3.0] before holding.
+    # The hold steps should not increment the count of executed actions.
+    # Therefore, we should transition to the new chunk at index 2 (after the
+    # conditioning actions).
+    # Returns actions_2[2] = [30.0].
+    (action, _), _ = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation),
+        policy_state,
+    )
+    self.assertEqual(action, [30.0])
 
   def test_get_latency_statistics_with_valid_metrics(self):
     model_interface = mock.create_autospec(
@@ -944,9 +1109,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["inference_sent"], np.array(1, dtype=np.uint8)
     )
-    np.testing.assert_equal(
-        extra["actions_left"], np.array(3, dtype=np.int32)
-    )
+    np.testing.assert_equal(extra["actions_left"], np.array(3, dtype=np.int32))
     # Wait for async execution by checking the future.
     # The policy should have submitted a future.
     self.assertIsNotNone(policy._future)

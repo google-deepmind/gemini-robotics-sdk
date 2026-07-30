@@ -5,6 +5,10 @@ Release notes for the docker inference server.
 See https://ai.google.dev/gemini-api/docs/eap/robotics/robotics-ondevice#setup-model-server
 for how to download and use the docker inference server.
 
+## 2.0.0
+
+- Release of GRODv2 (Gemini Robotics On-Device v2).
+
 ## 1.2.1
 
 - Includes bugfixes and improved error messaging.

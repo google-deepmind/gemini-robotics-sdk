@@ -315,12 +315,12 @@ def convert_spec_bound(bound: float | int | np.ndarray) -> list[float]:
 
 
 def create_dtype_proto(
-    dtype: np.dtype,
+    dtype: np.dtype | str | type[Any],
 ) -> dtype_pb2.Dtype:
   """Creates a Dtype proto from a numpy dtype.
 
   Args:
-    dtype: The numpy dtype.
+    dtype: The numpy dtype or string alias.
 
   Returns:
     The dtype proto.
@@ -328,10 +328,17 @@ def create_dtype_proto(
   Raises:
     ValueError: If the dtype is not supported.
   """
+  try:
+    dtype = np.dtype(dtype)
+  except (TypeError, ValueError):
+    pass
+
   if dtype == np.uint8:
     return dtype_pb2.DTYPE_UINT8
   elif dtype == np.uint16:
     return dtype_pb2.DTYPE_UINT16
+  elif dtype == np.uint32:
+    return dtype_pb2.DTYPE_UINT32
   elif dtype == np.int32:
     return dtype_pb2.DTYPE_INT32
   elif dtype == np.int64:

@@ -686,6 +686,15 @@ class ExternalControllerFastAPIServer:
         "num_thinking_words_per_query": event.data.get(
             "num_thinking_words_per_query", []
         ),
+        "num_parallel_calls_per_step": event.data.get(
+            "num_parallel_calls_per_step", []
+        ),
+        "model_text_output_per_step": event.data.get(
+            "model_text_output_per_step", []
+        ),
+        "thinking_text_per_query": event.data.get(
+            "thinking_text_per_query", []
+        ),
     }
 
   async def _handle_tool_health_events(self, event: event_bus.Event) -> None:

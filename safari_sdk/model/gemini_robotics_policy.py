@@ -72,6 +72,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       num_retries: int = 1,
       action_conditioning_chunk_length: int | None = None,
       action_conditioning_resample_factor: float | None = None,
+      hold_last_conditioning_action: bool = False,
+      request_timeout: int | None = None,
       model_interface: model_interface_lib.ModelInterface | None = None,
   ):
     """Initializes the evaluation policy.
@@ -109,9 +111,15 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         > 1, performs a linear interpolation between the actions in the
         conditioning chunk to resample them in accordance with the factor
         specified. (for example, a factor of 2 will effectively select every
-        other action from the conditioning chunk). If None or 1.0, no
-        resampling is performed. Currently only supported in ASYNCHRONOUS mode
-        and must be >= 1.
+        other action from the conditioning chunk). If None or 1.0, no resampling
+        is performed. Currently only supported in ASYNCHRONOUS mode and must be
+        >= 1.
+      hold_last_conditioning_action: If True, when the policy has executed the
+        conditioning length of the previous action, it will stay constant until
+        the new action chunk is available, instead of executing the rest of the
+        previous action chunk.
+      request_timeout: Timeout in seconds for remote model inference requests.
+        If None, the default timeout is used.
       model_interface: Internal use only.
     """
     if model_interface is None:
@@ -124,6 +132,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
           image_compression_jpeg_quality=image_compression_jpeg_quality,
           num_of_retries=num_retries,
           additional_observations_providers=additional_observations_providers,
+          request_timeout=request_timeout,
       )
     self._model = model_interface
 
@@ -147,6 +156,10 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
           'Only action conditioning resample factor >= 1.0 is supported.'
       )
 
+    self._hold_last_conditioning_action = hold_last_conditioning_action
+
+    self._replan_start_action_index = 0
+
     self._dummy_state = np.zeros(())
 
     self._model_output = np.array([])
@@ -162,7 +175,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       self._model_output_lock = threading.Lock()
       self._actions_executed_during_inference = 0
 
-    self._last_latency_dict = self._get_empty_latency_dict()
+    self._last_query_stats_dict = self._get_empty_query_stats_dict()
     self._last_extra = self._get_empty_extra_dict()
     self._initialize_episode_statistics()
 
@@ -195,6 +208,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     self._model_output = np.array([])
     self._current_action_index = 0
+    self._replan_start_action_index = 0
     for provider in self._additional_observations_providers:
       provider.reset()
 
@@ -316,6 +330,10 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         'network_overhead_ms': specs.Array(shape=(), dtype=np.float32),
         'inference_sent': specs.Array(shape=(), dtype=np.uint8),
         'actions_left': specs.Array(shape=(), dtype=np.int32),
+        'action_chunk': specs.Array(
+            shape=self._actions_buffer.shape,
+            dtype=self._actions_buffer.dtype,
+        ),
     }
 
     return (
@@ -375,7 +393,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
             ' the minimum replan interval. Got'
             f' {num_of_actions_per_request} actions per request, but'
             f' require more than {required_buffer_size} actions.'
-            f' (Action conditioning chunk length:'
+            ' (Action conditioning chunk length:'
             f' {self._action_conditioning_chunk_length},'
             f' min replan interval: {self._min_replan_interval})'
         )
@@ -402,12 +420,12 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
   def _step_sync(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """Computes an action from observations."""
     observation = timestep.observation
-    extra = self._get_empty_latency_dict()
+    extra = self._get_empty_query_stats_dict()
     inference_sent = False
     if self._should_replan():
       self._model_output = self._query_model(observation)
       self._current_action_index = 0
-      extra = dict(self._last_latency_dict)
+      extra = dict(self._last_query_stats_dict)
       inference_sent = True
       assert self._model_output.shape[0] > 0
 
@@ -418,6 +436,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     extra['actions_left'] = np.array(
         self._model_output.shape[0] - self._current_action_index, dtype=np.int32
     )
+    extra['action_chunk'] = self._model_output.copy()
 
     self._last_extra = extra
     return action
@@ -446,7 +465,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     """
     observation = timestep.observation
     is_initial_step = timestep.step_type == dm_env.StepType.FIRST
-    extra = self._get_empty_latency_dict()
+    extra = self._get_empty_query_stats_dict()
     inference_sent = False
 
     with self._model_output_lock:
@@ -456,7 +475,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         # Update the index of the first action keeping in account the actions
         # that were executed while the future was running.
         self._current_action_index = self._actions_executed_during_inference
-        extra = dict(self._last_latency_dict)
+        extra = dict(self._last_query_stats_dict)
         self._future = None
 
       actions_left = self._model_output.shape[0] - self._current_action_index
@@ -469,6 +488,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
             model_input_for_async,
         )
         self._actions_executed_during_inference = 0
+        self._replan_start_action_index = self._current_action_index
         inference_sent = True
 
     # If no actions left (first query), block until the future is done.
@@ -476,7 +496,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       if not self._future:
         raise ValueError('No actions left and no future to generate them.')
       result_from_blocking_wait = self._future.result()
-      extra = dict(self._last_latency_dict)
+      extra = dict(self._last_query_stats_dict)
       with self._model_output_lock:
         self._model_output = result_from_blocking_wait
         self._current_action_index = self._actions_executed_during_inference
@@ -485,14 +505,31 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         self._episode_statistics.action_stall_count += 1
 
     # Consume the action.
+    action_conditioning_chunk_length = self._action_conditioning_chunk_length
     with self._model_output_lock:
-      action = self._model_output[self._current_action_index]
-      self._current_action_index += 1
-      self._actions_executed_during_inference += 1
+      if (
+          self._hold_last_conditioning_action
+          and self._future is not None
+          and action_conditioning_chunk_length is not None
+          and self._actions_executed_during_inference
+          >= action_conditioning_chunk_length
+      ):
+        constant_index = (
+            self._replan_start_action_index
+            + action_conditioning_chunk_length
+            - 1
+        )
+        constant_index = min(constant_index, self._model_output.shape[0] - 1)
+        action = self._model_output[constant_index]
+      else:
+        action = self._model_output[self._current_action_index]
+        self._current_action_index += 1
+        self._actions_executed_during_inference += 1
       actions_left = self._model_output.shape[0] - self._current_action_index
 
     extra['inference_sent'] = np.array(inference_sent, dtype=np.uint8)
     extra['actions_left'] = np.array(actions_left, dtype=np.int32)
+    extra['action_chunk'] = self._model_output.copy()
 
     self._last_extra = extra
     return action
@@ -538,16 +575,15 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     query_start = time.perf_counter()
     actions = self._model.query_model(observation)
     query_duration_ms = (time.perf_counter() - query_start) * 1000.0
-    self._last_latency_dict = self._get_latency_statistics(query_duration_ms)
+    self._last_query_stats_dict = self._get_query_statistics(query_duration_ms)
     return actions
 
-  def _get_latency_statistics(
+  def _get_query_statistics(
       self, query_duration_ms: float
   ) -> dict[str, np.ndarray]:
-    """Returns the latency statistics from the model."""
+    """Returns the query statistics from the model."""
     remote_time = getattr(self._model, 'last_remote_inference_time_ms', None)
     network_time = getattr(self._model, 'last_network_overhead_ms', None)
-
     valid_remote = isinstance(remote_time, (int, float))
     valid_network = isinstance(network_time, (int, float))
 
@@ -558,7 +594,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         network_time if valid_network else -1.0,
     )
 
-    return {
+    extra = {
         'inference_total_ms': np.array(query_duration_ms, dtype=np.float32),
         'remote_inference_ms': np.array(
             remote_time if valid_remote else -1.0, dtype=np.float32
@@ -568,17 +604,21 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         ),
     }
 
-  def _get_empty_latency_dict(self) -> dict[str, np.ndarray]:
+    return extra
+
+  def _get_empty_query_stats_dict(self) -> dict[str, np.ndarray]:
     """Returns a dictionary with sentinel inference latency metrics."""
-    return {
+    extra = {
         'inference_total_ms': np.array(-1.0, dtype=np.float32),
         'remote_inference_ms': np.array(-1.0, dtype=np.float32),
         'network_overhead_ms': np.array(-1.0, dtype=np.float32),
     }
 
+    return extra
+
   def _get_empty_extra_dict(self) -> dict[str, np.ndarray]:
     """Returns a dictionary with sentinel extra output metrics."""
-    extra = self._get_empty_latency_dict()
+    extra = self._get_empty_query_stats_dict()
     extra['inference_sent'] = np.array(0, dtype=np.uint8)
     extra['actions_left'] = np.array(0, dtype=np.int32)
     return extra

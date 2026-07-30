@@ -43,3 +43,7 @@ TASK_INSTRUCTION_ENCODED_OBS_KEY = "task_instruction"
 ACTION_CHUNK_RESPONSE_KEY = "action_chunk"
 
 DTYPE_RESPONSE_KEY = "dtype"
+
+RNG_KEY_RESPONSE_KEY = "rng_key"
+
+RNG_KEY_ENCODED_OBS_KEY = "rng_key"

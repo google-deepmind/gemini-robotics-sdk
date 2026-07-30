@@ -17,7 +17,7 @@ syntax = "proto2";
 package safari_sdk.protos.logging;
 
 // Proto to serialize Numpy dtypes used for Safari logging.
-// Next ID: 8
+// Next ID: 9
 enum Dtype {
   DTYPE_UNSPECIFIED = 0;
   DTYPE_UINT8 = 1;
@@ -27,4 +27,5 @@ enum Dtype {
   DTYPE_FLOAT32 = 5;
   DTYPE_FLOAT64 = 6;
   DTYPE_STRING = 7;
+  DTYPE_UINT32 = 8;
 }

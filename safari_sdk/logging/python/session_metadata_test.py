@@ -39,6 +39,21 @@ class MetadataUtilsTest(parameterized.TestCase):
           expected_dtype=dtype_pb2.DTYPE_UINT16,
       ),
       dict(
+          testcase_name="uint32",
+          dtype=np.uint32,
+          expected_dtype=dtype_pb2.DTYPE_UINT32,
+      ),
+      dict(
+          testcase_name="uint32_str",
+          dtype="uint32",
+          expected_dtype=dtype_pb2.DTYPE_UINT32,
+      ),
+      dict(
+          testcase_name="float32_str",
+          dtype="float32",
+          expected_dtype=dtype_pb2.DTYPE_FLOAT32,
+      ),
+      dict(
           testcase_name="int32",
           dtype=np.int32,
           expected_dtype=dtype_pb2.DTYPE_INT32,
@@ -75,10 +90,6 @@ class MetadataUtilsTest(parameterized.TestCase):
     )
 
   @parameterized.named_parameters(
-      dict(
-          testcase_name="uint32",
-          dtype=np.uint32,
-      ),
       dict(
           testcase_name="uint64",
           dtype=np.uint64,

@@ -37,8 +37,8 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import run_for_duration_agent
-import simple_agent
+from examples.aloha.agent import run_for_duration_agent
+from examples.aloha.agent import simple_agent
 from safari_sdk.agent.framework import agent_framework
 from safari_sdk.agent.framework import config as framework_config
 from safari_sdk.agent.framework.event_bus import event_bus

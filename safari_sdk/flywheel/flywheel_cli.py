@@ -25,14 +25,16 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
-from typing import Sequence
+from typing import Any, Sequence
 import urllib
 
 from absl import app
 from absl import flags
 from absl.flags import argparse_flags
+import googleapiclient.errors
 
 from safari_sdk import _version
 from safari_sdk import auth
@@ -54,7 +56,7 @@ _COMMANDS_LIST = [
 
 _UPLOAD_DATA_ROBOT_ID_REGEX = re.compile(r"[a-zA-Z][\w-]{0,62}")
 # The constraints for artifact IDs come from the backend proto definition.
-_ARTIFACT_ID_REGEX = re.compile(r"^[a-zA-Z0-9][\w-]{1,35}$")
+_ARTIFACT_ID_REGEX = re.compile(r"^[a-zA-Z0-9][\w-]{1,63}$")
 _DEFAULT_TIMEOUT = 900  # 15 minutes
 
 # Mapping from recipe name to training type.
@@ -63,6 +65,9 @@ _RECIPE_TO_TYPE_MAP = {
     "gemini_robotics_v1": "TRAINING_TYPE_GEMINI_ROBOTICS_V1",
     "gemini_robotics_on_device_v1": (
         "TRAINING_TYPE_GEMINI_ROBOTICS_ON_DEVICE_V1"
+    ),
+    "gemini_robotics_on_device_v2": (
+        "TRAINING_TYPE_GEMINI_ROBOTICS_ON_DEVICE_V2"
     ),
 }
 
@@ -97,6 +102,21 @@ _LICENSE_PATH = flags.DEFINE_string(
     help="The local path to the base64 encoded license file.",
 )
 
+_SHM_SIZE = flags.DEFINE_string(
+    name="shm_size",
+    default="8g",
+    help="Size of /dev/shm inside the docker container.",
+)
+flags.register_validator(
+    "shm_size",
+    lambda value: value is not None
+    and re.fullmatch(r"^[1-9]\d*[mg]b?$", value, re.IGNORECASE) is not None,
+    message=(
+        "--shm_size must be a positive integer followed by a unit 'm', 'mb',"
+        " 'g', or 'gb' (case-insensitive) (e.g., '16g', '1024m')."
+    ),
+)
+
 _SERVE_PORT = flags.DEFINE_integer(
     name="serve_port",
     default=60061,
@@ -124,10 +144,49 @@ _ROBOT_ID = flags.DEFINE_list(
     name="robot_id", default=None, help="The robot id to use."
 )
 
+_INCLUDE_TAGS = flags.DEFINE_list(
+    name="include_tags",
+    default=None,
+    help="The tags to filter training data.",
+)
+
+_EXCLUDE_TAGS = flags.DEFINE_list(
+    name="exclude_tags",
+    default=None,
+    help="The tags to exclude from training data.",
+)
+
+
+def _is_valid_date(date: str | None) -> bool:
+  """Checks if the date is None or in YYYYMMDD format."""
+  if date is None:
+    return True
+  try:
+    datetime.datetime.strptime(date, "%Y%m%d")
+    return True
+  except (ValueError, TypeError):
+    return False
+
+
+def _is_valid_start_end_date_pair(start_date: str, end_date: str) -> bool:
+  """Checks if start_date is earlier than or equal to end_date."""
+  try:
+    start = datetime.datetime.strptime(start_date, "%Y%m%d")
+    end = datetime.datetime.strptime(end_date, "%Y%m%d")
+    return start <= end
+  except (ValueError, TypeError):
+    return True
+
+
 _START_DATE = flags.DEFINE_string(
     name="start_date",
     default=None,
     help="The start date (inclusive) for training data. Format: YYYYMMDD.",
+)
+flags.register_validator(
+    "start_date",
+    lambda d: d is None or _is_valid_date(d),
+    message="--start_date must be in the format YYYYMMDD.",
 )
 
 _END_DATE = flags.DEFINE_string(
@@ -137,6 +196,20 @@ _END_DATE = flags.DEFINE_string(
         "The end date (inclusive) for training data. Format: YYYYMMDD."
         " Can be the same as start_date to train on a single day."
     ),
+)
+flags.register_validator(
+    "end_date",
+    lambda d: d is None or _is_valid_date(d),
+    message="--end_date must be in the format YYYYMMDD.",
+)
+flags.register_multi_flags_validator(
+    ["start_date", "end_date"],
+    lambda f: (
+        not f["start_date"]
+        or not f["end_date"]
+        or _is_valid_start_end_date_pair(f["start_date"], f["end_date"])
+    ),
+    message="--start_date must be earlier than or equal to --end_date.",
 )
 
 _MAX_TRAINING_STEPS = flags.DEFINE_integer(
@@ -216,6 +289,90 @@ _PROPRIOCEPTION_KEYS = flags.DEFINE_list(
         " gemini_robotics_on_device_v1 training recipe. They should be a"
         " subset of the proprioceptive_observation_keys logged by"
         " EpisodicLogger."
+    ),
+)
+
+_EMBODIMENT = flags.DEFINE_enum(
+    name="embodiment",
+    default=None,
+    enum_values=["trossen", "so101", "agibot", "cloid", "dexmate"],
+    help="Required for gemini_robotics_on_device_v2 to specify the embodiment.",
+)
+flags.register_validator(
+    "embodiment",
+    lambda value: value is None or value in flags.FLAGS["embodiment"].parser.enum_values,  # pytype: disable=attribute-error
+    message=(
+        "--embodiment must be one of: "
+        f"{', '.join(flags.FLAGS['embodiment'].parser.enum_values)}"  # pytype: disable=attribute-error
+    ),
+)
+
+_IDENTIFIER_REGEX = re.compile(r"[a-zA-Z0-9_\-./ ]+")
+
+
+def _validate_identifiers(value: list[str] | None) -> bool:
+  """Validates that a list flag contains only valid identifiers."""
+  if value is None:
+    return True
+  return all(bool(_IDENTIFIER_REGEX.fullmatch(val.strip())) for val in value)
+
+
+flags.register_validator(
+    "task_id",
+    _validate_identifiers,
+    message=(
+        "--task_id must contain only alphanumeric characters, spaces,"
+        " underscores, hyphens, slashes, and dots."
+    ),
+)
+flags.register_validator(
+    "robot_id",
+    _validate_identifiers,
+    message=(
+        "--robot_id must contain only alphanumeric characters, spaces,"
+        " underscores, hyphens, slashes, and dots."
+    ),
+)
+flags.register_validator(
+    "image_keys",
+    _validate_identifiers,
+    message=(
+        "--image_keys must contain only alphanumeric characters, spaces,"
+        " underscores, hyphens, slashes, and dots."
+    ),
+)
+flags.register_validator(
+    "proprioception_keys",
+    _validate_identifiers,
+    message=(
+        "--proprioception_keys must contain only alphanumeric characters,"
+        " spaces, underscores, hyphens, slashes, and dots."
+    ),
+)
+
+
+flags.register_validator(
+    "image_keys",
+    lambda val: (
+        _TRAINING_RECIPE.value != "gemini_robotics_on_device_v2"
+        or not val
+        or all("." not in v for v in val)
+    ),
+    message=(
+        "--image_keys cannot contain dots when using the"
+        " gemini_robotics_on_device_v2 recipe."
+    ),
+)
+flags.register_validator(
+    "proprioception_keys",
+    lambda val: (
+        _TRAINING_RECIPE.value != "gemini_robotics_on_device_v2"
+        or not val
+        or all("." not in v for v in val)
+    ),
+    message=(
+        "--proprioception_keys cannot contain dots when using the"
+        " gemini_robotics_on_device_v2 recipe."
     ),
 )
 
@@ -319,14 +476,14 @@ Commands:
     --end_date: The end date to use. Format: YYYYMMDD.
     --training_recipe: The training recipe to use, one of [{', '.join(_RECIPE_TO_TYPE_MAP.keys())}]
     --max_episodes: The maximum number of demonstration episodes to use for training. (Optional) Episodes are randomly selected.
-    --seed: Seed for deterministic episode sampling. Auto-generated if not set. Only applies to gemini_robotics_on_device_v1. (Optional)
-  For gemini_robotics_on_device_v1 recipe, the following flags are also available:
+    --seed: Seed for deterministic episode sampling. Auto-generated if not set. Only applies to gemini_robotics_on_device_v1/v2. (Optional)
+  For gemini_robotics_on_device_v1/v2 recipes, the following flags are also available:
      --max_training_steps: The maximum number of training steps to use. (Optional)
      --checkpoint_every_n_steps: The number of steps to checkpoint. If not set, the default is max_training_steps / 5. (Optional)
      --checkpoint_type: The checkpoint type to use, one of [{', '.join(_CHECKPOINT_TYPE_MAP.keys())}] (Optional)
      --image_keys: The image keys to use for training. (Optional)
      --proprioception_keys: The proprioception keys to use for training.
-       Required for gemini_robotics_on_device_v1. Must be a subset of the
+       Required for gemini_robotics_on_device_v1/v2. Must be a subset of the
        proprioceptive_observation_keys logged by EpisodicLogger.
 
   data_stats: Show data stats currently available for training.
@@ -342,7 +499,7 @@ Commands:
     For gemini_robotics_v1 recipe:
       --training_job_id: The training job id to use.
       --model_checkpoint_number: The model checkpoint number to use.
-    For gemini_robotics_on_device_v1 recipe (requires Docker):
+    For gemini_robotics_on_device_v1/v2 recipes (requires Docker):
       --training_job_id: The training job id to use. (Optional, defaults to base model)
       --model_checkpoint_path: The local gemini_robotics_on_device model
         checkpoint path to use if you have downloaded the checkpoint and saved
@@ -378,9 +535,9 @@ Note: The API key can be specified with the --api_key flag or in a file named
 def _strip_whitespace_from_flags() -> None:
   """Strips leading/trailing whitespace from all string identifier flags."""
   # List flags (identifiers used for data lookups).
-  for flag in [_TASK_ID, _ROBOT_ID]:
+  for flag in [_TASK_ID, _ROBOT_ID, _INCLUDE_TAGS, _EXCLUDE_TAGS]:
     if flag.value:
-      stripped = [v.strip() for v in flag.value]
+      stripped = [v.strip() for v in flag.value if v.strip()]
       if stripped != flag.value:
         print(
             f"WARNING: --{flag.name} contained leading/trailing whitespace."
@@ -406,12 +563,81 @@ def _strip_whitespace_from_flags() -> None:
       flags.FLAGS[flag.name].value = stripped
 
 
+def _natural_sort_key(s: str) -> tuple[int | str, ...]:
+  """Returns a sort key for sorting strings with embedded numbers naturally."""
+  parts = re.split(r"(\d+)", s)
+  key = []
+  for part in parts:
+    if part.isdigit():
+      key.append(int(part))
+    else:
+      key.append(part)
+  return tuple(key)
+
+
+def _safe_tar_extract(tar: tarfile.TarFile, path: str | pathlib.Path) -> None:
+  """Extracts all members of a tarfile safely to prevent Directory Traversal."""
+  try:
+    tar.extractall(path=path, filter="data")
+    return
+  except TypeError:
+    pass
+
+  # Fallback for Python versions before 3.12
+  resolved_base = pathlib.Path(path).resolve()
+  for member in tar.getmembers():
+    target_path = pathlib.Path(resolved_base, member.name)
+    try:
+      resolved_target = target_path.resolve()
+    except Exception as e:
+      raise PermissionError(
+          "Blocked path traversal attempt in tar archive (failed to resolve):"
+          f" {member.name}"
+      ) from e
+    if not resolved_target.is_relative_to(resolved_base):
+      raise PermissionError(
+          f"Blocked path traversal attempt in tar archive: {member.name}"
+      )
+    if member.issym() or member.islnk():
+      member_dir = target_path.parent
+      link_target_path = pathlib.Path(member_dir, member.linkname)
+      try:
+        resolved_link_target = link_target_path.resolve()
+      except Exception as e:
+        raise PermissionError(
+            "Blocked link traversal attempt in tar archive (failed to resolve"
+            f" link target): {member.name} -> {member.linkname}"
+        ) from e
+      if not resolved_link_target.is_relative_to(resolved_base):
+        raise PermissionError(
+            f"Blocked link traversal attempt in tar archive: {member.name} ->"
+            f" {member.linkname}"
+        )
+  tar.extractall(path=path)
+
+
 class FlywheelCli:
   """The training CLI."""
 
   def __init__(self):
     self._service = auth.get_service(timeout=_DEFAULT_TIMEOUT)
     self._base_request_body = {}
+
+  def _has_error(self, response: Any) -> bool:
+    """Checks if response contains an error and pretty-prints it if json_output=False."""
+    if not isinstance(response, dict):
+      return False
+    error = response.get("error")
+    if not error:
+      return False
+    if not _JSON_OUTPUT.value:
+      if isinstance(error, dict):
+        msg = error.get("message", str(error))
+      else:
+        msg = str(error)
+      print(f"ERROR: {msg}")
+      return True
+    return False
 
   def handle_train(self) -> None:
     """Handles the train commands.
@@ -420,6 +646,29 @@ class FlywheelCli:
 
     Needs task_id, start_date, end_date flags.
     """
+
+    # Validate recipe-specific flags.
+    is_v2 = _TRAINING_RECIPE.value == "gemini_robotics_on_device_v2"
+
+    if is_v2 and flags.FLAGS["checkpoint_type"].present:
+      raise ValueError(
+          "--checkpoint_type is not supported for the"
+          " gemini_robotics_on_device_v2 recipe. Use --embodiment instead to"
+          " specify the robot embodiment."
+      )
+
+    if is_v2 and not _EMBODIMENT.value:
+      raise ValueError(
+          "--embodiment is required for the gemini_robotics_on_device_v2"
+          " recipe. Must be one of: "
+          + ", ".join(flags.FLAGS["embodiment"].parser.enum_values)  # pytype: disable=attribute-error
+      )
+
+    if not is_v2 and _EMBODIMENT.value is not None:
+      raise ValueError(
+          "--embodiment is only supported for the"
+          " gemini_robotics_on_device_v2 recipe."
+      )
 
     body = copy.deepcopy(self._base_request_body)
     training_data_filters = {
@@ -439,7 +688,10 @@ class FlywheelCli:
     if _MAX_EPISODES.value is not None:
       training_data_filters["max_episode_count"] = _MAX_EPISODES.value
 
-      if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+      if _TRAINING_RECIPE.value in (
+          "gemini_robotics_on_device_v1",
+          "gemini_robotics_on_device_v2",
+      ):
         seed = _SEED.value
         if seed is None:
           seed = random.randint(0, 9007199254740991)
@@ -452,12 +704,28 @@ class FlywheelCli:
 
         training_data_filters["seed"] = seed
 
+    if _INCLUDE_TAGS.value and _EXCLUDE_TAGS.value:
+      overlap = set(_INCLUDE_TAGS.value) & set(_EXCLUDE_TAGS.value)
+      if overlap:
+        raise ValueError(
+            "The following tags cannot be in both --include_tags and"
+            f" --exclude_tags: {', '.join(overlap)}"
+        )
+
+    if _INCLUDE_TAGS.value:
+      training_data_filters["include_tags"] = _INCLUDE_TAGS.value
+    if _EXCLUDE_TAGS.value:
+      training_data_filters["exclude_tags"] = _EXCLUDE_TAGS.value
+
     body |= {
         "training_data_filters": training_data_filters,
         "training_type": _RECIPE_TO_TYPE_MAP[_TRAINING_RECIPE.value],
         "tracer": time.time_ns(),
     }
-    if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+    if _TRAINING_RECIPE.value in (
+        "gemini_robotics_on_device_v1",
+        "gemini_robotics_on_device_v2",
+    ):
       checkpoint_every_n_steps = _CHECKPOINT_EVERY_N_STEPS.value
       if checkpoint_every_n_steps == 0:
         if _MAX_TRAINING_STEPS.value < _MIN_CHECKPOINT_INTERVAL:
@@ -469,17 +737,29 @@ class FlywheelCli:
               _MIN_CHECKPOINT_INTERVAL,
               _MAX_TRAINING_STEPS.value // 25,
           )
-      body |= {
-          "training_config": {
-              "max_training_steps": _MAX_TRAINING_STEPS.value,
-              "checkpoint_every_n_steps": checkpoint_every_n_steps,
-              "checkpoint_type": _CHECKPOINT_TYPE_MAP[_CHECKPOINT_TYPE.value],
-              "image_keys": _IMAGE_KEYS.value,
-              "proprioception_keys": _PROPRIOCEPTION_KEYS.value,
-          }
-      }
+      if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v2":
+        training_config_v2 = {
+            "max_training_steps": _MAX_TRAINING_STEPS.value,
+            "checkpoint_every_n_steps_count": checkpoint_every_n_steps,
+            "image_keys": _IMAGE_KEYS.value,
+            "proprioception_keys": _PROPRIOCEPTION_KEYS.value,
+            "embodiment": _EMBODIMENT.value,
+        }
+        body |= {"training_config_v2": training_config_v2}
+      else:
+        body |= {
+            "training_config": {
+                "max_training_steps": _MAX_TRAINING_STEPS.value,
+                "checkpoint_every_n_steps": checkpoint_every_n_steps,
+                "checkpoint_type": _CHECKPOINT_TYPE_MAP[_CHECKPOINT_TYPE.value],
+                "image_keys": _IMAGE_KEYS.value,
+                "proprioception_keys": _PROPRIOCEPTION_KEYS.value,
+            }
+        }
     response = self._service.orchestrator().startTraining(body=body).execute()
 
+    if self._has_error(response):
+      return
     print(json.dumps(response, indent=4))
 
   def handle_status(self) -> None:
@@ -496,6 +776,8 @@ class FlywheelCli:
         self._service.orchestrator().trainingJobStatus(body=body).execute()
     )
 
+    if self._has_error(response):
+      return
     print(json.dumps(response, indent=4))
 
   def handle_data_stats(self) -> None:
@@ -508,6 +790,8 @@ class FlywheelCli:
 
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
+    elif self._has_error(response):
+      return
     elif response.get("taskDates"):
       headers = ["Robot id", "Task id", "Date", "Count"]
       rows = []
@@ -538,6 +822,8 @@ class FlywheelCli:
 
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
+    elif self._has_error(response):
+      return
     elif response.get("trainingJobs"):
       headers = [
           "Training jobs id",
@@ -583,6 +869,8 @@ class FlywheelCli:
 
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
+    elif self._has_error(response):
+      return
     elif response.get("servingJobs"):
       headers = [
           "Serving jobs id",
@@ -630,66 +918,66 @@ class FlywheelCli:
     }
     response = self._service.orchestrator().serveModel(body=body).execute()
 
+    if self._has_error(response):
+      return
     print(json.dumps(response, indent=4))
 
-  def _handle_serve_gemini_robotics_on_device_v1(self) -> None:
-    """Handles the serve commands for gemini_robotics_on_device_v1."""
-    if _MODEL_CHECKPOINT_PATH.value is None:
-      if _TRAINING_JOB_ID.value is None:
-        print("No training job id provided. Using the base model checkpoint...")
-        flags.FLAGS.set_default("training_job_id", "grod-chkpt-aloha-v1")
-
-      checkpoint_path = self.handle_download_training_artifacts()
-      if checkpoint_path is None:
-        print("No checkpoint path provided. Exiting...")
-        return
-    else:
-      checkpoint_path = _MODEL_CHECKPOINT_PATH.value
-    checkpoint_path = pathlib.Path(checkpoint_path).resolve()
-    if not checkpoint_path.exists():
-      raise FileNotFoundError(
-          f"Checkpoint path does not exist: {checkpoint_path}"
-      )
-    file_dir = checkpoint_path.parent
-    file_name = checkpoint_path.name
+  def _run_serving_docker(
+      self,
+      mounts: Sequence[tuple[str, str]],
+      docker_args: Sequence[str],
+      checkpoint_display_path: str | pathlib.Path,
+  ) -> None:
+    """Runs the serving docker container with the specified mounts and args."""
     try:
-      print(f"\nStarting serving docker with checkpoint: {checkpoint_path} ...")
-      commands = ["docker", "run", "-it", "--rm"]
+      print(
+          "\nStarting serving docker with checkpoint:"
+          f" {checkpoint_display_path} ..."
+      )
+      commands = [
+          "docker",
+          "run",
+          "-it",
+          "--rm",
+          f"--shm-size={_SHM_SIZE.value}",
+          "--cap-add=IPC_LOCK",
+          "--ulimit",
+          "memlock=-1",
+      ]
+
+      if os.name == "posix":
+        commands.extend([
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+        ])
 
       if not _USE_CPU.value:
         commands.extend([
             "--gpus",
             "device=0",
             "-e",
+            "XLA_PYTHON_CLIENT_PREALLOCATE=false",
+            "-e",
             f"XLA_PYTHON_CLIENT_MEM_FRACTION={_GPU_MEM_FRACTION.value}",
+            "-e",
+            "XLA_FLAGS=--xla_gpu_enable_command_buffer=",
         ])
 
       commands.extend([
           "-p",
           f"{_SERVE_PORT.value}:60061",
-          "-v",
-          f"{file_dir}:/checkpoint",
       ])
 
-      license_name = None
-      if _LICENSE_PATH.value:
-        license_path = pathlib.Path(_LICENSE_PATH.value).resolve()
-        if not license_path.is_file():
-          raise FileNotFoundError(f"License file not found: {license_path}")
-        license_dir = license_path.parent
-        license_name = license_path.name
+      for host_path, container_path in mounts:
         commands.extend([
             "-v",
-            f"{license_dir}:/license",
+            f"{host_path}:{container_path}",
         ])
 
-      commands.extend([
-          f"google-deepmind/gemini_robotics_on_device:{_DOCKER_TAG.value}",
-          f"--checkpoint_path=/checkpoint/{file_name}",
-      ])
-
-      if _LICENSE_PATH.value:
-        commands.append(f"--license_path=/license/{license_name}")
+      commands.append(
+          f"google-deepmind/gemini_robotics_on_device:{_DOCKER_TAG.value}"
+      )
+      commands.extend(docker_args)
 
       if _IMAGE_KEYS.value:
         commands.append(f"--image_keys={','.join(_IMAGE_KEYS.value)}")
@@ -705,24 +993,151 @@ class FlywheelCli:
           text=True,
       )
     except subprocess.CalledProcessError as e:
-      print(
-          f"\n[ERROR] Failed to run serving docker (exit code: {e.returncode})."
+      sys.stderr.write(
+          "\n[ERROR] Failed to run serving docker (exit code:"
+          f" {e.returncode}).\n"
       )
       if _DOCKER_TAG.value == "latest":
-        print(
+        sys.stderr.write(
             "\nHint: Did you forget to load the docker image? Try `flywheel-cli"
-            " download --artifact_id=grod_model_server_docker`."
+            " download --artifact_id=grod_model_server_docker`.\n"
         )
       else:
         artifact_id = (
             f"grod_model_server_docker_v{_DOCKER_TAG.value.replace('.', '_')}"
         )
-        print(
+        sys.stderr.write(
             "\nHint: To use a versioned docker image, be sure to load it first."
             f" Try `flywheel-cli download --artifact_id={artifact_id}` or"
             " consider running flywheel-cli serve without the --docker_tag"
-            " flag to use the image tagged as 'latest'."
+            " flag to use the image tagged as 'latest'.\n"
         )
+      sys.exit(e.returncode)
+
+  def _resolve_and_download_checkpoint(
+      self, default_job_id: str | None = None
+  ) -> str | None:
+    """Resolves model checkpoint path from flags or downloads it."""
+    if _MODEL_CHECKPOINT_PATH.value:
+      return _MODEL_CHECKPOINT_PATH.value
+    elif _ARTIFACT_ID.value:
+      return self.handle_download_artifact_id()
+    elif _TRAINING_JOB_ID.value:
+      return self.handle_download_training_artifacts()
+    elif default_job_id:
+      print(
+          "No checkpoint source provided. Using default base model "
+          f"job: {default_job_id}"
+      )
+      return self.handle_download_training_artifacts(
+          training_job_id_override=default_job_id
+      )
+    else:
+      raise ValueError(
+          "Serving requires one of --model_checkpoint_path, --training_job_id, "
+          "or --artifact_id."
+      )
+
+  def _handle_serve_gemini_robotics_on_device_v1(self) -> None:
+    """Handles the serve commands for gemini_robotics_on_device_v1."""
+    checkpoint_path = self._resolve_and_download_checkpoint(
+        default_job_id="grod-chkpt-aloha-v1"
+    )
+    if checkpoint_path is None:
+      print("No checkpoint path provided. Exiting...")
+      return
+    checkpoint_path = pathlib.Path(checkpoint_path).resolve()
+    if not checkpoint_path.exists():
+      raise FileNotFoundError(
+          f"Checkpoint path does not exist: {checkpoint_path}"
+      )
+    file_dir = checkpoint_path.parent
+    file_name = checkpoint_path.name
+
+    mounts = [(str(file_dir), "/checkpoint")]
+    docker_args = [f"--checkpoint_path=/checkpoint/{file_name}"]
+
+    if _LICENSE_PATH.value:
+      license_path = pathlib.Path(_LICENSE_PATH.value).resolve()
+      if not license_path.is_file():
+        raise FileNotFoundError(f"License file not found: {license_path}")
+      license_dir = license_path.parent
+      license_name = license_path.name
+      mounts.append((str(license_dir), "/license"))
+      docker_args.append(f"--license_path=/license/{license_name}")
+
+    self._run_serving_docker(mounts, docker_args, checkpoint_path)
+
+  def _handle_serve_gemini_robotics_on_device_v2(self) -> None:
+    """Handles the serve commands for gemini_robotics_on_device_v2."""
+    checkpoint_path = self._resolve_and_download_checkpoint()
+    if checkpoint_path is None:
+      print("No checkpoint path provided. Exiting...")
+      return
+
+    checkpoint_path = pathlib.Path(checkpoint_path).resolve()
+    if not checkpoint_path.exists():
+      raise FileNotFoundError(
+          f"Checkpoint path does not exist: {checkpoint_path}"
+      )
+
+    if checkpoint_path.is_dir():
+      serve_dir = checkpoint_path
+    elif checkpoint_path.is_file() and (
+        checkpoint_path.suffix == ".tar"
+        or tarfile.is_tarfile(str(checkpoint_path))
+    ):
+      base_temp_dir = pathlib.Path(tempfile.gettempdir()) / "grodv2"
+      base_temp_dir.mkdir(parents=True, exist_ok=True)
+      serve_dir_path = base_temp_dir / checkpoint_path.name
+
+      if serve_dir_path.exists():
+        print(f"Reusing existing directory {serve_dir_path} ...")
+      else:
+        serve_dir_path.mkdir(parents=True, exist_ok=True)
+        os.chmod(serve_dir_path, 0o755)
+        print(f"Extracting {checkpoint_path} to {serve_dir_path} ...")
+        with tarfile.open(checkpoint_path, "r") as tar:
+          _safe_tar_extract(tar, serve_dir_path)
+      serve_dir = serve_dir_path
+    else:
+      raise ValueError(
+          f"Invalid model path: {checkpoint_path}. Must be a .tar file or a"
+          " directory."
+      )
+
+    encrypted_checkpoint = serve_dir / "checkpoint.encrypted"
+    unencrypted_checkpoint = serve_dir / "checkpoint"
+
+    docker_args = []
+    if encrypted_checkpoint.is_file():
+      encrypted_config = serve_dir / "config.encrypted"
+      license_file = serve_dir / "license"
+      if not encrypted_config.exists():
+        raise FileNotFoundError(f"Encrypted config not found in {serve_dir}")
+      if not license_file.exists():
+        raise FileNotFoundError(f"License file not found in {serve_dir}")
+      docker_args.extend([
+          "--checkpoint_path=/model/checkpoint.encrypted",
+          "--config_path=/model/config.encrypted",
+          "--license_path=/model/license",
+      ])
+    elif unencrypted_checkpoint.is_dir():
+      unencrypted_config = serve_dir / "config"
+      if not unencrypted_config.exists():
+        raise FileNotFoundError(f"Config folder not found in {serve_dir}")
+      docker_args.extend([
+          "--checkpoint_path=/model/checkpoint",
+          "--config_path=/model/config",
+      ])
+    else:
+      raise FileNotFoundError(
+          f"Could not find valid checkpoint files in {serve_dir}. "
+          "Expected either checkpoint.encrypted file or checkpoint directory."
+      )
+
+    mounts = [(str(serve_dir), "/model")]
+    self._run_serving_docker(mounts, docker_args, checkpoint_path)
 
   def handle_serve(self) -> None:
     """Handles the serve commands.
@@ -733,6 +1148,8 @@ class FlywheelCli:
       self._handle_serve_gemini_robotics_v1()
     elif _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
       self._handle_serve_gemini_robotics_on_device_v1()
+    elif _TRAINING_RECIPE.value == "gemini_robotics_on_device_v2":
+      self._handle_serve_gemini_robotics_on_device_v2()
     # else conditions are checked in parse_flag() and should not be reached.
 
   def handle_upload_data(self) -> None:
@@ -743,52 +1160,91 @@ class FlywheelCli:
         robot_id=_UPLOAD_DATA_ROBOT_ID.value,
     )
 
-  def handle_download_training_artifacts(self) -> str | None:
+  def handle_download_training_artifacts(
+      self, training_job_id_override: str | None = None
+  ) -> str | None:
     """Handles the download commands.
 
     Download artifacts from a training job.
 
+    Args:
+      training_job_id_override: An optional override for the training job ID.
+
     Returns:
       The name of the downloaded file or None if no file was downloaded.
     """
+    training_job_id = training_job_id_override or _TRAINING_JOB_ID.value
     body = copy.deepcopy(self._base_request_body)
     body |= {
-        "training_job_id": _TRAINING_JOB_ID.value,
+        "training_job_id": training_job_id,
         "tracer": time.time_ns(),
     }
-    response = (
-        self._service.orchestrator().trainingArtifact(body=body).execute()
-    )
+    try:
+      response = (
+          self._service.orchestrator().trainingArtifact(body=body).execute()
+      )
+    except Exception as e:
+      if (
+          isinstance(e, googleapiclient.errors.HttpError)
+          and e.resp.status == 404
+      ):
+        print(
+            f"\n[Warning] Training job '{training_job_id}' not found "
+            "via trainingArtifact endpoint. Attempting to load as an artifact "
+            "ID..."
+        )
+        return self.handle_download_artifact_id(
+            artifact_id_override=training_job_id
+        )
+      raise
 
     if _JSON_OUTPUT.value:
       print(json.dumps(response, indent=4))
+    elif self._has_error(response):
+      return None
     else:
-      uris = response.get("uris")
+      uris = response.get("urls") or response.get("uris")
       if not uris:
         print("No artifacts found.")
         return
-
       print("\nAvailable artifacts to download:")
       artifact_names = []
       uri_from_name = {}
+      seen_names = {}
       for uri in uris:
-        # Try to find a descriptive name like 'checkpoint_...'
-        match = re.search(r"(checkpoint_[\w.-]+)", uri)
-        if match:
-          name = match.group(1)
+        parsed_uri = urllib.parse.urlparse(uri)
+        # Clean double and trailing slashes.
+        path_str = re.sub(r"/+", "/", parsed_uri.path).rstrip("/")
+        path = pathlib.PurePosixPath(path_str)
+        if path.name.startswith("orca_checkpoint") or path.name.endswith(
+            ".tar"
+        ):
+          match = re.search(r"_(\d+)$", path.stem)
+          if match:
+            name = f"checkpoint_{match.group(1)}"
+          else:
+            name = f"checkpoint_{path.stem}"
         else:
-          # Fallback to the last part of the URL path
-          parsed_uri = urllib.parse.urlparse(uri)
-          name = os.path.basename(parsed_uri.path)
-        artifact_names.append(name)
-        uri_from_name[name] = uri
-      # Sort the artifact names by number to be more intuitive.
-      artifact_names = sorted(
-          artifact_names,
-          key=lambda s: int("".join(re.findall(r"\d+", s)))
-          if re.findall(r"\d+", s)
-          else -1,
-      )
+          # Try to find a descriptive name like 'checkpoint_...'
+          match = re.search(r"(checkpoint_[\w.-]+)", uri)
+          if match:
+            name = match.group(1)
+          else:
+            name = path.name if path.name else "artifact.tar"
+
+        if name in seen_names:
+          seen_names[name] += 1
+          base_name, ext = os.path.splitext(name)
+          unique_name = f"{base_name}_{seen_names[name]}{ext}"
+        else:
+          seen_names[name] = 1
+          unique_name = name
+
+        artifact_names.append(unique_name)
+        uri_from_name[unique_name] = uri
+
+      # Sort the artifact names naturally.
+      artifact_names = sorted(artifact_names, key=_natural_sort_key)
 
       for i, name in enumerate(artifact_names):
         print(f"  [{i}] {name}")
@@ -832,32 +1288,37 @@ class FlywheelCli:
         print("\nDownload cancelled.")
         return
 
-  def handle_download_artifact_id(self) -> None:
+  def handle_download_artifact_id(
+      self, artifact_id_override: str | None = None
+  ) -> str | None:
     """Handles the download commands."""
+    artifact_id = artifact_id_override or _ARTIFACT_ID.value
     body = copy.deepcopy(self._base_request_body)
     body |= {
-        "artifact_id": _ARTIFACT_ID.value,
+        "artifact_id": artifact_id,
         "tracer": time.time_ns(),
     }
     response = self._service.orchestrator().loadArtifact(body=body).execute()
+    if self._has_error(response):
+      return None
     artifact = response.get("artifact")
     if not artifact:
       print("No artifact found.")
       return
     uri = artifact.get("uri")
     if not uri:
-      print(f"URI is not specified for artifact: {_ARTIFACT_ID.value}.")
+      print(f"URI is not specified for artifact: {artifact_id}.")
       return
 
     container_dir = os.path.join(tempfile.gettempdir(), "grod")
-    default_basename = f"{_ARTIFACT_ID.value}.tar"
+    default_basename = f"{artifact_id}.tar"
     default_full_path = os.path.join(container_dir, default_basename)
     filename = input(f"\n> Save artifact as (default: {default_full_path}): ")
     print(f"Filename: {filename}")
     filename = _resolve_download_path(filename, default_full_path)
     _download_url_to_file(uri, filename)
 
-    if "docker" in _ARTIFACT_ID.value:
+    if "docker" in artifact_id:
       load_docker_image = input(
           "\n> This artifact appears to be a docker image. Load it? (y/n): "
       )
@@ -873,6 +1334,7 @@ class FlywheelCli:
           print(result.stdout)
         except subprocess.CalledProcessError as e:
           print(f"\n[ERROR] Failed to load docker image: {e.stderr}")
+    return filename
 
   def parse_flag(self, command: str) -> None:
     """Parses command flags."""
@@ -915,23 +1377,54 @@ class FlywheelCli:
               "Max episodes must be a positive integer. Got:"
               f" {_MAX_EPISODES.value}"
           )
-        if _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+        if _TRAINING_RECIPE.value in (
+            "gemini_robotics_on_device_v1",
+            "gemini_robotics_on_device_v2",
+        ):
           if not _PROPRIOCEPTION_KEYS.value:
             raise ValueError(
                 "proprioception_keys is required for the"
-                " gemini_robotics_on_device_v1 training recipe. Set"
+                f" {_TRAINING_RECIPE.value} training recipe. Set"
                 " --proprioception_keys to a subset of the proprioceptive"
                 " observation keys logged by EpisodicLogger."
             )
+        if (
+            _EMBODIMENT.value
+            and _TRAINING_RECIPE.value != "gemini_robotics_on_device_v2"
+        ):
+          raise ValueError(
+              "--embodiment is only supported for the"
+              " gemini_robotics_on_device_v2 training recipe. Got:"
+              f" {_TRAINING_RECIPE.value}"
+          )
         self.handle_train()
       case "status":
         if not _TRAINING_JOB_ID.value:
           raise ValueError("Training job id is required.")
         self.handle_status()
       case "serve":
+        checkpoint_sources = [
+            bool(_MODEL_CHECKPOINT_PATH.value),
+            bool(_TRAINING_JOB_ID.value),
+            bool(_ARTIFACT_ID.value),
+        ]
+        if sum(checkpoint_sources) > 1:
+          raise ValueError(
+              "Only one of --model_checkpoint_path, --training_job_id, or "
+              "--artifact_id can be specified for serve."
+          )
+        if _ARTIFACT_ID.value and not _ARTIFACT_ID_REGEX.fullmatch(
+            _ARTIFACT_ID.value
+        ):
+          raise ValueError(
+              "Invalid artifact_id. Must start with alphanumeric, contain only "
+              "alphanumeric characters, underscores, or hyphens, and be 2-64 "
+              f"characters long. Got: {_ARTIFACT_ID.value}"
+          )
         support_training_recipes = [
             "gemini_robotics_v1",
             "gemini_robotics_on_device_v1",
+            "gemini_robotics_on_device_v2",
         ]
         if _TRAINING_RECIPE.value not in support_training_recipes:
           raise ValueError(
@@ -948,7 +1441,10 @@ class FlywheelCli:
                 "Model checkpoint number must be positive non-zero number. Got:"
                 f" {_MODEL_CHECKPOINT_NUMBER.value}"
             )
-        elif _TRAINING_RECIPE.value == "gemini_robotics_on_device_v1":
+        elif _TRAINING_RECIPE.value in (
+            "gemini_robotics_on_device_v1",
+            "gemini_robotics_on_device_v2",
+        ):
           if _MODEL_CHECKPOINT_NUMBER.value:
             raise ValueError(
                 "Model checkpoint number is not supported for training recipe:"
@@ -967,9 +1463,9 @@ class FlywheelCli:
         elif _ARTIFACT_ID.value:
           if not _ARTIFACT_ID_REGEX.fullmatch(_ARTIFACT_ID.value):
             raise ValueError(
-                f"Invalid artifact_id. Must start with alphanumeric, contain "
-                f"only alphanumeric characters, underscores, or hyphens, and "
-                f"be 2-36 characters long. Got: {_ARTIFACT_ID.value}"
+                "Invalid artifact_id. Must start with alphanumeric, contain "
+                "only alphanumeric characters, underscores, or hyphens, and "
+                f"be 2-64 characters long. Got: {_ARTIFACT_ID.value}"
             )
           self.handle_download_artifact_id()
         else:
@@ -1067,7 +1563,8 @@ def _download_url_to_file(url: str, filename: str) -> None:
     print()  # New line after progress bar.
     print("Download complete!")
   except urllib.error.URLError as e:
-    print(f"\n[ERROR] Error downloading artifact {url}: {e}")
+    sys.stderr.write(f"\n[ERROR] Error downloading artifact {url}: {e}\n")
+    sys.exit(1)
 
 
 def _resolve_download_path(
@@ -1114,22 +1611,25 @@ def _format_date(date_str: str | None) -> str:
   return s
 
 
-def _is_valid_date(date: str) -> bool:
-  """Checks if the date is in the format YYYYMMDD."""
-  if len(date) != 8:
-    return False
-  try:
-    datetime.datetime.strptime(date, "%Y%m%d")
-    return True
-  except ValueError:
-    return False
-
-
-def _is_valid_start_end_date_pair(start_date: str, end_date: str) -> bool:
-  """Checks if the start and end date are in the correct order."""
-  start = datetime.datetime.strptime(start_date, "%Y%m%d")
-  end = datetime.datetime.strptime(end_date, "%Y%m%d")
-  return start <= end
+def _handle_http_error(e: googleapiclient.errors.HttpError) -> None:
+  """Formats and prints googleapiclient HttpError cleanly to stderr."""
+  status_code = getattr(e.resp, "status", "Unknown")
+  reason = getattr(e.resp, "reason", "HTTP Error")
+  message = str(e)
+  if hasattr(e, "content") and e.content:
+    try:
+      content_json = json.loads(e.content.decode("utf-8"))
+      if isinstance(content_json, dict) and "error" in content_json:
+        err = content_json["error"]
+        if isinstance(err, dict):
+          message = err.get("message", message)
+          reason = err.get("status", reason)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+      pass
+  sys.stderr.write(
+      f"\n[ERROR] API request failed (HTTP {status_code} - {reason}):"
+      f" {message}\n"
+  )
 
 
 def _create_parser() -> argparse_flags.ArgumentParser:
@@ -1158,6 +1658,7 @@ def cli_main() -> None:
 
 
 def main(args: argparse.Namespace) -> None:
+
   if not args.command or args.command == "help":
     show_help()
     return
@@ -1168,7 +1669,11 @@ def main(args: argparse.Namespace) -> None:
 
   command = args.command
   flywheel_cli = FlywheelCli()
-  flywheel_cli.parse_flag(command)
+  try:
+    flywheel_cli.parse_flag(command)
+  except googleapiclient.errors.HttpError as e:
+    _handle_http_error(e)
+    sys.exit(1)
 
 
 if __name__ == "__main__":

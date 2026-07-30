@@ -227,6 +227,22 @@ message MachineInfo {
     repeated InputDevice devices = 1;
   }
 
+  message DiskKeyBackupInfo {
+    message PartitionKeyInfo {
+      optional string name = 1;
+      optional string encrypted_key = 2;
+    }
+    repeated PartitionKeyInfo disks = 1;
+  }
+
+  message SecureBootInfo {
+    optional string setup_mode = 1;
+    optional string secure_boot = 2;
+    optional string guid = 3;
+    repeated string vendors = 4;
+    repeated string firmware_quirks = 5;
+  }
+
   optional LinuxInfo linux = 1;
   optional CPUInfo cpu = 2;
   optional VirtualMemoryInfo virtual_memory = 3;
@@ -239,4 +255,6 @@ message MachineInfo {
   repeated ProcessInfo processes = 10;
   optional USBInfo usb = 11;
   optional InputInfo input = 12;
+  optional DiskKeyBackupInfo disk_key_backup = 13;
+  optional SecureBootInfo secure_boot = 14;
 }

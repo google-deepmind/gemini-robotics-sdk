@@ -344,7 +344,8 @@ class BaseLogger:
         or not self._log_writer_thread.is_alive()
     ):
       self._log_writer_thread = threading.Thread(
-          target=self._process_message_queue
+          target=self._process_message_queue,
+          daemon=True,
       )
       self._log_writer_thread.start()
 

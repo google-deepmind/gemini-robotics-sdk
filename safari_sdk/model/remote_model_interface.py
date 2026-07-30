@@ -47,6 +47,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
       additional_observations_providers: Sequence[
           additional_observations_provider.AdditionalObservationsProvider
       ] = (),
+      request_timeout: int | None = None,
   ):
     """Initializes the remote model interface.
 
@@ -64,6 +65,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
       method_name: The method name to call on the robotics API.
       additional_observations_providers: A sequence of providers for additional
         observations.
+      request_timeout: Timeout in seconds for remote model inference requests.
     """
 
     self._string_observations_keys = [task_instruction_key]
@@ -103,9 +105,11 @@ class RemoteModelInterface(model_interface.ModelInterface):
         num_retries=num_of_retries,
         grpc_url=grpc_url,
         method_name=method_name,
+        timeout=request_timeout,
     )
     self._last_remote_inference_time_ms = None
     self._last_network_overhead_ms = None
+    self._last_rng_key: list[int] | None = None
 
   def query_model(
       self,
@@ -123,9 +127,9 @@ class RemoteModelInterface(model_interface.ModelInterface):
         proprioceptive_observation_keys=self._proprioceptive_observation_keys,
         image_observation_keys=self._image_observation_keys,
     )
-    if (
-        self._robotics_api_connection
-        == constants.RoboticsApiConnectionType.CLOUD_GENAI
+    if self._robotics_api_connection in (
+        constants.RoboticsApiConnectionType.CLOUD_GENAI,
+        constants.RoboticsApiConnectionType.LOCAL,
     ):
       serialized_contents = genai_robotics.update_robotics_content_to_genai_format(
           serialized_contents,
@@ -174,6 +178,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
           " output a 2D array."
       )
 
+    self._last_rng_key = response_data.get(constants.RNG_KEY_RESPONSE_KEY)
     return action_chunk
 
   def _update_latency_metrics(
@@ -211,3 +216,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
   @property
   def last_network_overhead_ms(self) -> float | None:
     return self._last_network_overhead_ms
+
+  @property
+  def last_rng_key(self) -> list[int] | None:
+    return self._last_rng_key

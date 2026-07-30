@@ -83,9 +83,7 @@ dev = [
     "pytest-asyncio",
     "pytest-xdist",
 ]
-cc_logging = [
-  "safari-sdk-logging",
-]
+
 # The scikit backend invokes CMake to build protoc and generate
 # the Protobuf files for Python.
 [build-system]

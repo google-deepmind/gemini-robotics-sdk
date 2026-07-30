@@ -58,9 +58,33 @@ def get_mcap_file_paths(root_path: str) -> list[str]:
 
   # Sort the file paths by episode UUID and shard number.
   def _get_episode_uuid_and_shard_number(file_path):
-    file_name_without_extension = os.path.basename(file_path).split(".")[0]
-    episode_uuid, shard_number = file_name_without_extension.split("shard")
-    shard_number = int(shard_number)
+    """Extracts episode UUID and shard number from MCAP filename.
+
+    Handles two naming formats:
+    - Sharded: "episode_<uuid>_shard<N>.mcap" -> (<uuid>, N)
+    - Non-sharded: "episode_<uuid>.mcap" -> (<uuid>, 0)
+
+    Args:
+      file_path: Path to the MCAP file.
+
+    Returns:
+      A tuple of (episode_uuid, shard_number).
+    """
+    file_name_without_extension = os.path.splitext(os.path.basename(file_path))[
+        0
+    ]
+    if "shard" not in file_name_without_extension:
+      return file_name_without_extension, 0
+    parts = file_name_without_extension.rsplit("shard", 1)
+    episode_uuid, shard_str = parts[0], parts[1]
+    try:
+      shard_number = int(shard_str)
+    except ValueError:
+      logging.warning(
+          "Could not parse shard number from filename %s, defaulting to 0.",
+          file_path,
+      )
+      shard_number = 0
     return episode_uuid, shard_number
 
   return sorted(episode_paths, key=_get_episode_uuid_and_shard_number)

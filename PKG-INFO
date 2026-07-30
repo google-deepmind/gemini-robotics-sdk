@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: safari_sdk
-Version: 2.144.0
+Version: 2.146.0
 Summary: Safari SDK: the SDK for Google DeepMind Gemini Robotics models
 Author-Email: Safari SDKAuthors <safari-sdk-authors@google.com>
 License-Expression: Apache-2.0
@@ -55,8 +55,6 @@ Requires-Dist: pylint>=2.6.0; extra == "dev"
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-asyncio; extra == "dev"
 Requires-Dist: pytest-xdist; extra == "dev"
-Provides-Extra: cc-logging
-Requires-Dist: safari-sdk-logging; extra == "cc-logging"
 Description-Content-Type: text/markdown
 
 # Safari SDK: the SDK for Google DeepMind Gemini Robotics models 🦓🦄🐘🐒🐍

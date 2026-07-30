@@ -29,6 +29,8 @@ from safari_sdk import auth
 
 
 _SESSION_SIZE_LIMIT_BYTES = 1 * 1024 * 1024
+_DEFAULT_CONNECT_TIMEOUT = 30
+_DEFAULT_READ_TIMEOUT = 300
 
 
 def _check_session_size(file_content_bytes):
@@ -59,6 +61,7 @@ def _upload_file(
     file_content_bytes,
     api_key,
     now,
+    timeout=(_DEFAULT_CONNECT_TIMEOUT, _DEFAULT_READ_TIMEOUT),
 ):
   """Calls the data ingestion service to upload the file."""
 
@@ -100,19 +103,28 @@ def _upload_file(
   headers, body = to_multi_part(
       json.dumps(request_dict).encode(), file_content_bytes, b'text/plain'
   )
-  r = requests.post(
-      api_endpoint,
-      params={'key': api_key},
-      headers=headers,
-      data=body,
-  )
-  return (r.status_code, r.reason)
+  try:
+    r = requests.post(
+        api_endpoint,
+        params={'key': api_key},
+        headers=headers,
+        data=body,
+        timeout=timeout,
+    )
+    return (r.status_code, r.reason)
+  except requests.exceptions.Timeout:
+    return (408, 'Request Timeout')
+  except requests.exceptions.ConnectionError:
+    return (503, 'Service Unavailable / Connection Failed')
+  except requests.exceptions.RequestException as e:
+    return (500, f'HTTP Request Failed: {e}')
 
 
 def upload_data_directory(
     api_endpoint,
     data_directory,
     robot_id,
+    timeout=(_DEFAULT_CONNECT_TIMEOUT, _DEFAULT_READ_TIMEOUT),
 ):
   """Upload data directory."""
 
@@ -144,6 +156,7 @@ def upload_data_directory(
             file_content_bytes=file_content_bytes,
             api_key=api_key,
             now=datetime.datetime.now(pytz.timezone('America/Los_Angeles')),
+            timeout=timeout,
         )
         t_end = time.time()
 
@@ -172,12 +185,14 @@ def upload_data_directory(
       )
     else:
       print(f'No .mcap files found in {data_directory}.')
+  return uploaded_count, failed_count, already_uploaded_count
 
 
 def upload_single_file(
     api_endpoint,
     file_path,
     robot_id,
+    timeout=(_DEFAULT_CONNECT_TIMEOUT, _DEFAULT_READ_TIMEOUT),
 ):
   """Upload a single file."""
   api_key = auth.get_api_key()
@@ -204,6 +219,7 @@ def upload_single_file(
       file_content_bytes=file_content_bytes,
       api_key=api_key,
       now=datetime.datetime.now(pytz.timezone('America/Los_Angeles')),
+      timeout=timeout,
   )
   t_end = time.time()
 

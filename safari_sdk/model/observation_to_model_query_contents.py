@@ -64,6 +64,10 @@ def _encode_observations_and_pack_images(
         constants.CONDITIONING_ENCODED_OBS_KEY
     ]
 
+  if constants.RNG_KEY_ENCODED_OBS_KEY in observation:
+    rng_key = observation[constants.RNG_KEY_ENCODED_OBS_KEY]
+    encoded_observation[constants.RNG_KEY_ENCODED_OBS_KEY] = rng_key.tolist()
+
   # Encode the task instruction as plain string.
   for obs_name in string_observations_keys:
     plain_str = _get_string_value_from_observation(
