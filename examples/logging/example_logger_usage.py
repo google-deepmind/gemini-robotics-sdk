@@ -63,7 +63,9 @@ def write_example_to_mcap(output_directory: str):
       reward=specs.Array(shape=(), dtype=np.float32),
       discount=specs.Array(shape=(), dtype=np.float32),
       observation={  # pyrefly: ignore[bad-argument-type]
-          "instruction": specs.StringArray(shape=(), name="instruction"),
+          "task_instruction": specs.StringArray(
+              shape=(), name="task_instruction"
+          ),
           # Here we are specifying that our images will be numpy arrays of
           # shape image_shape, and that they will be of type np.uint8.
           image_key_1: specs.Array(shape=image_shape, dtype=np.uint8),
@@ -111,7 +113,7 @@ def write_example_to_mcap(output_directory: str):
       # The values in the observation dictionary must match the timestep_spec
       # above. This is why everything is cast as numpy arrays of specific
       # dtypes.
-      "instruction": np.array("move to the red ball", dtype=object),
+      "task_instruction": np.array("move to the red ball", dtype=object),
       image_key_1: example_numpy_image,
       proprio_key_1: np.zeros((6,), dtype=np.float64),
       proprio_key_2: np.zeros((6,), dtype=np.float64),
@@ -146,7 +148,7 @@ def write_example_to_mcap(output_directory: str):
     # position).
     next_observation = {
         # Logger expects observations as np.arrays matching timestep_spec.
-        "instruction": np.array("move to the red ball", dtype=object),
+        "task_instruction": np.array("move to the red ball", dtype=object),
         image_key_1: example_numpy_image,
         proprio_key_1: np.array([target_joint_position] * 6, dtype=np.float64),
         proprio_key_2: np.array([target_joint_position] * 6, dtype=np.float64),
@@ -180,7 +182,7 @@ def write_example_to_mcap(output_directory: str):
 
   # Record a subsequent timestep (LAST in this case)
   next_observation = {
-      "instruction": np.array("move to the red ball", dtype=object),
+      "task_instruction": np.array("move to the red ball", dtype=object),
       image_key_1: example_numpy_image,
       proprio_key_1: np.array([target_joint_position] * 6, dtype=np.float64),
       proprio_key_2: np.array([target_joint_position] * 6, dtype=np.float64),

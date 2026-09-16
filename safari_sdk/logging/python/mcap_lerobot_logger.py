@@ -25,7 +25,6 @@ import numpy as np
 from safari_sdk.logging.python import episodic_logger
 from safari_sdk.logging.python import session_metadata as session_metadata_lib
 
-
 # LeRobot step keys.
 _LEROBOT_ACTION_KEY = "action"
 _LEROBOT_FRAME_INDEX_KEY = "frame_index"
@@ -51,7 +50,7 @@ _REWARD_KEY = "reward"
 _DISCOUNT_KEY = "discount"
 _STEP_TYPE_KEY = "step_type"
 _SHAPE_KEY = "shape"
-_INSTRUCTION_KEY = "instruction"
+_INSTRUCTION_KEY = "task_instruction"
 _TIMESTAMP_KEY = "timestamp_ns"
 
 # Others.

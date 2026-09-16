@@ -105,7 +105,16 @@ include = ["safari_sdk/revision_info.txt", "safari_sdk/**/*_pb2.py"]
 # here because safari_sdk uses PEP 420 implicit namespace packages (no
 # __init__.py at the top level).
 packages = ["safari_sdk"]
+# By default, scikit-build assumes the package contains platform-specific files
+# and names the .whl file accordingly (eg "*-cp313-cp313-linux_x86_64.whl").
+# However, this package does not contain any platform-specific files, so set
+# platlib to false so the output whl ends with "-py3-none-any.whl". If this ever
+# changes (e.g. if we add pybind11 extensions), this flag should be removed.
+platlib = true
 exclude = ["**/*_test.py", "**/*_test.cc"]
+
+[tool.scikit-build]
+build-dir = "/tmp/safari-sdk-{wheel_tag}"
 
 [tool.pyink]
 # Formatting configuration to follow Google style-guide

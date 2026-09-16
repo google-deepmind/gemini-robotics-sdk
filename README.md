@@ -22,27 +22,8 @@ contains the `pyproject.toml` file).
 
 ### Code Structure
 
-The safari-sdk is structured and distributed as a Python pip package, along with
-1 internal dependency:
-
--   safari-sdk: This is the root level package, and the only one that users
-    should directly install or use. It is a pure-python package.
--   safari-sdk-logging: This is an internal dependency which contains the C++
-    and pybind11 logging code.
-
-Both packages place their importable files into the safari_sdk top-level
-namespace, according to
-[PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/)
-
-### Why Separate Packages?
-
-The safari-sdk package is often installed from source code, for development and
-debugging. However, C++ build dependencies take a long time (30+ minutes) to
-compile from source. Putting these in separate packages allows prebuilt versions
-of those to be used when the (pure-python) base safari-sdk package is installed
-from source, which in turn reduces the time needed to build and install that
-package to a few seconds (at least in cases where there are no changes to the
-C++ logging code).
+The safari-sdk is structured and distributed as a single Python pip package. It
+contains both the Python source code and compiled C++ logging extensions.
 
 ## Installing the SDK
 

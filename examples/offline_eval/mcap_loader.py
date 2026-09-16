@@ -126,8 +126,10 @@ def _parse_observation_from_example(
           features[feat_key].float_list.value, dtype=np.float32
       )
 
-  # Instruction
-  inst_key = 'observation/instruction'
+  # defaults to task_instruction if it exists, otherwise to instruction
+  inst_key = 'observation/task_instruction'
+  if inst_key not in features:
+    inst_key = 'observation/instruction'
   if inst_key in features and features[inst_key].bytes_list.value:
     instruction = features[inst_key].bytes_list.value[0].decode('utf-8')
 

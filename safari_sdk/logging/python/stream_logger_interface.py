@@ -34,6 +34,7 @@ from safari_sdk.protos.logging import imu_pb2
 from safari_sdk.protos.logging import metadata_pb2
 from safari_sdk.protos.logging import robot_base_pb2
 from safari_sdk.protos.logging import tracker_pb2
+from safari_sdk.protos.logging import video_pb2
 from tensorflow.core.example import example_pb2
 
 LOG_MESSAGE_TYPE = (
@@ -58,6 +59,7 @@ LOG_MESSAGE_TYPE = (
     | transform_pb2.Transforms
     | vector_pb2.NamedVectorDouble
     | vector_pb2.NamedVectorInt64
+    | video_pb2.VideoChunk
     # go/keep-sorted end
 )
 

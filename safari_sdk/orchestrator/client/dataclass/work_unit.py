@@ -409,12 +409,15 @@ class PolicyDetails:
     description: Description of the policy.
     parameters: List of key-value pair parameters for the policy.
     artifactIds: List of artifact ids for the policy.
+    usage: String indicating what this policy should be used for (e.g.
+      "harness", "er", "vla", "default").
   """
 
   name: str | None = None
   description: str | None = None
   parameters: list[KvMsg] | None = None
   artifactIds: list[str] | None = None
+  usage: str | None = None
 
   def get_all_parameters(self) -> dict[str, Any]:
     if self.parameters is None:
@@ -520,7 +523,7 @@ class AnswerType(enum.Enum):
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
 class Question:
-  """Question information."""
+  """Individual question from questionnaires for this work unit."""
 
   question: str | None = None
   whenToAsk: list[QuestionCondition] | None = None
@@ -562,6 +565,16 @@ class Question:
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
+class LauncherArtifact:
+  """Launcher artifact configuration including download ID and launch command."""
+
+  artifactId: str | None = None
+  launchCommand: str | None = None
+  launchOrder: int | None = None
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
 class WorkUnitContext:
   """Work unit context information."""
 
@@ -570,6 +583,8 @@ class WorkUnitContext:
   scenePresetDetails: ScenePresetDetails | None = None
   orchestratorTaskId: str | None = None
   policyDetails: PolicyDetails | None = None
+  policies: list[PolicyDetails] | None = None
+  launcherArtifacts: list[LauncherArtifact] | None = None
   robotJobAssets: list[RobotJobAsset] | None = None
   successScores: list[SuccessScore] | None = None
   questions: list[Question] | None = None

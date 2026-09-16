@@ -227,7 +227,7 @@ class InterfaceTest(absltest.TestCase):
     )
 
     response = interface_lib.add_operator_event(
-        operator_event_str="Other Break",
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
@@ -237,17 +237,6 @@ class InterfaceTest(absltest.TestCase):
     self.assertEqual(
         response.error_message, interface._ERROR_IN_OBSERVER_MODE
     )
-
-    response = interface_lib.add_operator_event(
-        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
-        operator_event_str="",
-        operator_id="test_operator_id",
-        event_timestamp=123456789,
-        resetter_id="test_resetter_id",
-        event_note="test_event_note",
-    )
-    self.assertFalse(response.success)
-    self.assertEqual(response.error_message, interface._ERROR_IN_OBSERVER_MODE)
 
     response = interface_lib.add_robot_event(
         event_type="break_ergo",
@@ -576,8 +565,7 @@ class InterfaceTest(absltest.TestCase):
 
     # Call add_operator_event
     response = interface_lib.add_operator_event(
-        operator_event_type=None,
-        operator_event_str="Other Break",
+        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
@@ -587,29 +575,7 @@ class InterfaceTest(absltest.TestCase):
     # Assertions
     self.assertTrue(response.success)
     mock_operator_event.add_operator_event.assert_called_once_with(
-        operator_event_type=None,
-        operator_event_str="Other Break",
-        operator_id="test_operator_id",
-        event_timestamp=123456789,
-        resetter_id="test_resetter_id",
-        event_note="test_event_note",
-    )
-
-    # Call add_operator_event
-    response = interface_lib.add_operator_event(
         operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
-        operator_event_str="",
-        operator_id="test_operator_id",
-        event_timestamp=123456789,
-        resetter_id="test_resetter_id",
-        event_note="test_event_note",
-    )
-
-    # Assertions
-    self.assertTrue(response.success)
-    mock_operator_event.add_operator_event.assert_called_with(
-        operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
-        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",
@@ -625,24 +591,7 @@ class InterfaceTest(absltest.TestCase):
 
     # Call add_operator_event without connect
     response = interface_lib.add_operator_event(
-        operator_event_type=None,
-        operator_event_str="Other Break",
-        operator_id="test_operator_id",
-        event_timestamp=123456789,
-        resetter_id="test_resetter_id",
-        event_note="test_event_note",
-    )
-
-    # Assertions
-    self.assertFalse(response.success)
-    self.assertEqual(
-        response.error_message, interface._ERROR_NO_ACTIVE_CONNECTION
-    )
-
-    # Call add_operator_event without connect
-    response = interface_lib.add_operator_event(
         operator_event_type=5,  # OPERATOR_EVENT_TYPE_BREAK_OTHER
-        operator_event_str="",
         operator_id="test_operator_id",
         event_timestamp=123456789,
         resetter_id="test_resetter_id",

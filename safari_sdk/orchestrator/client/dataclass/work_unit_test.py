@@ -296,11 +296,13 @@ class WorkUnitResponseTest(absltest.TestCase):
                 value=work_unit.KvMsgValue(intValue=2),
             ),
         ],
-        artifactIds=["test_artifact_id_1", "test_artifact_id_2"]
+        artifactIds=["test_artifact_id_1", "test_artifact_id_2"],
+        usage="harness",
     )
     params = policy_details.get_all_parameters()
     self.assertEqual(policy_details.name, "test_policy_name")
     self.assertEqual(policy_details.description, "test_policy_description")
+    self.assertEqual(policy_details.usage, "harness")
     self.assertLen(params, 2)
     self.assertSameElements(params.keys(), ["test_key_1", "test_key_2"])
     self.assertEqual(params["test_key_1"], "test_value_1")
@@ -417,6 +419,38 @@ class WorkUnitResponseTest(absltest.TestCase):
     self.assertEmpty(question.userAnswers)
     self.assertFalse(question.wasDisplayed)
     self.assertEqual(question.questionnaireId, "")
+
+  def test_launcher_artifact(self):
+    artifact = work_unit.LauncherArtifact(
+        artifactId="art-1", launchCommand="python3 run.py", launchOrder=1
+    )
+    self.assertEqual(artifact.artifactId, "art-1")
+    self.assertEqual(artifact.launchCommand, "python3 run.py")
+    self.assertEqual(artifact.launchOrder, 1)
+
+  def test_work_unit_context_with_policies_and_launcher_artifacts(self):
+    context = work_unit.WorkUnitContext(
+        policies=[
+            work_unit.PolicyDetails(
+                name="policy-1", usage="harness", artifactIds=["art-harness"]
+            ),
+            work_unit.PolicyDetails(
+                name="policy-2", usage="er", artifactIds=["art-er"]
+            ),
+        ],
+        launcherArtifacts=[
+            work_unit.LauncherArtifact(
+                artifactId="launcher-1",
+                launchCommand="cmd",
+                launchOrder=1,
+            )
+        ],
+    )
+    self.assertLen(context.policies, 2)
+    self.assertEqual(context.policies[0].usage, "harness")
+    self.assertEqual(context.policies[1].usage, "er")
+    self.assertLen(context.launcherArtifacts, 1)
+    self.assertEqual(context.launcherArtifacts[0].launchOrder, 1)
 
   def test_response_post_init_from_json_response(self):
     response = work_unit.WorkUnit(

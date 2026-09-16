@@ -297,12 +297,11 @@ class OrchestratorHelper:
 
   def add_operator_event(
       self,
+      operator_event_type: int | None,
       operator_id: str,
       event_timestamp: int,
       resetter_id: str,
       event_note: str,
-      operator_event_type: int | None = None,
-      operator_event_str: str = "",
   ) -> RESPONSE:
     """Records an operator event."""
     if self._interface is None:
@@ -312,7 +311,6 @@ class OrchestratorHelper:
 
     return self._interface.add_operator_event(
         operator_event_type=operator_event_type,
-        operator_event_str=operator_event_str,
         operator_id=operator_id,
         event_timestamp=event_timestamp,
         resetter_id=resetter_id,

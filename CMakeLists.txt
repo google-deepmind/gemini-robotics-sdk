@@ -12,15 +12,21 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-# This uses FetchContent_Declare with FIND_PACKAGE_ARGS. With that, CMake will
-# try to find a pre-installed version of the dependencies, and if that fails,
-# it will download and build the dependency. CMake can be forced to always
-# download and build dependencies (therefor making the build more hermetic) by
-# setting FETCHCONTENT_TRY_FIND_PACKAGE_MODE to NEVER.
-
-cmake_minimum_required(VERSION 3.26)
-# ASM language is required by one dependency when compiled in manylinux.
+cmake_minimum_required(VERSION 3.24)
 project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX ASM)
+
+# =============================================================================
+# Compiler Configuration & Ccache Integration
+# =============================================================================
+
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    message(STATUS "Found ccache: ${CCACHE_PROGRAM}. Build will be cached.")
+else()
+    message(STATUS "ccache not found. Proceeding with standard compilation.")
+endif()
 
 set(PYBIND11_FINDPYTHON ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -37,106 +43,134 @@ set(BUILD_SHARED_LIBS OFF)
 
 include(GNUInstallDirs)
 
-# Override the default installation directory for CMake. This will affect only
-# the dependent targets as we will specify our own installation directory later.
-# This is the only way to block dependent targets that do not expose options to
-# install their artefacts (we will later remove them).
-# Note that we need to define the single components and not the general install
-# prefix as that will also affect our installation.
-set(CMAKE_INSTALL_LIBDIR "deps/lib" CACHE PATH "" FORCE)
-set(CMAKE_INSTALL_BINDIR "deps/bin" CACHE PATH "" FORCE)
-set(CMAKE_INSTALL_INCLUDEDIR "deps/include" CACHE PATH "" FORCE)
-set(CMAKE_INSTALL_DATAROOTDIR "deps/share" CACHE PATH "" FORCE)
-
 # =============================================================================
-# Dependencies
+# Dependencies Setup
 # =============================================================================
 
-# Explicitly find Python. This is to avoid issues when PyBind tries to find it
-# (incorrectly).
 find_package(Python3 COMPONENTS Interpreter Development)
-
 include(FetchContent)
 
-# --- Abseil ---
-# Always built from source to ensure absl::string_view = std::string_view.
-# System abseil (e.g. gLinux's libabsl-dev) may be compiled with
-# ABSL_OPTION_USE_STD_STRING_VIEW=0, making absl::string_view a polyfill type
-# (absl::debian7::string_view) that is ABI-incompatible with pybind11 wrappers
-# and protobuf. This is a build config choice, not a version issue.
-set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+if(DEFINED ENV{GDMR_BUILD_DIR})
+  set(GDMR_CACHE_DIR "$ENV{GDMR_BUILD_DIR}/cache")
+  # FetchContent will look for cached downloads in this directory.
+  # Rather than the ephemeral build directory created by skbuild.
+  set(FETCHCONTENT_BASE_DIR "$ENV{GDMR_BUILD_DIR}/fetchcontent")
+else()
+  set(GDMR_CACHE_DIR "${CMAKE_BINARY_DIR}/cache")
+endif()
 
+set(GDMR_SDK_WARMUP ON)
+set(CMAKE_INSTALL_PREFIX "${GDMR_CACHE_DIR}" CACHE PATH "Warmup cache install directory" FORCE)
+message(STATUS "Warmup Mode ON. Dependencies will be installed to: ${CMAKE_INSTALL_PREFIX}")
+
+
+# =============================================================================
+# External Dependencies
+# =============================================================================
+
+# --- Abseil ---
+set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+set(ABSL_ENABLE_INSTALL ${GDMR_SDK_WARMUP} CACHE BOOL "" FORCE)
 FetchContent_Declare(
   abseil-cpp
-  GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
-  GIT_TAG 20250814.1
-  OVERRIDE_FIND_PACKAGE
+  URL https://github.com/abseil/abseil-cpp/archive/refs/tags/20250814.1.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  FIND_PACKAGE_ARGS NAMES absl QUIET CONFIG PATHS ${GDMR_CACHE_DIR} NO_DEFAULT_PATH
 )
 
 # --- Protobuf ---
 # Force protobuf build options before fetching the dependency.
-# CACHE BOOL "" FORCE ensures these propagate to the protobuf sub-project.
-set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
 set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(UTF8_RANGE_INSTALL ${GDMR_SDK_WARMUP} CACHE BOOL "" FORCE)
+set(protobuf_INSTALL ${GDMR_SDK_WARMUP} CACHE BOOL "" FORCE)
 
-# Always build protobuf from source using OVERRIDE_FIND_PACKAGE to intercept
-# all find_package(Protobuf) calls (including from dependencies like
-# pybind11_protobuf). This prevents system protobuf cmake configs from loading,
-# which would create IMPORTED targets that conflict with the source build.
+# When building protobuf from source (because the system version is too old),
+# skip the expensive protoc compiler build and use a pre-built binary instead.
+# This saves ~5-10 minutes of build time.
+set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "" FORCE)
+
 FetchContent_Declare(
-  Protobuf
+  protobuf
   URL https://github.com/protocolbuffers/protobuf/archive/refs/tags/v32.1.tar.gz
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-  OVERRIDE_FIND_PACKAGE
+  FIND_PACKAGE_ARGS NAMES protobuf QUIET CONFIG PATHS ${GDMR_CACHE_DIR} NO_DEFAULT_PATH
 )
 
+# Download a pre-built protoc binary matching our source version.
+set(_PROTOC_VERSION "32.1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(_PROTOC_PLATFORM "linux-x86_64")
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64")
+    set(_PROTOC_PLATFORM "linux-aarch_64")
+  endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(_PROTOC_PLATFORM "osx-x86_64")
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(_PROTOC_PLATFORM "osx-aarch_64")
+  endif()
+endif()
+
+set(_PROTOC_DIR "${CMAKE_CURRENT_BINARY_DIR}/_protoc")
+set(_PROTOC_BINARY "${_PROTOC_DIR}/bin/protoc")
+
+if(NOT EXISTS "${_PROTOC_BINARY}")
+  set(_PROTOC_ZIP "${_PROTOC_DIR}/protoc-${_PROTOC_VERSION}-${_PROTOC_PLATFORM}.zip")
+  file(DOWNLOAD
+    "https://github.com/protocolbuffers/protobuf/releases/download/v${_PROTOC_VERSION}/protoc-${_PROTOC_VERSION}-${_PROTOC_PLATFORM}.zip"
+    "${_PROTOC_ZIP}")
+  file(ARCHIVE_EXTRACT INPUT "${_PROTOC_ZIP}" DESTINATION "${_PROTOC_DIR}")
+  file(CHMOD "${_PROTOC_BINARY}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+endif()
+
 # --- PyBind11 ---
+set(PYBIND11_INSTALL ${GDMR_SDK_WARMUP} CACHE BOOL "" FORCE)
+set(PYBIND11_PROTOBUF_ENABLE_INSTALL ${GDMR_SDK_WARMUP} CACHE BOOL "" FORCE)
 FetchContent_Declare(
   pybind11
-  GIT_REPOSITORY https://github.com/pybind/pybind11.git
-  GIT_TAG v3.0.1
-  OVERRIDE_FIND_PACKAGE
+  URL https://github.com/pybind/pybind11/archive/refs/tags/v3.0.1.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  FIND_PACKAGE_ARGS QUIET CONFIG PATHS ${GDMR_CACHE_DIR} NO_DEFAULT_PATH
 )
 
 # --- PyBind11 Abseil ---
+set(PYBIND11_ABSEIL_ENABLE_INSTALL ${GDMR_SDK_WARMUP} CACHE BOOL "" FORCE)
 FetchContent_Declare(
   pybind11_abseil
-  GIT_REPOSITORY https://github.com/pybind/pybind11_abseil.git
-  GIT_TAG c55fdc9c53d26af70fa8c2314a683abef62fa3f0  # 25 Feb 2025.
-  OVERRIDE_FIND_PACKAGE
+  URL https://github.com/pybind/pybind11_abseil/archive/c55fdc9c53d26af70fa8c2314a683abef62fa3f0.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  FIND_PACKAGE_ARGS QUIET CONFIG PATHS ${GDMR_CACHE_DIR} NO_DEFAULT_PATH
 )
 # pybind11_abseil internally forces interprocedural optimization to off. But
 # this is not propagated up to the top level CMakeLists.txt, which means that
 # there will be incompatibility between our targets and the one defined by
-# pybind11_abseil.
-# We force it to on here.
+# pybind11_abseil. We force it to on here.
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON CACHE BOOL "" FORCE)
 set(PYBIND11_PROTOBUF_BUILD_TESTING OFF)
 
 # --- PyBind11 Protobuf ---
 FetchContent_Declare(
   pybind11_protobuf
-  GIT_REPOSITORY https://github.com/pybind/pybind11_protobuf.git
-  GIT_TAG 4825dca68c8de73f5655fc50ce79c49c4d814652  # 29 Oct 2025.
-  OVERRIDE_FIND_PACKAGE
+  URL https://github.com/pybind/pybind11_protobuf/archive/4825dca68c8de73f5655fc50ce79c49c4d814652.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  FIND_PACKAGE_ARGS QUIET CONFIG PATHS ${GDMR_CACHE_DIR} NO_DEFAULT_PATH
 )
 
 # --- MCAP (header-only, we create our own target below) ---
 FetchContent_Declare(
   mcap
-  GIT_REPOSITORY https://github.com/foxglove/mcap.git
-  GIT_TAG releases/mcap-cli/v0.0.60
-  OVERRIDE_FIND_PACKAGE
+  URL https://github.com/foxglove/mcap/archive/refs/tags/releases/mcap-cli/v0.0.60.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 # --- LZ4 ---
 FetchContent_Declare(
   lz4
   URL https://github.com/lz4/lz4/archive/refs/tags/v1.10.0.tar.gz
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   SOURCE_SUBDIR  build/cmake
-  OVERRIDE_FIND_PACKAGE
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 # --- Zstd ---
@@ -149,12 +183,43 @@ set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   zstd
   URL https://github.com/facebook/zstd/archive/refs/tags/v1.5.7.tar.gz
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   SOURCE_SUBDIR build/cmake
-  OVERRIDE_FIND_PACKAGE
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
+# --- TensorFlow Protos ---
+# Instead of downloading the 200MB+ tarball,
+# just grab the two raw proto files we need.
+set(TF_PROTO_DIR "${CMAKE_CURRENT_BINARY_DIR}/tensorflow_protos")
+
+# Create the directory structure
+# so protoc can resolve the internal package paths properly
+file(MAKE_DIRECTORY "${TF_PROTO_DIR}/tensorflow/core/example")
+
+if(NOT EXISTS "${TF_PROTO_DIR}/tensorflow/core/example/example.proto")
+  file(DOWNLOAD
+      "https://raw.githubusercontent.com/tensorflow/tensorflow/v2.19.1/tensorflow/core/example/example.proto"
+      "${TF_PROTO_DIR}/tensorflow/core/example/example.proto"
+      SHOW_PROGRESS
+  )
+endif()
+
+if(NOT EXISTS "${TF_PROTO_DIR}/tensorflow/core/example/feature.proto")
+  file(DOWNLOAD
+      "https://raw.githubusercontent.com/tensorflow/tensorflow/v2.19.1/tensorflow/core/example/feature.proto"
+      "${TF_PROTO_DIR}/tensorflow/core/example/feature.proto"
+      SHOW_PROGRESS
+  )
+endif()
+
 # --- OpenCV (minimal: core, imgproc, imgcodecs only) ---
+enable_language(ASM_NASM)
+set(WITH_OPENEXR OFF CACHE BOOL "" FORCE)
+set(WITH_EIGEN OFF CACHE BOOL "" FORCE)
+set(WITH_FFMPEG OFF CACHE BOOL "" FORCE)
+set(WITH_GSTREAMER OFF CACHE BOOL "" FORCE)
+set(WITH_ADE OFF CACHE BOOL "" FORCE)
+set(WITH_ITT OFF CACHE BOOL "" FORCE)
 set(WITH_WEBP OFF CACHE BOOL "" FORCE)
 set(WITH_TIFF OFF CACHE BOOL "" FORCE)
 set(WITH_IPP OFF CACHE BOOL "" FORCE)
@@ -180,115 +245,114 @@ set(BUILD_LIST "core,imgproc,imgcodecs" CACHE STRING "Selected OpenCV modules" F
 set(OPENCV_SETUPVARS_INSTALL_PATH "${CMAKE_INSTALL_BINDIR}" CACHE PATH "" FORCE)
 
 FetchContent_Declare(
-  OpenCV
+  opencv
   URL https://github.com/opencv/opencv/archive/refs/tags/4.13.0.tar.gz
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-  OVERRIDE_FIND_PACKAGE
+  FIND_PACKAGE_ARGS NAMES OpenCV QUIET CONFIG PATHS ${GDMR_CACHE_DIR} NO_DEFAULT_PATH
 )
 
-# --- TensorFlow (only 2 proto files needed, download directly) ---
-set(_TF_PROTO_DIR "${CMAKE_CURRENT_BINARY_DIR}/_tf_protos/tensorflow/core/example")
-file(MAKE_DIRECTORY ${_TF_PROTO_DIR})
-
-set(_TF_RAW_URL "https://raw.githubusercontent.com/tensorflow/tensorflow/HEAD/tensorflow/core/example")
-file(DOWNLOAD "${_TF_RAW_URL}/example.proto" "${_TF_PROTO_DIR}/example.proto")
-file(DOWNLOAD "${_TF_RAW_URL}/feature.proto" "${_TF_PROTO_DIR}/feature.proto")
-
-# --- Make available ---
-FetchContent_MakeAvailable(abseil-cpp Protobuf
+# Retrieve and build all dependencies
+FetchContent_MakeAvailable(abseil-cpp protobuf
                            pybind11 pybind11_abseil pybind11_protobuf
-                           OpenCV lz4 zstd mcap)
+                           opencv lz4 zstd mcap)
 
-
-# =============================================================================
-# Proto Libraries
-# =============================================================================
-
-# When fetched from source, Protobuf_INCLUDE_DIRS isn't set (it's a
-# FindProtobuf module variable). Set it so protoc can find the standard
-# protos (e.g. google/protobuf/duration.proto).
-if(protobuf_SOURCE_DIR AND NOT Protobuf_INCLUDE_DIRS)
-  set(Protobuf_INCLUDE_DIRS "${protobuf_SOURCE_DIR}/src")
-  # When built from source, the protobuf_generate() function isn't loaded
-  # automatically. Include the module that defines it.
-  include("${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake")
-  # Create an imported target for the pre-downloaded protoc binary so that
-  # protobuf_generate() can find it (we skipped building protoc from source).
-  if(NOT TARGET protobuf::protoc)
-    add_executable(protobuf::protoc IMPORTED)
-    set_target_properties(protobuf::protoc PROPERTIES
-      IMPORTED_LOCATION "${_PROTOC_BINARY}")
-  endif()
+# Create an imported target for the pre-downloaded protoc binary if we
+# skipped building protoc from source so that protobuf_generate() can find it.
+if(NOT TARGET protobuf::protoc)
+  add_executable(protobuf::protoc IMPORTED)
+  set_target_properties(protobuf::protoc PROPERTIES
+    IMPORTED_LOCATION "${_PROTOC_BINARY}")
 endif()
 
-# Python proto library for Safari protos.
+# =============================================================================
+# Warmup Cache Population
+# =============================================================================
+
+# Install specific dependency targets that FetchContent misses
+if(GDMR_SDK_WARMUP AND TARGET utf8_validity)
+    install(TARGETS utf8_range utf8_validity
+            EXPORT protobuf-targets
+            DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif()
+
+# Pip install via scikit-build-core overrides the install prefix locations.
+# Thus, we need to manually copy them to the cache.
+if(GDMR_SDK_WARMUP)
+    install(CODE "
+        message(STATUS \"Populating GDMR Cache: Copying dependencies to ${GDMR_CACHE_DIR}...\")
+        foreach(dir IN ITEMS ${CMAKE_INSTALL_LIBDIR} ${CMAKE_INSTALL_INCLUDEDIR} ${CMAKE_INSTALL_DATADIR} ${CMAKE_INSTALL_BINDIR})
+            if(EXISTS \"\${CMAKE_INSTALL_PREFIX}/\${dir}\")
+                file(COPY \"\${CMAKE_INSTALL_PREFIX}/\${dir}\" DESTINATION \"${GDMR_CACHE_DIR}\")
+            endif()
+        endforeach()
+    ")
+endif()
+
+# --- C++ and Python Proto Libraries ---
+FetchContent_GetProperties(protobuf SOURCE_DIR protobuf_SOURCE_DIR)
+
+if(protobuf_SOURCE_DIR)
+    # Protobuf is being built from source.
+    # We must manually include the script.
+    include(${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake)
+    set(PROTOBUF_IMPORT_DIR "${protobuf_SOURCE_DIR}/src")
+else()
+    # Cache Mode: Protobuf was found via find_package().
+    # The script is auto-included.
+    set(PROTOBUF_IMPORT_DIR "${GDMR_CACHE_DIR}/include")
+endif()
+
+# Proto files are accessed via the safari_sdk symlink.
 file(GLOB_RECURSE _SAFARI_PROTO_FILES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/safari_sdk/protos/*.proto")
 
-# Generate Python proto files directly into the source tree so that
-# scikit-build-core's packages = ["safari_sdk"] picks them up automatically.
-protobuf_generate(LANGUAGE python
-                  PROTOS ${_SAFARI_PROTO_FILES}
-                  OUT_VAR _SAFARI_PB_GENERATED_FILES
-                  IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR} ${Protobuf_INCLUDE_DIRS}
-                  PROTOC_OUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}
-)
-add_custom_target(safari_py_protos ALL DEPENDS ${_SAFARI_PB_GENERATED_FILES})
-
-# C++ proto library for Safari protos.
+# C++ Protos
 add_library(safari_protos STATIC)
 protobuf_generate(
   TARGET safari_protos
   LANGUAGE cpp
   PROTOS ${_SAFARI_PROTO_FILES}
-  IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR} ${Protobuf_INCLUDE_DIRS}
-  )
+  IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR} ${PROTOBUF_IMPORT_DIR}
+)
 target_link_libraries(safari_protos protobuf::libprotobuf)
 target_include_directories(safari_protos PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 
+# Python Protos
+# Generate Python proto files directly into the source tree so that
+# scikit-build-core's packages = ["safari_sdk"] picks them up automatically.
+protobuf_generate(LANGUAGE python
+                  PROTOS ${_SAFARI_PROTO_FILES}
+                  OUT_VAR _SAFARI_PB_GENERATED_FILES
+                  IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
+                  PROTOC_OUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_custom_target(safari_py_protos ALL DEPENDS ${_SAFARI_PB_GENERATED_FILES})
+
 # TF example and feature protos.
-set(_TF_PROTO_ROOT "${CMAKE_CURRENT_BINARY_DIR}/_tf_protos")
+FetchContent_GetProperties(tensorflow)
 add_library(tf_protos STATIC)
 protobuf_generate(
   TARGET tf_protos
   LANGUAGE cpp
-  PROTOS ${_TF_PROTO_ROOT}/tensorflow/core/example/example.proto
-         ${_TF_PROTO_ROOT}/tensorflow/core/example/feature.proto
-  IMPORT_DIRS ${_TF_PROTO_ROOT}
-  )
+  PROTOS "${TF_PROTO_DIR}/tensorflow/core/example/example.proto"
+         "${TF_PROTO_DIR}/tensorflow/core/example/feature.proto"
+  IMPORT_DIRS "${TF_PROTO_DIR}"
+)
 target_link_libraries(tf_protos protobuf::libprotobuf)
 target_include_directories(tf_protos PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 
 # =============================================================================
 # MCAP Library
 # =============================================================================
-
 set(_mcap_include_dir ${mcap_SOURCE_DIR}/cpp/mcap/include)
-add_library(mcap_lib STATIC)
-target_include_directories(mcap_lib PUBLIC
+add_library(mcap STATIC)
+target_include_directories(mcap PUBLIC
   "$<BUILD_INTERFACE:${_mcap_include_dir}>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
 )
 # mcap.cpp is accessed via the safari_sdk symlink.
-target_sources(mcap_lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/safari_sdk/logging/cc/mcap.cpp)
-
-# When lz4 is found via find_package, the target is lz4::lz4; when fetched from
-# source, the target is lz4. Similarly, zstd system package provides
-# zstd::libzstd_static while the source build provides libzstd_static.
-if(TARGET lz4::lz4)
-  set(_LZ4_TARGET lz4::lz4)
-else()
-  set(_LZ4_TARGET lz4)
-endif()
-if(TARGET zstd::libzstd_static)
-  set(_ZSTD_TARGET zstd::libzstd_static)
-elseif(TARGET libzstd_static)
-  set(_ZSTD_TARGET libzstd_static)
-else()
-  set(_ZSTD_TARGET zstd::libzstd_shared)
-endif()
-
-target_link_libraries(mcap_lib ${_LZ4_TARGET} ${_ZSTD_TARGET})
+target_sources(mcap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/safari_sdk/logging/cc/mcap.cpp)
+target_link_libraries(mcap lz4 libzstd_static)
 
 # =============================================================================
 # Log Writer C++ Library
@@ -311,58 +375,56 @@ target_sources(log_writer_cc PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/safari_sdk/logging/cc/thread_pool_log_writer.cc
 )
 
-# When OpenCV is found via find_package, module include dirs are provided by the
-# imported targets. When built from source, we need to add them explicitly.
-if(DEFINED OPENCV_MODULE_opencv_core_LOCATION)
-  target_include_directories(log_writer_cc PUBLIC
-                             ${OPENCV_MODULE_opencv_core_LOCATION}/include
-                             ${OPENCV_MODULE_opencv_imgcodecs_LOCATION}/include
-                             ${OPENCV_MODULE_opencv_imgproc_LOCATION}/include)
-endif()
-target_include_directories(log_writer_cc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(log_writer_cc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+                          ${OPENCV_MODULE_opencv_core_LOCATION}/include
+                          ${OPENCV_MODULE_opencv_imgcodecs_LOCATION}/include
+                          ${OPENCV_MODULE_opencv_imgproc_LOCATION}/include)
 
-target_link_libraries(log_writer_cc PUBLIC safari_protos
-                                        absl::core_headers
-                                        absl::any_invocable
-                                        absl::status
-                                        absl::statusor
-                                        absl::strings
-                                        absl::string_view
-                                        absl::span
-                                        absl::log
-                                        absl::flat_hash_map
-                                        absl::fixed_array
-                                        absl::flat_hash_set
-                                        absl::memory
-                                        absl::synchronization
-                                        absl::time
-                                        opencv_core
-                                        opencv_imgcodecs
-                                        opencv_imgproc
-                                        mcap_lib
-                                        protobuf::libprotobuf
-                                        tf_protos)
+target_link_libraries(log_writer_cc PUBLIC
+    safari_protos
+    absl::core_headers
+    absl::any_invocable
+    absl::status
+    absl::statusor
+    absl::strings
+    absl::string_view
+    absl::span
+    absl::log
+    absl::flat_hash_map
+    absl::fixed_array
+    absl::flat_hash_set
+    absl::memory
+    absl::synchronization
+    absl::time
+    opencv_core
+    opencv_imgcodecs
+    opencv_imgproc
+    mcap
+    protobuf::libprotobuf
+    tf_protos
+)
 
 # =============================================================================
 # Python Bindings
 # =============================================================================
 
 pybind11_add_module(log_writer ${CMAKE_CURRENT_SOURCE_DIR}/safari_sdk/logging/cc/python/log_writer.cc)
-target_link_libraries(log_writer PUBLIC log_writer_cc
-                                        safari_protos
-                                        absl::log
-                                        absl::status
-                                        absl::statusor
-                                        absl::strings
-                                        absl::string_view
-                                        absl::absl_check
-                                        pybind11_abseil::absl_casters
-                                        pybind11_abseil::status_casters
-                                        pybind11_protobuf::pybind11_native_proto_caster
-                                        )
+target_link_libraries(log_writer PUBLIC
+    log_writer_cc
+    safari_protos
+    absl::log
+    absl::status
+    absl::statusor
+    absl::strings
+    absl::string_view
+    absl::absl_check
+    pybind11_abseil::absl_casters
+    pybind11_abseil::status_casters
+    pybind11_protobuf::pybind11_native_proto_caster
+)
 
 # =============================================================================
-# Installation
+# Installation & Wheel Cleanup
 # =============================================================================
 
 # As we build with static libraries we do not need to install dependencies nor
@@ -375,8 +437,16 @@ install(TARGETS log_writer DESTINATION safari_sdk/logging/cc/python)
 # other library that might be installed by the user.
 install(TARGETS status_py_extension_stub ok_status_singleton DESTINATION pybind11_abseil)
 
-# Now remove the dependencies that we installed but we do not need.
-install(CODE "
-    message(STATUS \"Removing dependencies installation artifacts...\")
-    file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/deps\")
-")
+if(NOT CMAKE_INSTALL_PREFIX STREQUAL GDMR_CACHE_DIR)
+    install(CODE "
+        message(STATUS \"Removing intermediate installation artifacts to slim the wheel...\")
+        file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\"
+                            \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\"
+                            \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}\"
+                            \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\"
+                            # Fallbacks for poorly-behaved third-party dependencies
+                            # that hardcode 'lib' or 'lib64' instead of using GNUInstallDirs
+                            \"\${CMAKE_INSTALL_PREFIX}/lib\"
+                            \"\${CMAKE_INSTALL_PREFIX}/lib64\")
+    ")
+endif()

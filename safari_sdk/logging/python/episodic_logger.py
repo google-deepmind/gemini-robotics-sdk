@@ -790,7 +790,7 @@ def _validate_metadata(
 ) -> None:
   """Validates that the metadata to comply with the specs we currently support."""
   _validate_observation_is_mapping(timestep_spec)
-  _validate_instruction_in_timestep(timestep_spec)
+  _validate_task_instruction_in_timestep(timestep_spec)
   _validate_image_observation_keys(timestep_spec, image_observation_keys)
   _validate_proprioceptive_observation_keys(
       timestep_spec, proprioceptive_observation_keys
@@ -805,11 +805,17 @@ def _validate_observation_is_mapping(
     raise TypeError("Observation in timestep_spec must be a Mapping.")
 
 
-def _validate_instruction_in_timestep(
+def _validate_task_instruction_in_timestep(
     timestep_spec: gdmr_types.TimeStepSpec,
 ) -> None:
-  if "instruction" not in timestep_spec.observation:  # pyrefly: ignore[not-iterable]
-    raise KeyError("'instruction' is required in timestep_spec.observation.")
+  if (
+      "task_instruction" not in timestep_spec.observation  # pyrefly: ignore[not-iterable]
+      and "instruction" not in timestep_spec.observation  # pyrefly: ignore[not-iterable]
+  ):
+    raise KeyError(
+        "'task_instruction' (or legacy 'instruction') is required in"
+        " timestep_spec.observation."
+    )
 
 
 def _validate_action(action_spec: gdmr_types.ActionSpec):  # pyrefly: ignore[invalid-type-var]

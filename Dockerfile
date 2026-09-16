@@ -47,8 +47,7 @@ ENV CCACHE_BASEDIR="/tmp/safari_sdk"
 COPY . .
 
 # 3. Run build to populate /opt/gdmr/build/cache and /root/.cache/ccache
-RUN ln -snf ../../safari_sdk ./subpackages/logging/safari_sdk && \
-    python3.12 -m pip install ./subpackages/logging
+RUN python3.12 -m pip install ./safari_sdk
 
 # ==============================================================================
 # STAGE 3: Final CI Runner

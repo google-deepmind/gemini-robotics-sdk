@@ -59,7 +59,6 @@ from safari_sdk.model import constants as gemini_robotics_constants
 from safari_sdk.model import gemini_robotics_policy
 from safari_sdk.model import remote_model_interface
 
-
 _TASK_NAME = flags.DEFINE_enum(
     'task_name',
     'HandOverBanana',
@@ -172,7 +171,10 @@ def _append_task_instruction(
 ) -> dm_env.TimeStep:
   """Appends the task instruction to timestep observation."""
   new_observations = timestep.observation
-  new_observations.update({'instruction': np.array(instruction)})
+  new_observations.update({
+      'task_instruction': np.array(instruction),
+      'instruction': np.array(instruction),
+  })
   return timestep._replace(observation=new_observations)
 
 
@@ -206,7 +208,10 @@ def main(argv: Sequence[str]) -> None:
   # runloop.
   timestep_spec = copy.deepcopy(env.timestep_spec())
   assert isinstance(timestep_spec.observation, dict)
-  timestep_spec.observation.update({'instruction': specs.StringArray(shape=())})  # pyrefly: ignore[no-matching-overload]
+  timestep_spec.observation.update({  # pyrefly: ignore[no-matching-overload]
+      'task_instruction': specs.StringArray(shape=()),
+      'instruction': specs.StringArray(shape=()),
+  })
 
   # Instantiate the policy.
   if _POLICY.value == 'no_policy':
@@ -217,7 +222,7 @@ def main(argv: Sequence[str]) -> None:
       remote_model = remote_model_interface.RemoteModelInterface(
           serve_id=_SERVE_ID,
           robotics_api_connection=gemini_robotics_constants.RoboticsApiConnectionType.LOCAL,
-          task_instruction_key='instruction',
+          task_instruction_key='task_instruction',
           proprioceptive_observation_keys=_ALOHA_JOINTS.keys(),  # pyrefly: ignore[bad-argument-type]
           image_observation_keys=_ALOHA_CAMERAS.keys(),  # pyrefly: ignore[bad-argument-type]
           image_compression_jpeg_quality=95,
@@ -225,7 +230,7 @@ def main(argv: Sequence[str]) -> None:
       policy = gemini_robotics_policy.GeminiRoboticsPolicy(
           model_interface=remote_model,
           serve_id=_SERVE_ID,
-          task_instruction_key='instruction',
+          task_instruction_key='task_instruction',
           image_observation_keys=_ALOHA_CAMERAS.keys(),  # pyrefly: ignore[bad-argument-type]
           proprioceptive_observation_keys=_ALOHA_JOINTS.keys(),  # pyrefly: ignore[bad-argument-type]
           min_replan_interval=25,

@@ -80,7 +80,7 @@ class OfflineEvalTest(parameterized.TestCase):
     self.assertIsInstance(ts_spec, gdmr_types.TimeStepSpec)
     self.assertIn('cam0', ts_spec.observation)
     self.assertIn('proprio0', ts_spec.observation)
-    self.assertIn('instruction', ts_spec.observation)
+    self.assertIn('task_instruction', ts_spec.observation)
 
     self.assertEqual(ts_spec.observation['cam0'].shape, (100, 100, 3))
     self.assertEqual(ts_spec.observation['proprio0'].shape, (1, 5))
@@ -103,10 +103,10 @@ class OfflineEvalTest(parameterized.TestCase):
 
     self.assertIn('cam0', built_obs)
     self.assertIn('proprio0', built_obs)
-    self.assertIn('instruction', built_obs)
+    self.assertIn('task_instruction', built_obs)
 
     self.assertEqual(built_obs['proprio0'].shape, (1, 5))
-    self.assertEqual(built_obs['instruction'], 'test task')
+    self.assertEqual(built_obs['task_instruction'], 'test task')
 
   def test_build_observation_missing_image_key_raises(self):
     obs = {'proprio0': np.zeros((5,), dtype=np.float32)}

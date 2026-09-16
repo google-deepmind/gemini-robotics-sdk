@@ -283,7 +283,6 @@ class OrchestratorInterface:
   def add_operator_event(
       self,
       operator_event_type: int | None,
-      operator_event_str: str,
       operator_id: str,
       event_timestamp: int,
       resetter_id: str,
@@ -294,7 +293,6 @@ class OrchestratorInterface:
     with self._rpc_lock:
       return self._operator_event_lib.add_operator_event(
           operator_event_type=operator_event_type,
-          operator_event_str=operator_event_str,
           operator_id=operator_id,
           event_timestamp=event_timestamp,
           resetter_id=resetter_id,

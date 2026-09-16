@@ -124,7 +124,7 @@ _MAX_CONSECUTIVE_TIMEOUTS = flags.DEFINE_integer(
     'Max consecutive timeouts before aborting episode.',
 )
 
-_INSTRUCTION_KEY = 'instruction'
+_INSTRUCTION_KEY = 'task_instruction'
 
 
 # ---------- TimeStepSpec Construction ----------------------------------------

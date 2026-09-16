@@ -58,7 +58,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -111,7 +111,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -163,7 +163,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -218,7 +218,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -341,7 +341,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
     )
@@ -420,7 +420,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
     )
@@ -526,7 +526,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float64),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -625,7 +625,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         },
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -717,7 +717,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -816,7 +816,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
             "discount2": specs.Array(shape=(3,), dtype=np.float32),
         },
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -908,7 +908,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -1027,7 +1027,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -1180,8 +1180,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
             ),
         },
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(
-                shape=(), name="instruction", string_type=string_type
+            "task_instruction": specs.StringArray(
+                shape=(), name="task_instruction", string_type=string_type
             ),
             "string_feature": specs.StringArray(
                 shape=(), string_type=string_type
@@ -1392,7 +1392,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
                   "feature1": np.array(
                       [1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32
                   ),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1407,7 +1407,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount=np.array(1.0, dtype=np.float32),
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32),
@@ -1422,7 +1422,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount=np.array(1.0, dtype=np.float32),
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1437,7 +1437,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount=np.array(1.0, dtype=np.float32),
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1452,7 +1452,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount={"discount1": np.array(1.0, dtype=np.float32)},
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1474,7 +1474,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -1551,7 +1551,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -1584,7 +1584,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
                   "feature1": np.array(
                       [1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32
                   ),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1598,7 +1598,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount=np.array(1.0, dtype=np.float32),
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32),
@@ -1612,7 +1612,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount=np.array(1.0, dtype=np.float32),
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1626,7 +1626,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount=np.array(1.0, dtype=np.float32),
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1640,7 +1640,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
               discount={"discount1": np.array(1.0, dtype=np.float32)},
               observation={
                   "feature1": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-                  "instruction": np.array("instruction", dtype=object),
+                  "task_instruction": np.array("task_instruction", dtype=object),
               },
           ),
           action=np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -1658,7 +1658,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -1715,7 +1715,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -1798,7 +1798,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -1970,7 +1970,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -2043,7 +2043,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -2118,7 +2118,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -2260,7 +2260,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float64),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -2337,7 +2337,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -2404,7 +2404,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -2432,7 +2432,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "rgb_camera": specs.Array(shape=(64, 64, 3), dtype=np.uint8),
             "depth_camera": specs.Array(shape=(64, 64), dtype=np.uint16),
             _TEST_PROPRIO_KEY: specs.Array(shape=(4,), dtype=np.float32),
@@ -2505,7 +2505,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),
             # The _TEST_PROPRIO_KEY or any specific invalid key is missing here.
         },
@@ -2540,7 +2540,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             proprio_key_to_test: {
                 "sub_field": specs.Array(shape=(1,), dtype=np.float32)
             },  # Not a specs.Array
@@ -2568,14 +2568,14 @@ class EpisodicLoggerTest(parameterized.TestCase):
           )
       )
 
-  def test_missing_instruction_in_observation_raises_key_error(self):
-    """Tests KeyError if 'instruction' key is missing in observation_spec."""
+  def test_missing_task_instruction_in_observation_raises_key_error(self):
+    """Tests KeyError if instruction key is missing in observation_spec."""
     timestep_spec = gdmr_types.TimeStepSpec(
         step_type=gdmr_types.STEP_TYPE_SPEC,
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            # 'instruction' key is missing here.
+            # 'task_instruction' and 'instruction' keys are missing here.
             "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -2585,7 +2585,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
 
     with self.assertRaisesRegex(
         KeyError,
-        "'instruction' is required in timestep_spec.observation.",
+        r"'task_instruction' \(or legacy 'instruction'\) is required in"
+        r" timestep_spec\.observation\.",
     ):
       episodic_logger.EpisodicLogger.create(
           episodic_logger.EpisodicLoggerConfig(
@@ -2600,13 +2601,42 @@ class EpisodicLoggerTest(parameterized.TestCase):
           )
       )
 
-  def test_data_is_written_correctly_when_batching_is_enabled(self):
+  def test_legacy_instruction_in_observation_succeeds(self):
+    """Tests that legacy 'instruction' key is accepted in observation_spec."""
     timestep_spec = gdmr_types.TimeStepSpec(
         step_type=gdmr_types.STEP_TYPE_SPEC,
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
             "instruction": specs.StringArray(shape=(), name="instruction"),
+            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),
+        },
+    )
+    action_spec = specs.BoundedArray(
+        shape=(), dtype=np.float32, minimum=-np.inf, maximum=np.inf
+    )
+
+    logger = episodic_logger.EpisodicLogger.create(
+        episodic_logger.EpisodicLoggerConfig(
+            agent_id=_TEST_AGENT_ID,
+            task_id=_TEST_TASK_ID,
+            output_directory=self._episode_path.full_path,
+            action_spec=action_spec,
+            timestep_spec=timestep_spec,
+            proprioceptive_observation_keys=[],
+            image_observation_keys=[],
+            policy_extra_spec={},
+        )
+    )
+    self.assertIsNotNone(logger)
+
+  def test_data_is_written_correctly_when_batching_is_enabled(self):
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward=specs.Array(shape=(), dtype=np.float32),
+        discount=specs.Array(shape=(), dtype=np.float32),
+        observation={  # pyrefly: ignore[bad-argument-type]
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -2731,7 +2761,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -2768,7 +2798,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -2822,7 +2852,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
@@ -2929,7 +2959,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             "feature2": specs.Array(shape=(3,), dtype=np.int32),
             "feature3": specs.Array(shape=(), dtype=np.float64),
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
     )
@@ -3000,7 +3030,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
     )
@@ -3062,7 +3092,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
     )
@@ -3190,7 +3220,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
         },
     )
@@ -3256,7 +3286,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float64),
         discount=specs.Array(shape=(), dtype=np.float64),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "feature1": specs.Array(shape=(4,), dtype=np.float32),
             _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
         },
@@ -3445,7 +3475,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             "cam": specs.Array(
                 shape=(image_height, image_width, 3), dtype=np.uint8
             ),
@@ -3485,7 +3515,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
           reward=specs_utils.valid_value_for_spec(timestep_spec.reward),
           discount=specs_utils.valid_value_for_spec(timestep_spec.discount),
           observation={
-              "instruction": "test_instruction",
+              "task_instruction": "test_instruction",
               "cam": test_image.copy(),
               _TEST_PROPRIO_KEY: specs_utils.valid_value_for_spec(
                   timestep_spec.observation[_TEST_PROPRIO_KEY]  # pyrefly: ignore[bad-argument-type, bad-index]
@@ -3592,7 +3622,7 @@ class EpisodicLoggerConfigSanitizationTest(parameterized.TestCase):
             reward=specs.Array(shape=(), dtype=np.float32),
             discount=specs.Array(shape=(), dtype=np.float32),
             observation={  # pyrefly: ignore[bad-argument-type]
-                "instruction": specs.StringArray(shape=(), name="instruction"),
+                "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             },
         ),
         action_spec=specs.BoundedArray(
@@ -3618,7 +3648,7 @@ class EpisodicLoggerConfigSanitizationTest(parameterized.TestCase):
             reward=specs.Array(shape=(), dtype=np.float32),
             discount=specs.Array(shape=(), dtype=np.float32),
             observation={  # pyrefly: ignore[bad-argument-type]
-                "instruction": specs.StringArray(shape=(), name="instruction"),
+                "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
             },
         ),
         action_spec=specs.BoundedArray(
