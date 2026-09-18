@@ -63,20 +63,20 @@ def write_example_to_mcap(output_directory: str):
       reward=specs.Array(shape=(), dtype=np.float32),
       discount=specs.Array(shape=(), dtype=np.float32),
       observation={  # pyrefly: ignore[bad-argument-type]
-          "task_instruction": specs.StringArray(
+          "task_instruction": specs.StringArray(  # pyrefly: ignore[bad-assignment]
               shape=(), name="task_instruction"
           ),
           # Here we are specifying that our images will be numpy arrays of
           # shape image_shape, and that they will be of type np.uint8.
-          image_key_1: specs.Array(shape=image_shape, dtype=np.uint8),
+          image_key_1: specs.Array(shape=image_shape, dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
           # You can log multiple proprioceptive keys, which should all be
           # arrays of type np.float64.
-          proprio_key_1: specs.Array(shape=(6,), dtype=np.float64),
-          proprio_key_2: specs.Array(shape=(6,), dtype=np.float64),
-          proprio_key_3: specs.Array(shape=(1,), dtype=np.float64),
-          proprio_key_4: specs.Array(shape=(1,), dtype=np.float64),
+          proprio_key_1: specs.Array(shape=(6,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+          proprio_key_2: specs.Array(shape=(6,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+          proprio_key_3: specs.Array(shape=(1,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+          proprio_key_4: specs.Array(shape=(1,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
           # The timestamp should be in nanoseconds, stored as an int64.
-          timestamp_key: specs.Array(shape=(), dtype=np.int64),
+          timestamp_key: specs.Array(shape=(), dtype=np.int64),  # pyrefly: ignore[bad-assignment]
       },
   )
 

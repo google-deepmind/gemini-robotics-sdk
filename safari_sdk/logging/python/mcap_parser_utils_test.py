@@ -333,7 +333,7 @@ class McapParserUtilsTest(parameterized.TestCase):
         ),
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
-        observation={"sensor": specs.Array(shape=(2,), dtype=np.float32)},  # pyrefly: ignore[bad-argument-type]
+        observation={"sensor": specs.Array(shape=(2,), dtype=np.float32)},  # pyrefly: ignore[bad-argument-type, bad-assignment]
     )
     act_spec = {
         "move": specs.BoundedArray(

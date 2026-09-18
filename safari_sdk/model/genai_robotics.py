@@ -241,6 +241,19 @@ class Client:
       return False
     return not _version_lt(self._server_version, _MSGPACK_MIN_SERVER_VERSION)
 
+  def ping(self) -> float | None:
+    """Measures round-trip ping latency to the server in milliseconds."""
+    if self._robotics_api_connection == _CONNECTION.CLOUD:
+      try:
+        assert hasattr(self._client, 'doPing')
+        t0 = time.perf_counter()
+        self._client.doPing().execute(num_retries=0)
+        return (time.perf_counter() - t0) * 1000.0
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning('Failed to ping server: %s', e)
+        return None
+    return None
+
   def _robotics_generate_content(
       self,
       *,

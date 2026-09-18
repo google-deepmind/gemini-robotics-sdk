@@ -15,16 +15,84 @@
 """Converts observations to contents for a Gemini Robotics model query."""
 
 from collections.abc import Mapping, Sequence
+import dataclasses
 import json
 from typing import Any
 
+from dm_env import specs
 import jax
 import numpy as np
 import tensorflow as tf
 
+from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 
 _UTF_8_ENCODING = 'utf-8'
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ObservationKeys:
+  """Categorized observation keys for model queries.
+
+  Attributes:
+    task_instruction_key: Key for the task language instruction in the
+      observation.
+    string_keys: Keys for string observations (always includes
+      task_instruction_key).
+    image_keys: Keys for image observations (e.g. camera feeds).
+    proprioceptive_keys: Keys for proprioceptive sensor observations (e.g. joint
+      states).
+  """
+
+  task_instruction_key: str
+  string_keys: tuple[str, ...]
+  image_keys: tuple[str, ...]
+  proprioceptive_keys: tuple[str, ...]
+
+
+def resolve_observation_keys(
+    *,
+    task_instruction_key: str,
+    proprioceptive_observation_keys: Sequence[str],
+    image_observation_keys: Sequence[str],
+    additional_observations_providers: Sequence[
+        additional_observations_provider.AdditionalObservationsProvider
+    ] = (),
+) -> ObservationKeys:
+  """Resolves and categorizes observation keys including additional providers.
+
+  Args:
+    task_instruction_key: The key of the task instruction in the observation.
+    proprioceptive_observation_keys: Observation keys related to proprioceptive
+      sensors.
+    image_observation_keys: Observation keys related to camera images.
+    additional_observations_providers: Providers that contribute additional
+      observation specs.
+
+  Returns:
+    An ObservationKeys instance with categorized keys.
+  """
+  string_keys = [task_instruction_key]
+  image_keys = list(image_observation_keys)
+  proprioceptive_keys = list(proprioceptive_observation_keys)
+
+  for provider in additional_observations_providers:
+    additional_specs = provider.get_additional_observations_spec()
+    for key, spec in additional_specs.items():
+      if isinstance(spec, specs.StringArray):
+        string_keys.append(key)
+      elif isinstance(spec, specs.Array):
+        if len(spec.shape) == 3:
+          image_keys.append(key)
+        elif len(spec.shape) == 1 or len(spec.shape) == 2:
+          proprioceptive_keys.append(key)
+
+  return ObservationKeys(
+      task_instruction_key=task_instruction_key,
+      string_keys=tuple(string_keys),
+      image_keys=tuple(image_keys),
+      proprioceptive_keys=tuple(proprioceptive_keys),
+  )
 
 
 def observation_to_model_query_contents(

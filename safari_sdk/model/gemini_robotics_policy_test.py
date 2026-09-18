@@ -23,6 +23,7 @@ from dm_env import specs
 from gdm_robotics.interfaces import types as gdmr_types
 import numpy as np
 
+
 from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 from safari_sdk.model import gemini_robotics_policy
@@ -59,14 +60,14 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
               reward={},
               discount={},
               observation={  # pyrefly: ignore[bad-argument-type]
-                  "test_camera_1": specs.Array(
+                  "test_camera_1": specs.Array(  # pyrefly: ignore[bad-assignment]
                       shape=(100, 100, 3), dtype=np.uint8
                   ),
-                  "test_camera_2": specs.Array(
+                  "test_camera_2": specs.Array(  # pyrefly: ignore[bad-assignment]
                       shape=(200, 200, 1), dtype=np.uint8
                   ),
-                  "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-                  "test_joint_2": specs.Array(shape=(3,), dtype=np.float32),
+                  "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+                  "test_joint_2": specs.Array(shape=(3,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
               },
           ),
       ),
@@ -77,12 +78,12 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
               reward={},
               discount={},
               observation={  # pyrefly: ignore[bad-argument-type]
-                  "test_camera_1": specs.Array(
+                  "test_camera_1": specs.Array(  # pyrefly: ignore[bad-assignment]
                       shape=(100, 100, 3), dtype=np.uint8
                   ),
-                  "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-                  "test_joint_2": specs.Array(shape=(3,), dtype=np.float32),
-                  "test_instruction_key": specs.StringArray(()),
+                  "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+                  "test_joint_2": specs.Array(shape=(3,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+                  "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
               },
           ),
       ),
@@ -93,14 +94,14 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
               reward={},
               discount={},
               observation={  # pyrefly: ignore[bad-argument-type]
-                  "test_camera_1": specs.Array(
+                  "test_camera_1": specs.Array(  # pyrefly: ignore[bad-assignment]
                       shape=(100, 100, 3), dtype=np.uint8
                   ),
-                  "test_camera_2": specs.Array(
+                  "test_camera_2": specs.Array(  # pyrefly: ignore[bad-assignment]
                       shape=(200, 200, 1), dtype=np.uint8
                   ),
-                  "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-                  "test_instruction_key": specs.StringArray(()),
+                  "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+                  "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
               },
           ),
       ),
@@ -151,9 +152,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     step_spec = policy.step_spec(timestep_spec)
@@ -167,6 +168,10 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         {
             "inference_total_ms": specs.Array(shape=(), dtype=np.float32),
             "remote_inference_ms": specs.Array(shape=(), dtype=np.float32),
+            "client_wire_transit_ms": specs.Array(shape=(), dtype=np.float32),
+            "client_processing_ms": specs.Array(shape=(), dtype=np.float32),
+            "client_image_encode_ms": specs.Array(shape=(), dtype=np.float32),
+            "server_ping_ms": specs.Array(shape=(), dtype=np.float32),
             "network_overhead_ms": specs.Array(shape=(), dtype=np.float32),
             "inference_sent": specs.Array(shape=(), dtype=np.uint8),
             "actions_left": specs.Array(shape=(), dtype=np.int32),
@@ -213,9 +218,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -254,9 +259,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     step_spec = policy.step_spec(timestep_spec)
@@ -303,9 +308,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -364,9 +369,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     policy.step_spec(timestep_spec)
@@ -446,9 +451,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     policy.step_spec(timestep_spec)
@@ -578,9 +583,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -708,9 +713,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -763,9 +768,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -857,9 +862,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -946,6 +951,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     model_interface.last_wire_transit_ms = 15.0
     model_interface.last_client_processing_ms = 35.0
     model_interface.last_client_image_encode_ms = 20.0
+    model_interface.server_ping_ms = 8.0
 
     policy = gemini_robotics_policy.GeminiRoboticsPolicy(
         serve_id="test_serve_id",
@@ -964,9 +970,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     policy.step_spec(timestep_spec)
@@ -998,6 +1004,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     np.testing.assert_equal(
         extra["client_image_encode_ms"], np.array(20.0, dtype=np.float32)  # pyrefly: ignore[bad-index]
     )
+    np.testing.assert_equal(
+        extra["server_ping_ms"], np.array(8.0, dtype=np.float32)  # pyrefly: ignore[bad-index]
+    )
 
   def test_model_action_not_2d_raises_error(self):
     model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
@@ -1019,9 +1028,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     with self.assertRaisesRegex(
@@ -1066,9 +1075,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1125,7 +1134,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
     # Wait for async execution by checking the future.
     # The policy should have submitted a future.
     self.assertIsNotNone(policy._future)
-    policy._future.result()  # pytype: disable=attribute-error
+    policy._future.result()  # pyrefly: ignore[missing-attribute]
 
     model_interface.query_model.assert_called_once()
     call_args_2 = model_interface.query_model.call_args_list[0]
@@ -1179,9 +1188,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1238,9 +1247,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     policy.step_spec(timestep_spec)
@@ -1294,9 +1303,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
     policy.step_spec(timestep_spec)
@@ -1351,10 +1360,10 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
           reward={},
           discount={},
           observation={  # pyrefly: ignore[bad-argument-type]
-              "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-              "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-              "test_instruction_key": specs.StringArray(()),
-              "second_string_obs": specs.StringArray(()),
+              "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+              "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+              "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
+              "second_string_obs": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
           },
       )
       policy.step_spec(timestep_spec)
@@ -1389,9 +1398,9 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         reward={},
         discount={},
         observation={  # pyrefly: ignore[bad-argument-type]
-            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),
-            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),
-            "test_instruction_key": specs.StringArray(()),
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1431,7 +1440,7 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
 
     # Wait for the future to finish to ensure the async query completes.
     self.assertIsNotNone(policy._future)
-    policy._future.result()  # pytype: disable=attribute-error
+    policy._future.result()  # pyrefly: ignore[missing-attribute]
 
     # Verify model was queried with the correct resampled conditioning chunk.
     model_interface.query_model.assert_called_once()

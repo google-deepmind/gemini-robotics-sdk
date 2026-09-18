@@ -328,6 +328,10 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     extra_spec = {
         'inference_total_ms': specs.Array(shape=(), dtype=np.float32),
         'remote_inference_ms': specs.Array(shape=(), dtype=np.float32),
+        'client_wire_transit_ms': specs.Array(shape=(), dtype=np.float32),
+        'client_processing_ms': specs.Array(shape=(), dtype=np.float32),
+        'client_image_encode_ms': specs.Array(shape=(), dtype=np.float32),
+        'server_ping_ms': specs.Array(shape=(), dtype=np.float32),
         'network_overhead_ms': specs.Array(shape=(), dtype=np.float32),
         'inference_sent': specs.Array(shape=(), dtype=np.uint8),
         'actions_left': specs.Array(shape=(), dtype=np.int32),
@@ -354,7 +358,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     # Some models require a non-empty task instruction to be present
     observation_spec = dict(self._timestep_spec.observation)  # pyrefly: ignore[no-matching-overload]
     non_empty_strings = {
-        key: np.array('non empty string', dtype=np.dtypes.StringDType())  # pytype: disable=module-attr
+        key: np.array('non empty string', dtype=np.dtypes.StringDType())  # pyrefly: ignore[missing-attribute]
         for key, spec in observation_spec.items()
         if isinstance(spec, specs.StringArray)
     }
@@ -592,17 +596,20 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     image_encode_time = getattr(
         self._model, 'last_client_image_encode_ms', None
     )
+    server_ping_time = getattr(self._model, 'server_ping_ms', None)
 
     valid_remote = isinstance(remote_time, (int, float))
     valid_wire = isinstance(wire_transit_time, (int, float))
     valid_client_proc = isinstance(client_processing_time, (int, float))
+    valid_ping = isinstance(server_ping_time, (int, float))
 
     logging.info(
-        'Inference: total=%.1fms, remote=%.1fms, wire=%.1fms,'
+        'Inference: total=%.1fms, remote=%.1fms, wire=%.1fms, ping=%.1fms,'
         ' client_proc=%.1fms (img_encode=%s)',
         query_duration_ms,
         remote_time if valid_remote else -1.0,
         wire_transit_time if valid_wire else -1.0,
+        server_ping_time if valid_ping else -1.0,
         client_processing_time if valid_client_proc else -1.0,
         (
             f'{image_encode_time:.1f}ms'
@@ -627,6 +634,8 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         'client_processing_ms': _to_arr(client_processing_time),
         # Client CPU time spent JPEG compressing camera observation images.
         'client_image_encode_ms': _to_arr(image_encode_time),
+        # Baseline ping round-trip time to server measured at start.
+        'server_ping_ms': _to_arr(server_ping_time),
         # Legacy aggregate non-server overhead (total - remote).
         'network_overhead_ms': _to_arr(network_time),
     }
@@ -642,6 +651,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
         'client_wire_transit_ms': sentinel,
         'client_processing_ms': sentinel,
         'client_image_encode_ms': sentinel,
+        'server_ping_ms': sentinel,
         'network_overhead_ms': sentinel,
     }
     return extra

@@ -58,11 +58,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -111,9 +111,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -163,9 +163,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -218,11 +218,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -338,11 +338,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -417,11 +417,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -526,9 +526,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float64),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -620,14 +620,14 @@ class EpisodicLoggerTest(parameterized.TestCase):
     timestep_spec = gdmr_types.TimeStepSpec(
         step_type=gdmr_types.STEP_TYPE_SPEC,
         reward={  # pyrefly: ignore[bad-argument-type]
-            "reward1": specs.Array(shape=(), dtype=np.int32),
-            "reward2": specs.Array(shape=(3,), dtype=np.float32),
+            "reward1": specs.Array(shape=(), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "reward2": specs.Array(shape=(3,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -717,9 +717,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -812,13 +812,13 @@ class EpisodicLoggerTest(parameterized.TestCase):
         step_type=gdmr_types.STEP_TYPE_SPEC,
         reward=specs.Array(shape=(), dtype=np.float32),
         discount={  # pyrefly: ignore[bad-argument-type]
-            "discount1": specs.Array(shape=(), dtype=np.int32),
-            "discount2": specs.Array(shape=(3,), dtype=np.float32),
+            "discount1": specs.Array(shape=(), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "discount2": specs.Array(shape=(3,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -908,9 +908,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1027,9 +1027,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1168,26 +1168,26 @@ class EpisodicLoggerTest(parameterized.TestCase):
     timestep_spec = gdmr_types.TimeStepSpec(
         step_type=gdmr_types.STEP_TYPE_SPEC,
         reward={  # pyrefly: ignore[bad-argument-type]
-            "num_reward": specs.Array(shape=(), dtype=np.float32),
-            "string_reward": specs.StringArray(
+            "num_reward": specs.Array(shape=(), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "string_reward": specs.StringArray(  # pyrefly: ignore[bad-assignment]
                 shape=(), string_type=string_type
             ),
         },
         discount={  # pyrefly: ignore[bad-argument-type]
-            "num_discount": specs.Array(shape=(), dtype=np.float32),
-            "string_discount": specs.StringArray(
+            "num_discount": specs.Array(shape=(), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "string_discount": specs.StringArray(  # pyrefly: ignore[bad-assignment]
                 shape=(), string_type=string_type
             ),
         },
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(
+            "task_instruction": specs.StringArray(  # pyrefly: ignore[bad-assignment]
                 shape=(), name="task_instruction", string_type=string_type
             ),
-            "string_feature": specs.StringArray(
+            "string_feature": specs.StringArray(  # pyrefly: ignore[bad-assignment]
                 shape=(), string_type=string_type
             ),
-            "feature": specs.Array(shape=(3,), dtype=np.int32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "feature": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1474,8 +1474,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1551,8 +1551,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
     policy_extra_spec = {
@@ -1658,10 +1658,10 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1715,8 +1715,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1798,8 +1798,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -1970,8 +1970,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2043,8 +2043,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2118,8 +2118,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2260,9 +2260,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float64),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2337,8 +2337,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2404,8 +2404,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -2432,10 +2432,10 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "rgb_camera": specs.Array(shape=(64, 64, 3), dtype=np.uint8),
-            "depth_camera": specs.Array(shape=(64, 64), dtype=np.uint16),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "rgb_camera": specs.Array(shape=(64, 64, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "depth_camera": specs.Array(shape=(64, 64), dtype=np.uint16),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -2505,8 +2505,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
             # The _TEST_PROPRIO_KEY or any specific invalid key is missing here.
         },
     )
@@ -2540,9 +2540,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
             proprio_key_to_test: {
-                "sub_field": specs.Array(shape=(1,), dtype=np.float32)
+                "sub_field": specs.Array(shape=(1,), dtype=np.float32)  # pyrefly: ignore[bad-assignment]
             },  # Not a specs.Array
         },
     )
@@ -2576,7 +2576,7 @@ class EpisodicLoggerTest(parameterized.TestCase):
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
             # 'task_instruction' and 'instruction' keys are missing here.
-            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),
+            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(  # Valid action spec
@@ -2608,8 +2608,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
-            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),
+            "instruction": specs.StringArray(shape=(), name="instruction"),  # pyrefly: ignore[bad-assignment]
+            "some_other_feature": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -2636,11 +2636,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2761,11 +2761,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2798,11 +2798,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2852,12 +2852,12 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
-            timestamp_key: specs.Array(shape=(), dtype=np.int64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            timestamp_key: specs.Array(shape=(), dtype=np.int64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -2956,11 +2956,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -3029,9 +3029,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -3091,9 +3091,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -3220,8 +3220,8 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -3286,9 +3286,9 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float64),
         discount=specs.Array(shape=(), dtype=np.float64),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
 
@@ -3475,11 +3475,11 @@ class EpisodicLoggerTest(parameterized.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
-            "cam": specs.Array(
+            "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
+            "cam": specs.Array(  # pyrefly: ignore[bad-assignment]
                 shape=(image_height, image_width, 3), dtype=np.uint8
             ),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
     action_spec = specs.BoundedArray(
@@ -3622,7 +3622,7 @@ class EpisodicLoggerConfigSanitizationTest(parameterized.TestCase):
             reward=specs.Array(shape=(), dtype=np.float32),
             discount=specs.Array(shape=(), dtype=np.float32),
             observation={  # pyrefly: ignore[bad-argument-type]
-                "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
+                "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
             },
         ),
         action_spec=specs.BoundedArray(
@@ -3648,7 +3648,7 @@ class EpisodicLoggerConfigSanitizationTest(parameterized.TestCase):
             reward=specs.Array(shape=(), dtype=np.float32),
             discount=specs.Array(shape=(), dtype=np.float32),
             observation={  # pyrefly: ignore[bad-argument-type]
-                "task_instruction": specs.StringArray(shape=(), name="task_instruction"),
+                "task_instruction": specs.StringArray(shape=(), name="task_instruction"),  # pyrefly: ignore[bad-assignment]
             },
         ),
         action_spec=specs.BoundedArray(
@@ -3696,11 +3696,11 @@ class EpisodicLoggerMockTest(unittest.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "instruction": specs.StringArray(shape=(), name="instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
     mock_action_spec = dummy_spec
@@ -3767,11 +3767,11 @@ class EpisodicLoggerMockTest(unittest.TestCase):
         reward=specs.Array(shape=(), dtype=np.float32),
         discount=specs.Array(shape=(), dtype=np.float32),
         observation={  # pyrefly: ignore[bad-argument-type]
-            "instruction": specs.StringArray(shape=(), name="instruction"),
-            "feature1": specs.Array(shape=(4,), dtype=np.float32),
-            "feature2": specs.Array(shape=(3,), dtype=np.int32),
-            "feature3": specs.Array(shape=(), dtype=np.float64),
-            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),
+            "instruction": specs.StringArray(shape=(), name="instruction"),  # pyrefly: ignore[bad-assignment]
+            "feature1": specs.Array(shape=(4,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "feature2": specs.Array(shape=(3,), dtype=np.int32),  # pyrefly: ignore[bad-assignment]
+            "feature3": specs.Array(shape=(), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
+            _TEST_PROPRIO_KEY: specs.Array(shape=(14,), dtype=np.float64),  # pyrefly: ignore[bad-assignment]
         },
     )
     mock_action_spec = dummy_spec

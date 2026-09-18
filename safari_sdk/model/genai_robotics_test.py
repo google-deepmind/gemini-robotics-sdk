@@ -346,6 +346,36 @@ class GenaiRoboticsTest(parameterized.TestCase):
     res = genai_robotics._check_server_compatibility(mock_channel, "1.0.0")
     self.assertEqual(res, {"supported_protocols": ["msgpack", "json"]})
 
+  def test_client_ping_cloud(self):
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_service = mock.Mock()
+      mock_build.return_value = mock_service
+      FLAGS.api_key = "test_api_key"
+
+      client = genai_robotics.Client(use_robotics_api=True)
+      mock_do_ping = mock_service.modelServing.return_value.doPing
+      mock_do_ping.return_value.execute.return_value = {}
+
+      ping_ms = client.ping()
+      self.assertIsNotNone(ping_ms)
+      self.assertGreaterEqual(ping_ms, 0.0)
+      mock_do_ping.assert_called_once()
+
+  def test_client_ping_cloud_error(self):
+    with mock.patch("googleapiclient.discovery.build") as mock_build:
+      mock_service = mock.Mock()
+      mock_build.return_value = mock_service
+      FLAGS.api_key = "test_api_key"
+
+      client = genai_robotics.Client(use_robotics_api=True)
+      mock_do_ping = mock_service.modelServing.return_value.doPing
+      mock_do_ping.return_value.execute.side_effect = RuntimeError(
+          "network down"
+      )
+
+      ping_ms = client.ping()
+      self.assertIsNone(ping_ms)
+
 
 if __name__ == "__main__":
   absltest.main()

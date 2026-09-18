@@ -13,13 +13,16 @@
 #  limitations under the License.
 
 import json
+from unittest import mock
 
+from dm_env import specs
 import jax
 import numpy as np
 import tensorflow as tf
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
 from safari_sdk.model import observation_to_model_query_contents
 
@@ -325,6 +328,49 @@ class ObservationToModelQueryContentsTest(parameterized.TestCase):
           task_instruction_key='instruction',
           image_observation_keys=('image',),
       )
+
+  def test_resolve_observation_keys_without_providers(self):
+    keys = observation_to_model_query_contents.resolve_observation_keys(
+        task_instruction_key='instruction',
+        proprioceptive_observation_keys=('joint_1',),
+        image_observation_keys=('camera_1',),
+    )
+    self.assertEqual(keys.task_instruction_key, 'instruction')
+    self.assertEqual(keys.string_keys, ('instruction',))
+    self.assertEqual(keys.image_keys, ('camera_1',))
+    self.assertEqual(keys.proprioceptive_keys, ('joint_1',))
+
+  def test_resolve_observation_keys_with_additional_providers(self):
+    mock_provider_1 = mock.create_autospec(
+        additional_observations_provider.AdditionalObservationsProvider
+    )
+    mock_provider_1.get_additional_observations_spec.return_value = {
+        'extra_proprio_1d': specs.Array(shape=(1,), dtype=np.float32),
+        'extra_proprio_2d': specs.Array(shape=(2, 3), dtype=np.float32),
+        'extra_image_3d': specs.Array(shape=(64, 64, 3), dtype=np.uint8),
+    }
+    mock_provider_2 = mock.create_autospec(
+        additional_observations_provider.AdditionalObservationsProvider
+    )
+    mock_provider_2.get_additional_observations_spec.return_value = {
+        'extra_string': specs.StringArray(shape=()),
+    }
+
+    keys = observation_to_model_query_contents.resolve_observation_keys(
+        task_instruction_key='instruction',
+        proprioceptive_observation_keys=('joint_1',),
+        image_observation_keys=('camera_1',),
+        additional_observations_providers=(mock_provider_1, mock_provider_2),
+    )
+
+    self.assertEqual(keys.task_instruction_key, 'instruction')
+    self.assertEqual(keys.string_keys, ('instruction', 'extra_string'))
+    self.assertEqual(keys.image_keys, ('camera_1', 'extra_image_3d'))
+    self.assertEqual(
+        keys.proprioceptive_keys,
+        ('joint_1', 'extra_proprio_1d', 'extra_proprio_2d'),
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

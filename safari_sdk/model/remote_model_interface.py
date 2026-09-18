@@ -17,10 +17,10 @@
 from collections.abc import Mapping, Sequence
 import datetime
 import json
+import logging
 import time
 from typing import Any
 
-from dm_env import specs
 import jax
 import numpy as np
 
@@ -68,30 +68,26 @@ class RemoteModelInterface(model_interface.ModelInterface):
       request_timeout: Timeout in seconds for remote model inference requests.
     """
 
-    self._string_observations_keys = [task_instruction_key]
-    self._task_instruction_key = task_instruction_key
-    self._image_observation_keys = list(image_observation_keys)
-    self._proprioceptive_observation_keys = list(
-        proprioceptive_observation_keys
-    )
     self._serve_id = serve_id
     self._robotics_api_connection = robotics_api_connection
     self._image_compression_jpeg_quality = image_compression_jpeg_quality
 
-    # Go through the additional observation observations spec and
-    # augment the image, string and proprioceptive keys. This is necessary to
-    # ensure that the additional observations are serialized and sent to the
-    # model.
-    for provider in additional_observations_providers:
-      additional_specs = provider.get_additional_observations_spec()
-      for key, spec in additional_specs.items():
-        if isinstance(spec, specs.StringArray):
-          self._string_observations_keys.append(key)
-        elif isinstance(spec, specs.Array):
-          if len(spec.shape) == 3:
-            self._image_observation_keys.append(key)
-          elif len(spec.shape) == 1 or len(spec.shape) == 2:
-            self._proprioceptive_observation_keys.append(key)
+    self._observation_keys = (
+        observation_to_model_query_contents.resolve_observation_keys(
+            task_instruction_key=task_instruction_key,
+            proprioceptive_observation_keys=(proprioceptive_observation_keys),
+            image_observation_keys=image_observation_keys,
+            additional_observations_providers=(
+                additional_observations_providers
+            ),
+        )
+    )
+    self._task_instruction_key = self._observation_keys.task_instruction_key
+    self._string_observations_keys = list(self._observation_keys.string_keys)
+    self._image_observation_keys = list(self._observation_keys.image_keys)
+    self._proprioceptive_observation_keys = list(
+        self._observation_keys.proprioceptive_keys
+    )
 
     grpc_url = None
     if robotics_api_connection == constants.RoboticsApiConnectionType.LOCAL:
@@ -100,6 +96,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
       if serve_id and (serve_id.startswith("grpc://") or ":" in serve_id):
         grpc_url = serve_id
 
+    self._grpc_url = grpc_url
     self._client = genai_robotics.Client(
         robotics_api_connection=robotics_api_connection,
         num_retries=num_of_retries,
@@ -107,12 +104,22 @@ class RemoteModelInterface(model_interface.ModelInterface):
         method_name=method_name,
         timeout=request_timeout,
     )
+    self._method_name = method_name
+    self._request_timeout = request_timeout
     self._last_remote_inference_time_ms = None
     self._last_network_overhead_ms = None
     self._last_client_image_encode_ms: float | None = None
     self._last_wire_transit_ms: float | None = None
     self._last_client_processing_ms: float | None = None
     self._last_rng_key: list[int] | None = None
+    self._server_ping_ms: float | None = None
+    self.ping_server()
+
+  def close(self) -> None:
+    """Cleans up resources associated with this model interface."""
+
+  def reset(self) -> None:
+    """Resets resources associated with this model interface between episodes."""
 
   def query_model(
       self,
@@ -122,21 +129,30 @@ class RemoteModelInterface(model_interface.ModelInterface):
   ) -> np.ndarray:
     """Queries the model with the given observation."""
     del rng_key  # Unused.
-    # Serialize the observation to the format expected by the transport.
-    serialized_contents = observation_to_model_query_contents.observation_to_model_query_contents(
-        observation=model_input,
-        string_observations_keys=self._string_observations_keys,
-        task_instruction_key=self._task_instruction_key,
-        proprioceptive_observation_keys=self._proprioceptive_observation_keys,
-        image_observation_keys=self._image_observation_keys,
+    serialized_contents = (
+        observation_to_model_query_contents.observation_to_model_query_contents(
+            observation=model_input,
+            string_observations_keys=self._string_observations_keys,
+            task_instruction_key=self._task_instruction_key,
+            proprioceptive_observation_keys=(
+                self._proprioceptive_observation_keys
+            ),
+            image_observation_keys=self._image_observation_keys,
+        )
     )
+
+    # Serialize the observation to the format expected by the transport.
     if self._robotics_api_connection in (
         constants.RoboticsApiConnectionType.CLOUD_GENAI,
         constants.RoboticsApiConnectionType.LOCAL,
     ):
-      serialized_contents = genai_robotics.update_robotics_content_to_genai_format(
-          serialized_contents,
-          image_compression_jpeg_quality=self._image_compression_jpeg_quality,
+      serialized_contents = (
+          genai_robotics.update_robotics_content_to_genai_format(
+              serialized_contents,
+              image_compression_jpeg_quality=(
+                  self._image_compression_jpeg_quality
+              ),
+          )
       )
 
     start_time_sec = time.perf_counter()
@@ -260,3 +276,17 @@ class RemoteModelInterface(model_interface.ModelInterface):
   def last_rng_key(self) -> list[int] | None:
     """Next PRNG seed key returned by the model server, if available."""
     return self._last_rng_key
+
+  def ping_server(self) -> float | None:
+    """Measures and caches the round-trip ping time to the server in ms."""
+    try:
+      self._server_ping_ms = self._client.ping()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning("Failed to ping server: %s", e)
+      self._server_ping_ms = None
+    return self._server_ping_ms
+
+  @property
+  def server_ping_ms(self) -> float | None:
+    """Baseline ping round-trip time in ms to server measured at start."""
+    return self._server_ping_ms

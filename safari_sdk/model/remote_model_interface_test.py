@@ -213,6 +213,29 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
       self.assertIsNone(remote_model.last_remote_inference_time_ms)
       self.assertIsNone(remote_model.last_network_overhead_ms)
 
+  def test_server_ping_measurement(self):
+    FLAGS.api_key = "mock_test_key"
+    with (
+        mock.patch("googleapiclient.discovery.build") as mock_build,
+        mock.patch.object(
+            genai_robotics.Client, "ping", return_value=15.5
+        ) as mock_ping,
+    ):
+      mock_resource = mock.MagicMock()
+      mock_resource.modelServing.return_value = mock.MagicMock()
+      mock_build.return_value = mock_resource
+
+      remote_model = remote_model_interface.RemoteModelInterface(
+          serve_id="test_serve_id",
+          robotics_api_connection=constants.RoboticsApiConnectionType.CLOUD,
+          task_instruction_key="test_instruction_key",
+          proprioceptive_observation_keys=("test_joint_1",),
+          image_observation_keys=("test_camera_1",),
+          image_compression_jpeg_quality=75,
+      )
+      self.assertEqual(remote_model.server_ping_ms, 15.5)
+      mock_ping.assert_called_once()
+
   def test_cloud_genai_has_observations_updated(self):
     FLAGS.api_key = "mock_test_key"
     mock_build = self.enter_context(
@@ -472,6 +495,21 @@ class RemoteModelInterfaceTest(parameterized.TestCase):
     mock_connect_json.assert_called_once_with(
         mock_channel, "sample_actions_json_flat", use_msgpack=True
     )
+
+  def test_close(self):
+    FLAGS.api_key = "mock_test_key"
+    with mock.patch("googleapiclient.discovery.build"):
+      remote_model = remote_model_interface.RemoteModelInterface(
+          serve_id="test_serve_id",
+          robotics_api_connection=constants.RoboticsApiConnectionType.CLOUD,
+          task_instruction_key="test_instruction_key",
+          proprioceptive_observation_keys=("test_joint_1",),
+          image_observation_keys=("test_camera_1",),
+          image_compression_jpeg_quality=75,
+      )
+      # Calling close() on RemoteModelInterface should succeed cleanly.
+      remote_model.close()
+
 
 if __name__ == "__main__":
   absltest.main()

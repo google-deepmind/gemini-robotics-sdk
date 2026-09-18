@@ -268,7 +268,7 @@ class LeRobotEpisodicLogger:
         output_directory=self._output_directory,
         proprioceptive_observation_keys=self._proprioceptive_observation_keys,
         image_observation_keys=self._image_observation_keys,
-        timestep_spec=self._timestep_spec,
+        timestep_spec=self._timestep_spec,  # pyrefly: ignore[bad-argument-type]
         action_spec=self._action_spec,
         policy_extra_spec={},
         timestamp_key=_TIMESTAMP_KEY,
