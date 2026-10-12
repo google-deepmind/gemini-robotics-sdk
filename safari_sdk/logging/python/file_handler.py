@@ -48,6 +48,7 @@ class FileHandler:
       topics: Collection[str],
       output_directory: str,
       file_shard_size_limit_bytes: int = constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES,
+      mcap_chunk_size_bytes: int = constants.DEFAULT_MCAP_CHUNK_SIZE_BYTES,
   ):
     # Invariant throughout the lifetime of the object.
     self._agent_id: str = agent_id
@@ -55,6 +56,7 @@ class FileHandler:
     self._recognized_topics: set[str] = self._topics.union(RESERVED_TOPICS)
     self._output_directory: str = output_directory
     self._file_shard_size_limit_bytes: int = file_shard_size_limit_bytes
+    self._mcap_chunk_size_bytes: int = mcap_chunk_size_bytes
 
     # Invariant until reset_for_new_file call.
     self._output_file_prefix: str = ''
@@ -62,7 +64,7 @@ class FileHandler:
     # Invariant during operation on a particular file shard.
     self._shard: int = 0
     self._file_handle = None
-    self._mcap_writer: mcap_protobuf_writer.Writer = None  # pyrefly: ignore[bad-assignment]
+    self._mcap_writer: mcap_protobuf_writer.Writer | None = None
 
     # Variable with each write_message call.
     self._file_shard_bytes: int = 0
@@ -90,6 +92,7 @@ class FileHandler:
     Args:
       is_first_shard: If True, the shard number is set to 0.
     """
+    self._finalize_and_close_file()
     if is_first_shard:
       self._shard = 0
     else:
@@ -102,7 +105,10 @@ class FileHandler:
         / f'{self._output_file_prefix}-shard{self._shard}.mcap',
         'wb',
     )
-    self._mcap_writer = mcap_protobuf_writer.Writer(self._file_handle)
+    self._mcap_writer = mcap_protobuf_writer.Writer(
+        self._file_handle,
+        chunk_size=self._mcap_chunk_size_bytes,
+    )
     self._file_shard_bytes = 0
 
   def write_message(
@@ -115,6 +121,8 @@ class FileHandler:
       message: The Safari message object.
     """
     with self._lock:
+      if self._mcap_writer is None:
+        return
       if message.topic not in self._recognized_topics:
         raise ValueError(
             'Unknown topic not present in during initialization: %s'
@@ -125,7 +133,6 @@ class FileHandler:
       if self._file_shard_bytes > 0 and (
           self._file_shard_bytes + msg_size > self._file_shard_size_limit_bytes
       ):
-        self._finalize_and_close_file()
         self._reset_for_new_shard(is_first_shard=False)
       self._start_nsec = min(self._start_nsec, message.publish_time_nsec)
       self._stop_nsec = max(self._stop_nsec, message.publish_time_nsec + 1)
@@ -150,6 +157,8 @@ class FileHandler:
 
   def _finalize_and_close_file(self) -> None:
     """Private method to finalize and close the mcap writer and file handle."""
+    if self._mcap_writer is None:
+      return
     file_metadata = metadata_pb2.FileMetadata(
         agent_id=self._agent_id,
     )
@@ -170,31 +179,35 @@ class FileHandler:
       # the current file shard so the backend can observe continous data
       # coverage after received both shards.
       self._start_nsec = self._stop_nsec
-    self._mcap_writer.write_message(
-        topic=constants.FILE_METADATA_TOPIC_NAME,
-        message=file_metadata,
-        log_time=self._stop_nsec,
-        publish_time=self._stop_nsec,
-    )
-    self._mcap_writer.finish()
-    if self._file_handle:
-      tmp_file_path = pathlib.Path(self._file_handle.name)
-      self._file_handle.close()
-      file_name = tmp_file_path.name
-      date_now = datetime.datetime.now()
-      final_dir = (
-          pathlib.Path(self._output_directory)
-          / date_now.strftime('%Y')
-          / date_now.strftime('%m')
-          / date_now.strftime('%d')
+    try:
+      self._mcap_writer.write_message(
+          topic=constants.FILE_METADATA_TOPIC_NAME,
+          message=file_metadata,
+          log_time=self._stop_nsec,
+          publish_time=self._stop_nsec,
       )
-      final_file_path = final_dir / file_name
-      if not os.path.exists(final_dir):
-        os.makedirs(final_dir)
-      os.rename(tmp_file_path, final_file_path)
-      current_permissions = os.stat(final_file_path).st_mode
-      # Remove write permissions for all users (owner, group, others)
-      os.chmod(
-          final_file_path,
-          current_permissions & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH,
-      )
+      self._mcap_writer.finish()
+    finally:
+      self._mcap_writer = None
+      if self._file_handle:
+        tmp_file_path = pathlib.Path(self._file_handle.name)
+        self._file_handle.close()
+        self._file_handle = None
+        file_name = tmp_file_path.name
+        date_now = datetime.datetime.now()
+        final_dir = (
+            pathlib.Path(self._output_directory)
+            / date_now.strftime('%Y')
+            / date_now.strftime('%m')
+            / date_now.strftime('%d')
+        )
+        final_file_path = final_dir / file_name
+        if not os.path.exists(final_dir):
+          os.makedirs(final_dir)
+        os.rename(tmp_file_path, final_file_path)
+        current_permissions = os.stat(final_file_path).st_mode
+        # Remove write permissions for all users (owner, group, others)
+        os.chmod(
+            final_file_path,
+            current_permissions & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH,
+        )

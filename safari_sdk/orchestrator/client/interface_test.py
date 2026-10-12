@@ -163,7 +163,8 @@ class InterfaceTest(absltest.TestCase):
     response = interface_lib.connect()
     self.assertFalse(response.success)
     self.assertEqual(
-        response.error_message, "Auth: No API key provided by flag or file."
+        response.error_message,
+        "Auth: No API key provided by flag, env var, or file.",
     )
 
   @mock.patch(

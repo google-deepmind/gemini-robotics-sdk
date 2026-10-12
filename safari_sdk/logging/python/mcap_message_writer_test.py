@@ -80,6 +80,9 @@ class McapMessageWriterTest(absltest.TestCase):
         RuntimeError, "Log writer thread failed with an exception"
     ):
       message_writer.stop(stop_timestamp_nsec=_TEST_STOP_NSEC)
+    self._file_handler.finalize_and_close_file.assert_called_once_with(
+        stop_nsec=_TEST_STOP_NSEC
+    )
 
   def test_write_proto_message_raises_error_if_worker_thread_fails(self):
     message_writer = mcap_message_writer.McapMessageWriter(

@@ -95,18 +95,10 @@ class Actor:
     # Create the episodic logger.
     self.episodic_logger = None
     if _ENABLE_LOGGING.value:
-      robot_id = _ROBOT_ID.value
-      if not robot_id:
-        robot_id = utils.get_robot_id_from_system_env()
-        if not robot_id:
-          raise ValueError(
-              "Robot ID is not set by flag or system environment variable."
-              "Please set '--logging.robot_id' flag or 'ROBOT_ID' environment"
-              " variable."
-          )
+      robot_id = _ROBOT_ID.value or utils.get_required_robot_id()
       print(f"Using robot id: {robot_id}")
       self.episodic_logger = episodic_logger_lib.EpisodicLogger.create(
-          agent_id=_ROBOT_ID.value,
+          agent_id=robot_id,
           task_id=UNUSED_TASK_ID,
           proprioceptive_observation_keys=PROPRIOCEPTIVE_OBSERVATION_KEYS,
           output_directory=_LOGGING_OUTPUT_DIRECTORY.value,

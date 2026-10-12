@@ -150,6 +150,21 @@ class FileHandlerTest(absltest.TestCase):
     # Check that _start_nsec was updated to _stop_nsec (2000) for the next shard
     self.assertEqual(self.handler._start_nsec, 2000)
 
+  def test_mcap_chunk_size_bytes_forwarded_to_writer(self):
+    custom_chunk_size = 4 * 1024 * 1024
+    custom_handler = file_handler.FileHandler(
+        agent_id='test_agent',
+        topics=self.topics,
+        output_directory=self.output_dir,
+        mcap_chunk_size_bytes=custom_chunk_size,
+    )
+    custom_handler.reset_for_new_file('chunk_session', start_nsec=1000)
+    self.assertEqual(
+        custom_handler._mcap_writer._writer._Writer__chunk_size,
+        custom_chunk_size,
+    )
+    custom_handler.finalize_and_close_file(stop_nsec=2000)
+
 
 if __name__ == '__main__':
   absltest.main()

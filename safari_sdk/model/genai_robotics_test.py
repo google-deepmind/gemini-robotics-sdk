@@ -19,6 +19,7 @@ from unittest import mock
 
 from absl import flags
 from absl.testing import absltest
+from absl.testing import flagsaver
 from absl.testing import parameterized
 from google.genai import types  # pytype: disable=import-error
 from googleapiclient.errors import HttpError
@@ -375,6 +376,61 @@ class GenaiRoboticsTest(parameterized.TestCase):
 
       ping_ms = client.ping()
       self.assertIsNone(ping_ms)
+
+  @parameterized.named_parameters(
+      (
+          "no_existing_http_options",
+          None,
+          types.HttpOptions(base_url="https://custom.url"),
+      ),
+      (
+          "existing_dict_http_options",
+          {"timeout": 5000, "api_version": "v1"},
+          types.HttpOptions(
+              base_url="https://custom.url", timeout=5000, api_version="v1"
+          ),
+      ),
+      (
+          "existing_model_http_options",
+          types.HttpOptions(timeout=5000, api_version="v1"),
+          types.HttpOptions(
+              base_url="https://custom.url", timeout=5000, api_version="v1"
+          ),
+      ),
+      (
+          "existing_model_with_base_url",
+          types.HttpOptions(
+              base_url="https://old.url", timeout=5000, api_version="v1"
+          ),
+          types.HttpOptions(
+              base_url="https://custom.url", timeout=5000, api_version="v1"
+          ),
+      ),
+      (
+          "existing_dict_with_base_url",
+          {"base_url": "https://old.url", "timeout": 5000, "api_version": "v1"},
+          types.HttpOptions(
+              base_url="https://custom.url", timeout=5000, api_version="v1"
+          ),
+      ),
+  )
+  def test_cloud_genai_merges_http_options(
+      self, existing_http_options, expected_http_options
+  ):
+    with mock.patch("google.genai.Client") as mock_genai_client:
+      kwargs = {}
+      if existing_http_options is not None:
+        kwargs["http_options"] = existing_http_options
+      genai_robotics.Client(
+          robotics_api_connection=genai_robotics.constants.RoboticsApiConnectionType.CLOUD_GENAI,
+          api_key="test_api_key",
+          genai_base_url="https://custom.url",
+          **kwargs,
+      )
+      mock_genai_client.assert_called_once_with(
+          api_key="test_api_key",
+          http_options=expected_http_options,
+      )
 
 
 if __name__ == "__main__":

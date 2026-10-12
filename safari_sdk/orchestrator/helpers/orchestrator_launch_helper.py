@@ -25,12 +25,12 @@ terminated
    upon receiving termination signals.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+import contextlib
 import json
 import logging
 import os
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -38,6 +38,7 @@ from typing import Any
 import urllib.request
 
 from safari_sdk.orchestrator.helpers import orchestrator_helper
+from safari_sdk.orchestrator.helpers import process_launch_helper
 
 _MANIFEST_FILENAME = ".artifact_cache_manifest.json"
 
@@ -270,6 +271,7 @@ class OrchestratorLaunchHelper:
       orchestrator_helper_instance: (
           orchestrator_helper.OrchestratorHelper | None
       ) = None,
+      only_download_with_no_launch: bool = False,
   ):
     """Initializes the OrchestratorLaunchHelper.
 
@@ -280,6 +282,9 @@ class OrchestratorLaunchHelper:
       download_dir: Local directory to store downloaded artifacts.
       orchestrator_helper_instance: Optional existing OrchestratorHelper
         instance.
+      only_download_with_no_launch: If True, only downloads artifacts and
+        returns/outputs the artifact launch commands without launching processes
+        or printing any other information.
 
     Raises:
       ValueError: If neither robot_id nor hostname is provided.
@@ -293,19 +298,80 @@ class OrchestratorLaunchHelper:
 
     self._job_type_codes = job_type_codes
     self._download_dir = download_dir
-    self._helper = (
-        orchestrator_helper_instance
-        or orchestrator_helper.OrchestratorHelper(
-            robot_id=self._robot_id or "",
-            job_type_codes=self._job_type_codes,
-            hostname=self._hostname,
-        )
+    self._only_download_with_no_launch = only_download_with_no_launch
+    with self._suppress_logging_context():
+      self._helper = (
+          orchestrator_helper_instance
+          or orchestrator_helper.OrchestratorHelper(
+              robot_id=self._robot_id or "",
+              job_type_codes=self._job_type_codes,
+              hostname=self._hostname,
+          )
+      )
+    self._process_launcher = process_launch_helper.ProcessLaunchHelper(
+        download_dir=self._download_dir,
+        robot_id=self._robot_id,
     )
-    self._processes: list[subprocess.Popen[Any]] = []
-    self._shutdown_event = threading.Event()
     self._downloaded_artifact_paths: dict[str, str] = {}
     self._is_connected = False
-    self._signal_received = False
+
+  @contextlib.contextmanager
+  def _suppress_logging_context(self) -> Iterator[None]:
+    """Suppresses all logging output when only_download_with_no_launch is True."""
+    if not self._only_download_with_no_launch:
+      yield
+      return
+    previous_disable_level = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+      yield
+    finally:
+      logging.disable(previous_disable_level)
+
+  def _log_info(self, msg: str, *args: Any) -> None:
+    if not self._only_download_with_no_launch:
+      logging.info(msg, *args)
+
+  def _log_warning(self, msg: str, *args: Any) -> None:
+    if not self._only_download_with_no_launch:
+      logging.warning(msg, *args)
+
+  def _log_error(self, msg: str, *args: Any) -> None:
+    if not self._only_download_with_no_launch:
+      logging.error(msg, *args)
+
+  def _log_debug(self, msg: str, *args: Any) -> None:
+    if not self._only_download_with_no_launch:
+      logging.debug(msg, *args)
+
+  @property
+  def only_download_with_no_launch(self) -> bool:
+    """Returns whether the helper is configured to only download without launching."""
+    return self._only_download_with_no_launch
+
+  @property
+  def _processes(self) -> list[subprocess.Popen[Any]]:
+    return self._process_launcher.processes
+
+  @_processes.setter
+  def _processes(self, value: list[subprocess.Popen[Any]]) -> None:
+    self._process_launcher.processes = value
+
+  @property
+  def _shutdown_event(self) -> threading.Event:
+    return self._process_launcher.shutdown_event
+
+  @_shutdown_event.setter
+  def _shutdown_event(self, value: threading.Event) -> None:
+    self._process_launcher.shutdown_event = value
+
+  @property
+  def _signal_received(self) -> bool:
+    return self._process_launcher.signal_received
+
+  @_signal_received.setter
+  def _signal_received(self, value: bool) -> None:
+    self._process_launcher.signal_received = value
 
   @property
   def download_dir(self) -> str:
@@ -315,13 +381,14 @@ class OrchestratorLaunchHelper:
   @property
   def running_processes(self) -> list[subprocess.Popen[Any]]:
     """Returns list of currently managed processes."""
-    return list(self._processes)
+    return self._process_launcher.running_processes
 
   def log_work_unit_info(
       self, work_unit: orchestrator_helper.WORK_UNIT
   ) -> None:
     """Logs all details of the given work unit dataclass in a single logging.info call."""
-    log_orchestrator_work_unit_info(work_unit)
+    if not self._only_download_with_no_launch:
+      log_orchestrator_work_unit_info(work_unit)
 
   def format_work_unit_info(
       self, work_unit: orchestrator_helper.WORK_UNIT
@@ -335,34 +402,37 @@ class OrchestratorLaunchHelper:
     Returns:
       True if connection succeeded, False otherwise.
     """
-    logging.info("Connecting to Orchestrator server...")
-    response = self._helper.connect()
+    self._log_info("Connecting to Orchestrator server...")
+    with self._suppress_logging_context():
+      response = self._helper.connect()
     if not response.success:
-      logging.error(
+      self._log_error(
           "Failed to connect to Orchestrator: %s", response.error_message
       )
       self._is_connected = False
       return False
 
     self._is_connected = True
-    logging.info("Successfully connected to Orchestrator.")
+    self._log_info("Successfully connected to Orchestrator.")
     return True
 
   def disconnect(self) -> None:
     """Disconnects from the Orchestrator server."""
     if self._is_connected:
-      logging.info("Disconnecting from Orchestrator server...")
-      self._helper.disconnect()
+      self._log_info("Disconnecting from Orchestrator server...")
+      with self._suppress_logging_context():
+        self._helper.disconnect()
       self._is_connected = False
 
   def _get_active_work_unit_response(
       self,
   ) -> orchestrator_helper.RESPONSE:
     """Queries the active work unit or requests a new one if none is active."""
-    response = self._helper.get_current_work_unit()
-    if not response.success or response.work_unit is None:
-      logging.info("No active work unit found, requesting work unit...")
-      response = self._helper.request_work_unit()
+    with self._suppress_logging_context():
+      response = self._helper.get_current_work_unit()
+      if not response.success or response.work_unit is None:
+        self._log_info("No active work unit found, requesting work unit...")
+        response = self._helper.request_work_unit()
     return response
 
   def _extract_from_launcher_artifacts(
@@ -396,17 +466,16 @@ class OrchestratorLaunchHelper:
   def _extract_from_policies(
       self,
       context: orchestrator_helper.WORK_UNIT_CONTEXT,
-  ) -> tuple[list[str], list[str]]:
-    """Extracts artifact IDs and launch commands from policy details.
+  ) -> list[str]:
+    """Extracts artifact IDs from policy details.
 
     Args:
       context: The work unit context containing policy information.
 
     Returns:
-      A tuple of (artifact_ids, launch_commands).
+      A list of artifact IDs.
     """
     artifact_ids: list[str] = []
-    launch_commands: list[str] = []
 
     policies: list[orchestrator_helper.POLICY_DETAILS] = []
     if context.policies:
@@ -419,20 +488,7 @@ class OrchestratorLaunchHelper:
         continue
       if details.artifactIds:
         artifact_ids.extend(details.artifactIds)
-      params = (
-          details.get_all_parameters()
-          if hasattr(details, "get_all_parameters")
-          else {}
-      )
-      if "launch_command" in params and isinstance(
-          params["launch_command"], str
-      ):
-        launch_commands.append(params["launch_command"])
-      if "launch_commands" in params and isinstance(
-          params["launch_commands"], list
-      ):
-        launch_commands.extend(params["launch_commands"])
-    return artifact_ids, launch_commands
+    return artifact_ids
 
   def _extract_response_launch_commands(
       self,
@@ -461,14 +517,17 @@ class OrchestratorLaunchHelper:
     Returns:
       A tuple of (artifact_ids, launch_commands).
     """
-    logging.info("Fetching current work unit launch info from Orchestrator...")
+    self._log_info(
+        "Fetching current work unit launch info from Orchestrator..."
+    )
     artifact_ids: list[str] = []
     launch_commands: list[str] = []
 
     response = self._get_active_work_unit_response()
     if response.success and response.work_unit:
       work_unit = response.work_unit
-      log_work_unit_info(work_unit)
+      if not self._only_download_with_no_launch:
+        log_work_unit_info(work_unit)
       if work_unit.context:
         art_ids, cmds = self._extract_from_launcher_artifacts(
             work_unit.context.launcherArtifacts
@@ -476,22 +535,17 @@ class OrchestratorLaunchHelper:
         artifact_ids.extend(art_ids)
         launch_commands.extend(cmds)
 
-        policy_art_ids, policy_cmds = self._extract_from_policies(
-            work_unit.context
-        )
+        policy_art_ids = self._extract_from_policies(work_unit.context)
         artifact_ids.extend(policy_art_ids)
-        launch_commands.extend(policy_cmds)
-
-      launch_commands.extend(self._extract_response_launch_commands(response))
 
     # De-duplicate while preserving order
     unique_artifacts = list(dict.fromkeys(artifact_ids))
     unique_commands = list(dict.fromkeys(launch_commands))
 
-    logging.info(
+    self._log_info(
         "Found %d artifact IDs: %s", len(unique_artifacts), unique_artifacts
     )
-    logging.info(
+    self._log_info(
         "Found %d launch commands: %s", len(unique_commands), unique_commands
     )
     return unique_artifacts, unique_commands
@@ -509,7 +563,7 @@ class OrchestratorLaunchHelper:
       with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning(
+      self._log_warning(
           "Failed to load artifact cache manifest [%s]: %s", manifest_path, e
       )
       return {}
@@ -524,7 +578,7 @@ class OrchestratorLaunchHelper:
         json.dump(manifest, f, indent=2)
       os.replace(tmp_manifest_path, manifest_path)
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning(
+      self._log_warning(
           "Failed to save artifact cache manifest [%s]: %s", manifest_path, e
       )
 
@@ -545,27 +599,28 @@ class OrchestratorLaunchHelper:
     version: str | None = None
     commit_time: str | None = None
 
-    # First try get_artifact to get full metadata
-    try:
-      artifact_response = self._helper.get_artifact(artifact_id)
-      if artifact_response.success and artifact_response.artifact:
-        art = artifact_response.artifact
-        download_url = art.uri
-        version = art.version
-        commit_time = art.commitTime
-    except Exception:  # pylint: disable=broad-exception-caught
-      pass
-
-    # If download_url wasn't obtained, fallback Runningto get_artifact_uri
-    if not download_url:
+    with self._suppress_logging_context():
+      # First try get_artifact to get full metadata
       try:
-        uri_response = self._helper.get_artifact_uri(artifact_id)
-        if uri_response.success and uri_response.artifact_uri:
-          download_url = uri_response.artifact_uri
-      except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.error(
-            "Failed to query artifact URI for [%s]: %s", artifact_id, e
-        )
+        artifact_response = self._helper.get_artifact(artifact_id)
+        if artifact_response.success and artifact_response.artifact:
+          art = artifact_response.artifact
+          download_url = art.uri
+          version = art.version
+          commit_time = art.commitTime
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+      # If download_url wasn't obtained, fallback to get_artifact_uri
+      if not download_url:
+        try:
+          uri_response = self._helper.get_artifact_uri(artifact_id)
+          if uri_response.success and uri_response.artifact_uri:
+            download_url = uri_response.artifact_uri
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          self._log_error(
+              "Failed to query artifact URI for [%s]: %s", artifact_id, e
+          )
 
     if not download_url:
       return None, None, None, None
@@ -609,7 +664,7 @@ class OrchestratorLaunchHelper:
 
     target_path = cached_entry.get("target_path")
     if not isinstance(target_path, str) or not os.path.exists(target_path):
-      logging.info(
+      self._log_info(
           "Cached path [%s] for artifact [%s] does not exist on disk.",
           target_path,
           artifact_id,
@@ -670,18 +725,18 @@ class OrchestratorLaunchHelper:
                 shutil.rmtree(path_to_clean)
               else:
                 os.remove(path_to_clean)
-              logging.info(
+              self._log_info(
                   "Removed cached file/directory [%s] for artifact [%s].",
                   path_to_clean,
                   artifact_id,
               )
             except OSError as e:
-              logging.warning(
+              self._log_warning(
                   "Failed to remove cached path [%s]: %s", path_to_clean, e
               )
       self._downloaded_artifact_paths.pop(artifact_id, None)
       self._save_cache_manifest(manifest)
-      logging.info("Cleared cache for artifact [%s].", artifact_id)
+      self._log_info("Cleared cache for artifact [%s].", artifact_id)
     else:
       # Clear all artifacts
       for _, entry in list(manifest.items()):
@@ -695,12 +750,14 @@ class OrchestratorLaunchHelper:
               else:
                 os.remove(path_to_clean)
             except OSError as e:
-              logging.warning(
+              self._log_warning(
                   "Failed to remove cached path [%s]: %s", path_to_clean, e
               )
       self._downloaded_artifact_paths.clear()
       self._save_cache_manifest({})
-      logging.info("Cleared all cached artifacts in [%s].", self._download_dir)
+      self._log_info(
+          "Cleared all cached artifacts in [%s].", self._download_dir
+      )
 
   def _get_valid_cached_artifact_path(
       self,
@@ -733,7 +790,7 @@ class OrchestratorLaunchHelper:
         and server_fingerprint
         and local_fingerprint == server_fingerprint
     ):
-      logging.info(
+      self._log_info(
           "Artifact [%s] is already cached and up-to-date at [%s]"
           " (version: %s). Skipping re-download.",
           artifact_id,
@@ -747,7 +804,7 @@ class OrchestratorLaunchHelper:
         and server_fingerprint
         and local_fingerprint != server_fingerprint
     ):
-      logging.warning(
+      self._log_warning(
           "Local cached version of artifact [%s] (local: %s) does not match"
           " server version (server: %s). Invalidating local cache and"
           " redownloading.",
@@ -756,7 +813,7 @@ class OrchestratorLaunchHelper:
           server_fingerprint,
       )
     elif not target_exists:
-      logging.info(
+      self._log_info(
           "Cached file for artifact [%s] is missing from disk. Redownloading.",
           artifact_id,
       )
@@ -783,20 +840,20 @@ class OrchestratorLaunchHelper:
     )
     local_file_path = os.path.join(self._download_dir, file_name)
 
-    logging.info(
+    self._log_info(
         "Downloading artifact [%s] to [%s]...", artifact_id, local_file_path
     )
     try:
       urllib.request.urlretrieve(download_url, local_file_path)
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.error("Failed downloading artifact [%s]: %s", artifact_id, e)
+      self._log_error("Failed downloading artifact [%s]: %s", artifact_id, e)
       raise RuntimeError(
           f"Failed downloading artifact [{artifact_id}] from [{download_url}]"
           f" to [{local_file_path}]: {e}"
       ) from e
 
     if not os.path.exists(local_file_path):
-      logging.error(
+      self._log_error(
           "Downloaded file for artifact [%s] does not exist at [%s].",
           artifact_id,
           local_file_path,
@@ -850,13 +907,13 @@ class OrchestratorLaunchHelper:
       RuntimeError: If retrieving the download URI fails, downloading the
         artifact fails, or the downloaded file does not exist on disk.
     """
-    logging.info("Checking artifact [%s]...", artifact_id)
+    self._log_info("Checking artifact [%s]...", artifact_id)
     download_url, version, commit_time, server_fingerprint = (
         self._get_server_artifact_info(artifact_id)
     )
 
     if not download_url:
-      logging.error(
+      self._log_error(
           "Failed to get download URI for artifact [%s].", artifact_id
       )
       raise RuntimeError(
@@ -911,94 +968,29 @@ class OrchestratorLaunchHelper:
       downloaded_paths[artifact_id] = target_path
       self._downloaded_artifact_paths[artifact_id] = target_path
 
-    logging.info("Completed downloading %d artifacts.", len(downloaded_paths))
+    self._log_info("Completed downloading %d artifacts.", len(downloaded_paths))
     return downloaded_paths
+
+  @property
+  def log_files(self) -> list[str]:
+    """Returns list of dedicated log file paths for launched processes."""
+    return self._process_launcher.log_files
 
   def _find_terminal_emulator(self) -> str | None:
     """Finds an available terminal emulator binary on the system."""
-    for term in [
-        "gnome-terminal",
-        "x-terminal-emulator",
-        "xterm",
-        "xfce4-terminal",
-        "konsole",
-    ]:
-      if shutil.which(term):
-        return term
-    return None
+    return self._process_launcher.find_terminal_emulator()
 
   def _build_terminal_command(
-      self, command: str, title: str, cwd: str | None = None
+      self,
+      command: str,
+      title: str,
+      cwd: str | None = None,
+      log_file: str | None = None,
   ) -> list[str]:
     """Builds the argument list to launch a command inside its own terminal window."""
-    terminal_emulator = self._find_terminal_emulator()
-    cd_command = f"cd '{cwd}'; " if cwd else ""
-    safe_title = title.replace("'", "'\\''")
-    safe_command_str = command.replace("'", "'\\''")
-    shell_script = (
-        f"{cd_command}"
-        "echo '========================================'; "
-        f"echo '[{safe_title}] {safe_command_str}'; "
-        "echo '========================================'; "
-        f"{command}"
+    return self._process_launcher.build_terminal_command(
+        command, title, cwd=cwd, log_file=log_file
     )
-
-    if terminal_emulator == "gnome-terminal":
-      display = os.environ.get("DISPLAY", ":0")
-      cmd = [
-          "gnome-terminal",
-          "--wait",
-          f"--display={display}",
-          f"--title={title}",
-      ]
-      if cwd:
-        cmd.append(f"--working-directory={cwd}")
-      cmd.extend([
-          "-q",
-          "--",
-          "bash",
-          "-ic",
-          shell_script,
-      ])
-      return cmd
-    elif terminal_emulator in (
-        "xterm",
-        "x-terminal-emulator",
-        "xfce4-terminal",
-    ):
-      cmd = [terminal_emulator]
-      if terminal_emulator == "xfce4-terminal":
-        cmd.append("--disable-server")
-        if cwd:
-          cmd.append(f"--working-directory={cwd}")
-      cmd.extend([
-          "-T",
-          title,
-          "-e",
-          "bash",
-          "-ic",
-          shell_script,
-      ])
-      return cmd
-    elif terminal_emulator == "konsole":
-      cmd = [
-          "konsole",
-          "--nofork",
-          "--title",
-          title,
-      ]
-      if cwd:
-        cmd.extend(["--workdir", cwd])
-      cmd.extend([
-          "-e",
-          "bash",
-          "-ic",
-          shell_script,
-      ])
-      return cmd
-    else:
-      # Fallback to direct bash if no GUI terminal emulator is available
-      return ["bash", "-ic", shell_script]
 
   def launch_commands_in_sequence(
       self,
@@ -1009,12 +1001,6 @@ class OrchestratorLaunchHelper:
   ) -> list[subprocess.Popen[Any]]:
     """Launches the given commands in sequence, each in its own terminal window.
 
-    Each command is executed sequentially one after another in its own terminal
-    window.
-    The stdin, stdout, and stderr streams belong directly to the opened terminal
-    window
-    and are not redirected back to this launcher process.
-
     Args:
       launch_commands: Commands to execute sequentially.
       working_dir: Working directory for the commands.
@@ -1024,75 +1010,14 @@ class OrchestratorLaunchHelper:
     Returns:
       List of launched subprocess.Popen objects.
     """
-    cwd = working_dir or self._download_dir
-    os.makedirs(cwd, exist_ok=True)
-
-    env = os.environ.copy()
-    if env_vars:
-      env.update(env_vars)
-    # Add download_dir to PATH so binaries can be located easily
-    env["PATH"] = f"{self._download_dir}:{env.get('PATH', '')}"
-    env["ORCA_ARTIFACT_DIR"] = self._download_dir
-
-    for idx, raw_command in enumerate(launch_commands):
-      if self._shutdown_event.is_set() or self._signal_received:
-        logging.warning("Launch aborted due to shutdown event.")
-        break
-
-      command = raw_command.strip()
-      if not command:
-        continue
-
-      # Substitute any placeholders
-      command = command.format(
-          download_dir=self._download_dir,
-          artifact_dir=self._download_dir,
-          robot_id=self._robot_id,
-      )
-
-      command_label = f"proc-{idx + 1}"
-      logging.info(
-          "Launching process (%d/%d) in dedicated terminal window: [%s]"
-          " (CWD: %s)",
-          idx + 1,
-          len(launch_commands),
-          command,
-          cwd,
-      )
-
-      cmd_args = self._build_terminal_command(command, command_label, cwd=cwd)
-
-      logging.info("Running command: %s", cmd_args)
-
-      try:
-        # Launch each process in its own terminal window.
-        process: subprocess.Popen[Any] = subprocess.Popen(
-            cmd_args,
-            start_new_session=True,
-            stdin=None,
-            stdout=None,
-            stderr=None,
-            cwd=cwd,
-            env=env,
-        )
-        self._processes.append(process)
-
-        logging.info(
-            "Launched process [%s] (PID %d) in its own terminal window.",
-            command_label,
-            process.pid,
-        )
-
-        if delay_between_commands_sec > 0:
-          time.sleep(delay_between_commands_sec)
-
-      except Exception as e:
-        logging.error("Failed to launch command [%s]: %s", command, e)
-        # Terminate previously launched processes on launch failure
-        self.terminate_all_processes()
-        raise
-
-    return self._processes
+    self._process_launcher.download_dir = self._download_dir
+    self._process_launcher.robot_id = self._robot_id
+    return self._process_launcher.launch_commands_in_sequence(
+        launch_commands,
+        working_dir=working_dir,
+        env_vars=env_vars,
+        delay_between_commands_sec=delay_between_commands_sec,
+    )
 
   def monitor_processes(self) -> bool:
     """Monitors the health and status of all launched processes.
@@ -1100,164 +1025,83 @@ class OrchestratorLaunchHelper:
     Returns:
       True if all processes are running healthy, False if any process exited.
     """
-    for idx, process in enumerate(self._processes):
-      return_code = process.poll()
-      if return_code is not None:
-        if return_code == 0:
-          logging.info(
-              "Process (index %d, PID %d) completed normally.", idx, process.pid
-          )
-        else:
-          logging.warning(
-              "Process (index %d, PID %d) exited unexpectedly with code %d.",
-              idx,
-              process.pid,
-              return_code,
-          )
-        return False
+    return self._process_launcher.monitor_processes()
 
-    return True
+  def wait_for_processes(self, poll_interval: float = 1.0) -> None:
+    """Monitors running processes in a loop until one exits or shutdown is requested.
 
-  def terminate_all_processes(self, timeout_sec: float = 5.0) -> None:
+    Args:
+      poll_interval: Process monitoring poll interval in seconds.
+    """
+    self._process_launcher.wait_for_processes(poll_interval=poll_interval)
+
+  def terminate_all_processes(self, timeout_sec: float = 10.0) -> None:
     """Terminates all launched processes and their child process trees.
 
     Args:
       timeout_sec: Timeout in seconds to wait for SIGTERM before sending
         SIGKILL.
     """
-    logging.info(
-        "Terminating all %d launched processes...", len(self._processes)
-    )
-    self._shutdown_event.set()
-    current_pid = os.getpid()
-    current_pgid = os.getpgrp()
-
-    # Send SIGTERM to all process groups
-    for process in self._processes:
-      if (
-          process.poll() is None
-          and process.pid
-          and process.pid > 1
-          and process.pid != current_pid
-      ):
-        try:
-          pgid = os.getpgid(process.pid)
-          if pgid > 1 and pgid != current_pgid:
-            logging.info(
-                "Sending SIGTERM to process group %d (PID %d)...",
-                pgid,
-                process.pid,
-            )
-            os.killpg(pgid, signal.SIGTERM)
-          else:
-            process.terminate()
-        except ProcessLookupError:
-          pass
-        except Exception as e:  # pylint: disable=broad-exception-caught
-          logging.debug("Error sending SIGTERM to PID %d: %s", process.pid, e)
-
-    # Wait for graceful termination
-    start_time = time.time()
-    for process in self._processes:
-      remaining_timeout = max(0.1, timeout_sec - (time.time() - start_time))
-      try:
-        process.wait(timeout=remaining_timeout)
-      except subprocess.TimeoutExpired:
-        pass
-
-    # Send SIGKILL to any remaining processes
-    for process in self._processes:
-      if (
-          process.poll() is None
-          and process.pid
-          and process.pid > 1
-          and process.pid != current_pid
-      ):
-        try:
-          pgid = os.getpgid(process.pid)
-          if pgid > 1 and pgid != current_pgid:
-            logging.warning(
-                "Process group %d (PID %d) did not terminate in time. Sending"
-                " SIGKILL...",
-                pgid,
-                process.pid,
-            )
-            os.killpg(pgid, signal.SIGKILL)
-          else:
-            process.kill()
-        except ProcessLookupError:
-          pass
-        except Exception as e:  # pylint: disable=broad-exception-caught
-          logging.debug("Error sending SIGKILL to PID %d: %s", process.pid, e)
-
-    self._processes.clear()
-    logging.info("All launched processes have been terminated.")
+    self._process_launcher.terminate_all_processes(timeout_sec=timeout_sec)
 
   def setup_signal_handlers(self) -> None:
     """Registers signal handlers for graceful shutdown on SIGINT, SIGTERM, SIGHUP."""
+    self._process_launcher.setup_signal_handlers()
 
-    def _handle_signal(signum: int, frame: Any) -> None:
-      """Handles termination signals."""
-      del frame  # Unused.
-      signal_name = signal.Signals(signum).name
-      logging.info(
-          "Received termination signal: %s (%d). Initiating shutdown...",
-          signal_name,
-          signum,
-      )
-      self._signal_received = True
-      self._shutdown_event.set()
-      self.terminate_all_processes()
-
-    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-      try:
-        signal.signal(sig, _handle_signal)
-      except (ValueError, OSError):
-        pass
-
-  def run(self, poll_interval: float = 1.0) -> int:
+  def run(self, poll_interval: float = 1.0) -> int | list[str]:
     """Runs the full launcher workflow end-to-end.
+
+    When `only_download_with_no_launch` is True, this method connects to
+    Orchestrator, downloads all required artifacts, prints only the artifact
+    launch commands (one per line) without any other logging output, and returns
+    the list of artifact launch commands without launching any processes.
 
     Args:
       poll_interval: Process monitoring poll interval in seconds.
 
     Returns:
-      Exit code: 0 on success, non-zero on error.
+      When `only_download_with_no_launch` is False: Exit code (0 on success,
+        non-zero on error).
+      When `only_download_with_no_launch` is True: List of artifact launch
+        commands on success, or non-zero exit code (1) on error.
     """
-    self.setup_signal_handlers()
+    with self._suppress_logging_context():
+      if not self._only_download_with_no_launch:
+        self.setup_signal_handlers()
 
-    if not self.connect():
-      return 1
+      if not self.connect():
+        return 1
 
-    try:
-      artifact_ids, launch_commands = self.fetch_launch_info_from_orchestrator()
-      if not launch_commands and not artifact_ids:
-        logging.warning(
-            "No launch commands or artifact IDs found from Orchestrator."
+      try:
+        artifact_ids, launch_commands = (
+            self.fetch_launch_info_from_orchestrator()
         )
+        if not launch_commands and not artifact_ids:
+          self._log_warning(
+              "No launch commands or artifact IDs found from Orchestrator."
+          )
 
-      if artifact_ids:
-        self.download_artifacts(artifact_ids)
+        if artifact_ids:
+          self.download_artifacts(artifact_ids)
 
-      if launch_commands:
-        self.launch_commands_in_sequence(launch_commands)
+        if self._only_download_with_no_launch:
+          for cmd in launch_commands:
+            print(cmd)
+          return launch_commands
 
-        logging.info("Entering process monitoring loop. Press Ctrl+C to stop.")
-        while not self._shutdown_event.is_set():
-          all_alive = self.monitor_processes()
-          if not all_alive:
-            logging.info("One or more processes exited.")
-            break
-          time.sleep(poll_interval)
+        if launch_commands:
+          self.launch_commands_in_sequence(launch_commands)
+          self.wait_for_processes(poll_interval=poll_interval)
 
-      return 0
+        return 0
 
-    except KeyboardInterrupt:
-      logging.info("Launcher interrupted by user.")
-      return 0
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.error("Launcher execution failed: %s", e)
-      return 1
-    finally:
-      self.terminate_all_processes()
-      self.disconnect()
+      except KeyboardInterrupt:
+        self._log_info("Launcher interrupted by user.")
+        return 0
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        self._log_error("Launcher execution failed: %s", e)
+        return 1
+      finally:
+        if not self._only_download_with_no_launch:
+          self.terminate_all_processes()
+        self.disconnect()

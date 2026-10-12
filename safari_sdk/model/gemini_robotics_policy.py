@@ -34,8 +34,12 @@ from typing_extensions import override
 from safari_sdk.model import action_chunk_resampling
 from safari_sdk.model import additional_observations_provider
 from safari_sdk.model import constants
+from safari_sdk.model import get_string_value_from_observation
 from safari_sdk.model import model_interface as model_interface_lib
 from safari_sdk.model import remote_model_interface
+
+
+DEFAULT_JPEG_QUALITY = 95
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -69,13 +73,14 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
           additional_observations_provider.AdditionalObservationsProvider
       ] = (),
       robotics_api_connection: constants.RoboticsApiConnectionType = constants.RoboticsApiConnectionType.CLOUD,
-      image_compression_jpeg_quality: int = 95,
+      image_compression_jpeg_quality: int = DEFAULT_JPEG_QUALITY,
       num_retries: int = 1,
       action_conditioning_chunk_length: int | None = None,
       action_conditioning_resample_factor: float | None = None,
       hold_last_conditioning_action: bool = False,
       request_timeout: int | None = None,
       model_interface: model_interface_lib.ModelInterface | None = None,
+      reset_policy_on_task_instruction_change: bool = False,
   ):
     """Initializes the evaluation policy.
 
@@ -122,6 +127,9 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       request_timeout: Timeout in seconds for remote model inference requests.
         If None, the default timeout is used.
       model_interface: Internal use only.
+      reset_policy_on_task_instruction_change: If True, resets the policy state
+        if the instruction detected from the task instruction key in the
+        observation changes between consecutive steps. Default is False.
     """
     if model_interface is None:
       model_interface = remote_model_interface.RemoteModelInterface(
@@ -139,6 +147,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     # These are used only to validate the timestep spec in step_spec.
     self._string_observations_keys = [task_instruction_key]
+    self._task_instruction_key = task_instruction_key
     self._image_observation_keys = list(image_observation_keys)
     self._proprioceptive_observation_keys = list(
         proprioceptive_observation_keys
@@ -180,6 +189,13 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._last_extra = self._get_empty_extra_dict()
     self._initialize_episode_statistics()
 
+    # Determines if the policy state should be reset when the task
+    # instruction changes and keep track of the previous task instruction.
+    self._reset_policy_on_task_instruction_change = (
+        reset_policy_on_task_instruction_change or False
+    )
+    self._previous_task_instruction: str | None = None
+
   def _initialize_episode_statistics(self):
     """Initializes the episode statistics."""
     self._episode_statistics = EpisodeStatistics(action_stall_count=0)
@@ -210,6 +226,7 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     self._model_output = np.array([])
     self._current_action_index = 0
     self._replan_start_action_index = 0
+    self._previous_task_instruction = None
     for provider in self._additional_observations_providers:
       provider.reset()
 
@@ -241,6 +258,11 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
       state the dummy policy state.
     """
     del prev_state  # Unused.
+
+    # Reset the policy state if the task instruction has changed between
+    # consecutive steps.
+    if self._reset_policy_on_task_instruction_change:
+      self._reset_policy_if_task_instruction_has_changed(timestep.observation)
 
     should_replan = self._should_replan()
     new_observation = dict(timestep.observation)
@@ -662,6 +684,41 @@ class GeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
     extra['inference_sent'] = np.array(0, dtype=np.uint8)
     extra['actions_left'] = np.array(0, dtype=np.int32)
     return extra
+
+  def _reset_policy_if_task_instruction_has_changed(
+      self,
+      observation: dict[str, np.ndarray],
+  ) -> None:
+    """Resets the policy state if the task instruction has changed."""
+    # Early return if the policy should not be reset on task instruction change
+    # or if the task instruction is not in the observation.
+    if not self._reset_policy_on_task_instruction_change:
+      return
+    if self._task_instruction_key not in observation:
+      return
+    # Retrieve the task instruction from the observation and explicitly convert
+    # to string for comparison with previous task instruction.
+    task_instruction_obs = observation[self._task_instruction_key]
+    task_instruction_str = (
+        get_string_value_from_observation.get_string_value_from_observation(
+            task_instruction_obs,
+            self._task_instruction_key,
+        )
+    )
+    # If the task instruction has changed, reset the policy state.
+    if (
+        self._previous_task_instruction is not None
+        and task_instruction_str != self._previous_task_instruction
+    ):
+      logging.info(
+          'Task instruction changed from %s to %s, resetting policy state.',
+          self._previous_task_instruction,
+          task_instruction_str,
+      )
+      self.initial_state()
+    # Update the previous task instruction to the current task instruction for
+    # the next reset check.
+    self._previous_task_instruction = task_instruction_str
 
   @property
   def episode_statistics(self) -> EpisodeStatistics:

@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import os
+import pathlib
 import time
 from unittest import mock
 
@@ -273,6 +275,69 @@ class BaseLoggerTest(absltest.TestCase):
         config,
     )
     logger.stop_session(stop_nsec=2000)
+
+  def test_mcap_chunk_size_bytes_default_and_override(self):
+    default_logger = base_logger.BaseLogger(
+        agent_id=self.agent_id,
+        output_directory=self.output_dir,
+        required_topics=self.required_topics,
+    )
+    self.assertEqual(
+        default_logger._file_handler._mcap_chunk_size_bytes,
+        constants.DEFAULT_MCAP_CHUNK_SIZE_BYTES,
+    )
+
+    custom_chunk_size = 16 * 1024 * 1024
+    custom_logger = base_logger.BaseLogger(
+        agent_id=self.agent_id,
+        output_directory=self.output_dir,
+        required_topics=self.required_topics,
+        mcap_chunk_size_bytes=custom_chunk_size,
+    )
+    self.assertEqual(
+        custom_logger._file_handler._mcap_chunk_size_bytes,
+        custom_chunk_size,
+    )
+
+  def test_stop_session_finalizes_and_prevents_leaks_on_worker_error(self):
+    logger = base_logger.BaseLogger(
+        agent_id=self.agent_id,
+        output_directory=self.output_dir,
+        required_topics=self.required_topics,
+    )
+    real_write = logger._file_handler.write_message
+    fds_before = len(os.listdir('/proc/self/fd'))
+
+    for i in range(5):
+      logger.start_session(
+          start_nsec=1000 + i * 1000,
+          task_id=f'task_{i}',
+          output_file_prefix=f'session_{i}',
+      )
+      logger._file_handler.write_message = mock.Mock(
+          side_effect=ValueError('Simulated writer failure')
+      )
+      logger.write_proto_message(
+          topic='/sensor/cam0',
+          message=label_pb2.LabelMessage(key='test'),
+          publish_time_nsec=1050 + i * 1000,
+      )
+      time.sleep(0.05)
+
+      with self.assertRaisesRegex(RuntimeError, 'Log writer thread failed'):
+        logger.stop_session(stop_nsec=2000 + i * 1000)
+
+      # Verify session state is reset, file handle and mcap writer are released,
+      # and no unfinalized shards are stranded in tmp/.
+      self.assertFalse(logger.is_session_started())
+      self.assertIsNone(logger._file_handler._file_handle)
+      self.assertIsNone(logger._file_handler._mcap_writer)
+      tmp_dir = pathlib.Path(self.output_dir) / 'tmp'
+      self.assertEqual(list(tmp_dir.glob('*.mcap')), [])
+      logger._file_handler.write_message = real_write
+
+    fds_after = len(os.listdir('/proc/self/fd'))
+    self.assertLessEqual(fds_after, fds_before)
 
 
 if __name__ == '__main__':

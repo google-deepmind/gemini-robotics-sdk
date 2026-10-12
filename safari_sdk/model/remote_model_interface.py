@@ -48,6 +48,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
           additional_observations_provider.AdditionalObservationsProvider
       ] = (),
       request_timeout: int | None = None,
+      genai_base_url: str | None = None,
   ):
     """Initializes the remote model interface.
 
@@ -66,6 +67,8 @@ class RemoteModelInterface(model_interface.ModelInterface):
       additional_observations_providers: A sequence of providers for additional
         observations.
       request_timeout: Timeout in seconds for remote model inference requests.
+      genai_base_url: The base URL to use for `CLOUD_GENAI`. If None, the
+        default base URL is used.
     """
 
     self._serve_id = serve_id
@@ -103,6 +106,7 @@ class RemoteModelInterface(model_interface.ModelInterface):
         grpc_url=grpc_url,
         method_name=method_name,
         timeout=request_timeout,
+        genai_base_url=genai_base_url,
     )
     self._method_name = method_name
     self._request_timeout = request_timeout

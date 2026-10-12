@@ -66,6 +66,7 @@ class OrchestratorAPIResponse:
     latest_robot_release_configs: Latest robot release configs for the fleet.
     artifact_id: Artifact ID for the uploaded text log artifact.
     event_id: Event ID for the recorded robot event.
+    permitted_job_type_codes: Permitted job type codes for the robot.
   """
 
   success: bool = False
@@ -93,3 +94,4 @@ class OrchestratorAPIResponse:
   latest_robot_release_configs: list[work_unit_data.KvMsg] | None = None
   artifact_id: str | None = None
   event_id: str | None = None
+  permitted_job_type_codes: list[str] | None = None

@@ -72,6 +72,10 @@ def _print_robot_info_response(response: orchestrator_helper.RESPONSE) -> None:
     print(" Latest robot release configs:")
     for config in response.latest_robot_release_configs:
       print(f"   {config.key}: {config.get_value()}")
+  if response.permitted_job_type_codes:
+    print(" Permitted job type codes:")
+    for code in response.permitted_job_type_codes:
+      print(f"   {code}")
   print(" ----------------------------------------------------------------\n")
 
 

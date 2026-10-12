@@ -47,3 +47,12 @@ DTYPE_RESPONSE_KEY = "dtype"
 RNG_KEY_RESPONSE_KEY = "rng_key"
 
 RNG_KEY_ENCODED_OBS_KEY = "rng_key"
+
+# The SAX custom method the bidirectional streaming backend exposes. It is the
+# only method `ModelServing.CmCustomBidi` accepts, so it is the default for
+# every bidi client; the unary path keeps using `sample_actions_json_flat`.
+SAMPLE_ACTIONS_STREAM_METHOD_NAME = "sample_actions_stream"
+
+# DSCP 32 corresponds to CS4 (Class Selector 4) for high-priority QoS traffic.
+DEFAULT_INFERENCE_DSCP = 32
+

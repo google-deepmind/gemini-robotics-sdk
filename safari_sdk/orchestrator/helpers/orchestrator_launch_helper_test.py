@@ -93,15 +93,6 @@ class OrchestratorLaunchHelperTest(absltest.TestCase):
                 name="harness_spec",
                 usage="harness",
                 artifactIds=["art_harness_1"],
-                parameters=[
-                    work_unit_data.KvMsg(
-                        key="launch_command",
-                        value=work_unit_data.KvMsgValue(
-                            stringValue="python3 -m harness_server"
-                        ),
-                        type=work_unit_data.KvMsgValueType.KV_MSG_VALUE_TYPE_STRING,
-                    )
-                ],
             ),
             work_unit_data.PolicyDetails(
                 name="er_spec",
@@ -124,7 +115,7 @@ class OrchestratorLaunchHelperTest(absltest.TestCase):
         api_response.OrchestratorAPIResponse(
             success=True,
             work_unit=wu,
-            launch_command="echo 'Starting orchestrator'",
+            launch_command="deployment_version='1.0'",
         )
     )
 
@@ -139,8 +130,7 @@ class OrchestratorLaunchHelperTest(absltest.TestCase):
     self.assertIn("art_er_1", artifact_ids)
     self.assertIn("art_vla_1", artifact_ids)
     self.assertIn("python3 -m custom_service --port=8080", launch_commands)
-    self.assertIn("python3 -m harness_server", launch_commands)
-    self.assertIn("echo 'Starting orchestrator'", launch_commands)
+    self.assertNotIn("deployment_version='1.0'", launch_commands)
 
   def test_fetch_launch_info_with_launch_order(self):
     wu_context = work_unit_data.WorkUnitContext(
@@ -681,6 +671,109 @@ class OrchestratorLaunchHelperTest(absltest.TestCase):
       self.assertEqual(cmd[1], "-ic")
       self.assertIn("cd '/tmp/my_artifacts';", cmd[2])
       self.assertIn("./fake_binary", cmd[2])
+
+  def test_only_download_with_no_launch_defaults_to_false(self):
+    self.assertFalse(self.launcher.only_download_with_no_launch)
+
+  @mock.patch("urllib.request.urlretrieve")
+  @mock.patch("subprocess.Popen")
+  def test_only_download_with_no_launch_downloads_and_returns_commands_only(
+      self, mock_popen, mock_urlretrieve
+  ):
+    def fake_retrieve(url, path):
+      del url  # Unused.
+      with open(path, "w") as f:
+        f.write("fake_binary_content")
+
+    mock_urlretrieve.side_effect = fake_retrieve
+
+    self.mock_helper.connect.return_value = (
+        api_response.OrchestratorAPIResponse(
+            success=True, robot_id="test_robot_1"
+        )
+    )
+    wu = work_unit_data.WorkUnit(
+        workUnitId="wu_123",
+        robotJobId="job_456",
+        context=work_unit_data.WorkUnitContext(
+            launcherArtifacts=[
+                work_unit_data.LauncherArtifact(
+                    artifactId="art_primary",
+                    launchCommand="cmd_primary --port=8000",
+                    launchOrder=1,
+                ),
+                work_unit_data.LauncherArtifact(
+                    artifactId="art_secondary",
+                    launchCommand="cmd_secondary --port=8001",
+                    launchOrder=2,
+                ),
+            ]
+        ),
+    )
+    self.mock_helper.get_current_work_unit.return_value = (
+        api_response.OrchestratorAPIResponse(
+            success=True,
+            work_unit=wu,
+        )
+    )
+    self.mock_helper.get_artifact.side_effect = [
+        api_response.OrchestratorAPIResponse(
+            success=True,
+            artifact=mock.MagicMock(
+                uri="http://storage.googleapis.com/test/bin_primary",
+                version="v1.0",
+                commitTime="2026-08-20T00:00:00Z",
+            ),
+        ),
+        api_response.OrchestratorAPIResponse(
+            success=True,
+            artifact=mock.MagicMock(
+                uri="http://storage.googleapis.com/test/bin_secondary",
+                version="v1.0",
+                commitTime="2026-08-20T00:00:00Z",
+            ),
+        ),
+    ]
+
+    download_only_launcher = (
+        orchestrator_launch_helper.OrchestratorLaunchHelper(
+            job_type_codes=["agentic"],
+            robot_id="test_robot_1",
+            download_dir=self.test_download_dir,
+            orchestrator_helper_instance=self.mock_helper,
+            only_download_with_no_launch=True,
+        )
+    )
+    self.assertTrue(download_only_launcher.only_download_with_no_launch)
+
+    with (
+        mock.patch("builtins.print") as mock_print,
+        mock.patch.object(logging, "info") as mock_log_info,
+        mock.patch.object(logging, "warning") as mock_log_warning,
+        mock.patch.object(
+            orchestrator_launch_helper, "log_work_unit_info"
+        ) as mock_log_wu,
+    ):
+      result = download_only_launcher.run()
+
+    # Should return the launch commands and print ONLY the launch commands
+    expected_commands = [
+        "cmd_primary --port=8000",
+        "cmd_secondary --port=8001",
+    ]
+    self.assertEqual(result, expected_commands)
+    self.assertEqual(
+        [call.args[0] for call in mock_print.call_args_list],
+        expected_commands,
+    )
+    # Artifacts should be downloaded, but no processes should be launched
+    self.assertEqual(mock_urlretrieve.call_count, 2)
+    mock_popen.assert_not_called()
+    # No other logging output should be produced
+    mock_log_info.assert_not_called()
+    mock_log_warning.assert_not_called()
+    mock_log_wu.assert_not_called()
+    self.mock_helper.disconnect.assert_called_once()
 
 
 if __name__ == "__main__":

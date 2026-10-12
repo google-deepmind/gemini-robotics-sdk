@@ -29,7 +29,6 @@ from PIL import ImageDraw
 from PIL import ImageFont
 from typing_extensions import override
 
-
 from safari_sdk.model import additional_observations_provider
 
 
@@ -71,15 +70,9 @@ class VideoSaver(
     self._task_instruction: Optional[str] = None
 
     try:
-      self._font = ImageFont.truetype(
-          (
-              'google3/googledata/third_party/fonts/msttcorefonts/arial.ttf'
-          ),
-          self._FONT_SIZE,
-      )
-    except IOError:
-      logging.warning('Arial font not found. Using default font.')
       self._font = ImageFont.load_default(size=self._FONT_SIZE)
+    except TypeError:
+      self._font = ImageFont.load_default()
 
   def _get_image_from_timestep(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """Extracts and correctly shapes the image array from the observation."""

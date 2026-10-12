@@ -23,6 +23,7 @@ TIMESTEP_TOPIC_NAME: str = '/timestep'
 ACTION_TOPIC_NAME: str = '/action'
 POLICY_EXTRA_TOPIC_NAME: str = '/policy_extra'
 DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES: int = 1 * 1024 * 1024 * 1024
+DEFAULT_MCAP_CHUNK_SIZE_BYTES: int = 8 * 1024 * 1024
 
 # Key prefixes used for the episode dictionary and metadata spec keys.
 OBSERVATION_KEY_PREFIX = 'observation'
@@ -31,6 +32,9 @@ STEP_TYPE_KEY = 'step_type'
 REWARD_KEY = 'reward'
 DISCOUNT_KEY = 'discount'
 POLICY_EXTRA_PREFIX = 'extra/policy_extra'
+# Prefer using `TASK_INSTRUCTION_KEY` ('task_instruction') over the legacy
+# 'instruction' observation key.
+TASK_INSTRUCTION_KEY = 'task_instruction'
 
 # Key templates used for the episode dictionary and metadata spec keys.
 OBSERVATION_KEY_TEMPLATE = 'observation/{}'

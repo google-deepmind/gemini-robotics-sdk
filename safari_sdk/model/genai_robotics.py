@@ -15,6 +15,7 @@
 """Forward compatibility layer for Gemini API. Will use genai in the future."""
 
 import base64
+import dataclasses
 import datetime
 import functools
 import json
@@ -45,6 +46,18 @@ _MIN_SERVER_VERSION = '0.0.0'
 # Server versions >= this threshold use msgpack serialization and raw image
 # bytes instead of JSON + base64.  Older servers keep the legacy JSON protocol.
 _MSGPACK_MIN_SERVER_VERSION = '2.0.0'
+
+
+@dataclasses.dataclass
+class RoboticsGenerateContentResponse:
+  """Response object returned by robotics generate_content calls."""
+
+  text: str | None = None
+  candidates: list[Any] | None = None
+  backend_request_time: str | None = None
+  backend_response_time: str | None = None
+  client_image_encode_ms: float | None = None
+  client_rpc_ms: float | None = None
 
 
 def update_robotics_content_to_genai_format(
@@ -89,6 +102,23 @@ def update_robotics_content_to_genai_format(
       raise ValueError(f'Unsupported content type: {type(content)}')
 
   return new_contents
+
+
+class Models:
+  """Models namespace on Client exposing generate_content."""
+
+  def __init__(
+      self,
+      generate_content_fn: Callable[..., Any],
+      genai_client: genai.Client | None = None,
+  ):
+    self.generate_content = generate_content_fn
+    self._genai_client = genai_client
+
+  def __getattr__(self, name: str) -> Any:
+    if self._genai_client is not None:
+      return getattr(self._genai_client.models, name)
+    raise AttributeError(f"'Models' object has no attribute '{name}'")
 
 
 class Client:
@@ -150,6 +180,7 @@ class Client:
       grpc_url: str | None = None,
       skip_version_check: bool = False,
       timeout: int | None = None,
+      genai_base_url: str | None = None,
       **kwargs,
   ):
     """Initializes the GenAI Robotics Client.
@@ -173,6 +204,8 @@ class Client:
         `_CONNECTION.LOCAL`. Useful for benchmarking or when the server is
         not yet running at client construction time.
       timeout: Timeout in seconds for remote model inference requests.
+      genai_base_url: The base URL to use for `CLOUD_GENAI`. If
+        None, the default base URL is used.
       **kwargs: Additional keyword arguments to pass to the `genai.Client` when
         using `_CONNECTION.CLOUD_GENAI`.
     """
@@ -180,14 +213,17 @@ class Client:
     self._robotics_api_connection = robotics_api_connection
     self._num_retries = num_retries
     self._server_version: str | None = None
+    self._image_compression_jpeg_quality = image_compression_jpeg_quality
+    self._call_counter = 0
     match self._robotics_api_connection:
       case _CONNECTION.CLOUD:
         if timeout is not None:
-          service = auth.get_service(timeout=timeout)
+          service = auth.get_service(
+              timeout=timeout, dscp=constants.DEFAULT_INFERENCE_DSCP
+          )
         else:
-          service = auth.get_service()
+          service = auth.get_service(dscp=constants.DEFAULT_INFERENCE_DSCP)
         self._client = service.modelServing()
-        self.models: Any = lambda: None
 
         partial_kwargs = {
             'image_compression_jpeg_quality': image_compression_jpeg_quality,
@@ -197,9 +233,10 @@ class Client:
               http_options=types.HttpOptions(timeout=timeout * 1000)
           )
 
-        self.models.generate_content = functools.partial(  # pyrefly: ignore[missing-attribute]
+        generate_content_fn = functools.partial(
             self._robotics_generate_content, **partial_kwargs
         )
+        self.models = Models(generate_content_fn=generate_content_fn)
       case _CONNECTION.LOCAL:
         url = grpc_url or os.environ.get('GOOGLE_GEMINI_BASE_URL')
         if url is None:
@@ -215,15 +252,26 @@ class Client:
         self._client = _connect_to_grpc_json(
             channel, method_name, use_msgpack=self._use_msgpack
         )
-        self.models: Any = lambda: None
-        self.models.generate_content = functools.partial(  # pyrefly: ignore[missing-attribute]
+        generate_content_fn = functools.partial(
             self._robotics_generate_content,
             image_compression_jpeg_quality=image_compression_jpeg_quality,
         )
+        self.models = Models(generate_content_fn=generate_content_fn)
       case _CONNECTION.CLOUD_GENAI:
         if not api_key:
-          api_key = auth.get_api_key()
-        self._client = genai.Client(api_key=api_key, **kwargs)
+          api_key = auth.get_api_key(key_name='api_key_gemini')
+        http_options = kwargs.get('http_options') or types.HttpOptions()
+        if isinstance(http_options, dict):
+          http_options = types.HttpOptions(**http_options)
+        updates: dict[str, Any] = {}
+        if genai_base_url:
+          updates['base_url'] = genai_base_url
+        if updates:
+          kwargs['http_options'] = http_options.model_copy(update=updates)
+        self._client = genai.Client(
+            api_key=api_key,
+            **kwargs,
+        )
       case _:
         raise ValueError(
             f'Unsupported robotics_api_connection: {robotics_api_connection}.'
@@ -261,7 +309,7 @@ class Client:
       contents: Union[types.ContentListUnion, types.ContentListUnionDict],
       config: Optional[types.GenerateContentConfigOrDict] = None,
       image_compression_jpeg_quality: int = 95,
-  ) -> types.GenerateContentResponse:
+  ) -> RoboticsGenerateContentResponse:
     """Generate content using the robotics API."""
     if not isinstance(contents, list):
       raise ValueError('contents must be a list of items.')
@@ -350,20 +398,20 @@ class Client:
         logging.debug('Response: %s', res)
         client_rpc_ms = (time.perf_counter() - t_rpc_start) * 1000.0
 
-        response = lambda: None
         if self._use_msgpack:
           response_data = msgpack.unpackb(
               base64.b64decode(res['outputBytes']), raw=False
           )
-          response.text = json.dumps(response_data)  # pyrefly: ignore[missing-attribute]
+          res_text = json.dumps(response_data)
         else:
-          response.text = (  # pyrefly: ignore[missing-attribute]
-              base64.b64decode(res['outputBytes']).decode('utf-8')
-          )
-        response.backend_request_time = res.get('backendRequestTime')  # pyrefly: ignore[missing-attribute]
-        response.backend_response_time = res.get('backendResponseTime')  # pyrefly: ignore[missing-attribute]
-        response.client_image_encode_ms = client_image_encode_ms  # pyrefly: ignore[missing-attribute]
-        response.client_rpc_ms = client_rpc_ms  # pyrefly: ignore[missing-attribute]
+          res_text = base64.b64decode(res['outputBytes']).decode('utf-8')
+        response = RoboticsGenerateContentResponse(
+            text=res_text,
+            backend_request_time=res.get('backendRequestTime'),
+            backend_response_time=res.get('backendResponseTime'),
+            client_image_encode_ms=client_image_encode_ms,
+            client_rpc_ms=client_rpc_ms,
+        )
       case _CONNECTION.LOCAL:
         t_rpc_start = time.perf_counter()
         req_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -371,19 +419,20 @@ class Client:
         res_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
         client_rpc_ms = (time.perf_counter() - t_rpc_start) * 1000.0
 
-        response = lambda: None
-        response.text = res_text  # pyrefly: ignore[missing-attribute]
-        response.backend_request_time = req_time  # pyrefly: ignore[missing-attribute]
-        response.backend_response_time = res_time  # pyrefly: ignore[missing-attribute]
-        response.client_image_encode_ms = client_image_encode_ms  # pyrefly: ignore[missing-attribute]
-        response.client_rpc_ms = client_rpc_ms  # pyrefly: ignore[missing-attribute]
+        response = RoboticsGenerateContentResponse(
+            text=res_text,
+            backend_request_time=req_time,
+            backend_response_time=res_time,
+            client_image_encode_ms=client_image_encode_ms,
+            client_rpc_ms=client_rpc_ms,
+        )
       case _:
         raise ValueError(
             'Unsupported robotics_api_connection:'
             f' {self._robotics_api_connection}. Only Cloud and local are'
             ' supported.'
         )
-    return response  # pyrefly: ignore[bad-return]
+    return response
 
   def __getattr__(self, name):
     if self._robotics_api_connection == _CONNECTION.CLOUD_GENAI:

@@ -757,7 +757,7 @@ def transition(
   discount = tf.convert_to_tensor(
       value=discount, dtype=tf.float32, name='discount'
   )
-  if discount.shape.rank == 0:
+  if discount.shape.rank == 0:  # pyrefly: ignore[missing-attribute]
     discount = tf.fill(shape, discount, name='discount_fill')
   return TimeStep(step_type, reward, discount, observation)
 

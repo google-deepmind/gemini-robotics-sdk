@@ -100,8 +100,10 @@ class McapMessageWriter:
       stop_timestamp_nsec: The stop timestamp for finalizing the mcap file.
       timeout_seconds: The maximum time to wait for the worker thread to stop.
     """
-    self._flush_queue_and_stop_worker(timeout_seconds=timeout_seconds)
-    self._file_handler.finalize_and_close_file(stop_nsec=stop_timestamp_nsec)
+    try:
+      self._flush_queue_and_stop_worker(timeout_seconds=timeout_seconds)
+    finally:
+      self._file_handler.finalize_and_close_file(stop_nsec=stop_timestamp_nsec)
 
   def write_proto_message(
       self,

@@ -232,7 +232,7 @@ _CHECKPOINT_EVERY_N_STEPS = flags.DEFINE_integer(
     default=0,
     help=(
         "The number of steps between checkpoints. 0 means system managed /"
-        " auto-calculated."
+        " auto-calculated (defaults to max_training_steps // 25)."
     ),
 )
 flags.register_validator(
@@ -481,7 +481,7 @@ Commands:
     --only_successful_episodes: Whether to train only on successful episodes. (Optional)
   For gemini_robotics_on_device_v1/v2 recipes, the following flags are also available:
      --max_training_steps: The maximum number of training steps to use. (Optional)
-     --checkpoint_every_n_steps: The number of steps to checkpoint. If not set, the default is max_training_steps / 5. (Optional)
+     --checkpoint_every_n_steps: The number of steps between checkpoints. 0 means system managed / auto-calculated (defaults to max_training_steps // 25). (Optional)
      --checkpoint_type: The checkpoint type to use, one of [{', '.join(_CHECKPOINT_TYPE_MAP.keys())}] (Optional)
      --image_keys: The image keys to use for training. (Optional)
      --proprioception_keys: The proprioception keys to use for training.
@@ -729,8 +729,8 @@ class FlywheelCli:
       checkpoint_every_n_steps = _CHECKPOINT_EVERY_N_STEPS.value
       if checkpoint_every_n_steps == 0:
         if _MAX_TRAINING_STEPS.value < _MIN_CHECKPOINT_INTERVAL:
-          # For small runs, let the backend decide (no intermediate
-          # checkpoints). Setting to 0 means "use system default".
+          # For small runs, let the backend decide. Setting to 0 means "use
+          # system default".
           checkpoint_every_n_steps = 0
         else:
           checkpoint_every_n_steps = max(

@@ -34,6 +34,7 @@ class CurrentRobotInfoResponse:
   stage: work_unit.WorkUnitStage | None = None
   robotStage: str | None = None
   latestRobotReleaseConfigs: list[work_unit.KvMsg] | None = None
+  permittedJobTypeCodes: list[str] | None = None
 
   def __post_init__(self):
     if self.stage is None:
@@ -43,3 +44,6 @@ class CurrentRobotInfoResponse:
 
     if self.latestRobotReleaseConfigs is None:
       self.latestRobotReleaseConfigs = []
+
+    if self.permittedJobTypeCodes is None:
+      self.permittedJobTypeCodes = []

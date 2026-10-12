@@ -1451,6 +1451,133 @@ class GeminiRoboticsPolicyTest(parameterized.TestCase):
         [[0.0], [2.5], [5.0]],
     )
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="sync_reset_enabled",
+          inference_mode=constants.InferenceMode.SYNCHRONOUS,
+          reset_on_instruction_change=True,
+      ),
+      dict(
+          testcase_name="async_reset_enabled",
+          inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+          reset_on_instruction_change=True,
+      ),
+      dict(
+          testcase_name="sync_reset_disabled",
+          inference_mode=constants.InferenceMode.SYNCHRONOUS,
+          reset_on_instruction_change=False,
+      ),
+      dict(
+          testcase_name="async_reset_disabled",
+          inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+          reset_on_instruction_change=False,
+      ),
+  )
+  def test_reset_policy_on_task_instruction_change(
+      self,
+      inference_mode: constants.InferenceMode,
+      reset_on_instruction_change: bool,
+  ):
+    model_interface = mock.create_autospec(model_interface_lib.ModelInterface)
+    mock_provider = mock.create_autospec(
+        additional_observations_provider.AdditionalObservationsProvider
+    )
+    mock_provider.get_additional_observations_spec.return_value = {
+        "extra_obs": specs.Array(shape=(1,), dtype=np.float32)
+    }
+    mock_provider.get_additional_observations.return_value = {
+        "extra_obs": np.array([1.0], dtype=np.float32)
+    }
+
+    policy = gemini_robotics_policy.GeminiRoboticsPolicy(
+        serve_id="test_serve_id",
+        task_instruction_key="test_instruction_key",
+        image_observation_keys=("test_camera_1",),
+        proprioceptive_observation_keys=("test_joint_1",),
+        min_replan_interval=3,
+        inference_mode=inference_mode,
+        additional_observations_providers=[mock_provider],
+        model_interface=model_interface,
+        reset_policy_on_task_instruction_change=reset_on_instruction_change,
+    )
+
+    model_interface.query_model.side_effect = [
+        # Warmup query during step_spec.
+        np.array([[1.0], [2.0], [3.0]]),
+        # First chunk for instruction 1.
+        np.array([[1.0], [2.0], [3.0]]),
+        # Second chunk after instruction change.
+        np.array([[10.0], [20.0], [30.0]]),
+    ]
+
+    timestep_spec = gdmr_types.TimeStepSpec(
+        step_type=gdmr_types.STEP_TYPE_SPEC,
+        reward={},
+        discount={},
+        observation={  # pyrefly: ignore[bad-argument-type]
+            "test_camera_1": specs.Array(shape=(100, 100, 3), dtype=np.uint8),  # pyrefly: ignore[bad-assignment]
+            "test_joint_1": specs.Array(shape=(1,), dtype=np.float32),  # pyrefly: ignore[bad-assignment]
+            "test_instruction_key": specs.StringArray(()),  # pyrefly: ignore[bad-assignment]
+        },
+    )
+    policy.step_spec(timestep_spec)
+    policy_state = policy.initial_state()
+    mock_provider.reset.assert_called_once()
+
+    model_interface.query_model.reset_mock()
+    mock_provider.reset.reset_mock()
+    mock_provider.get_additional_observations.reset_mock()
+
+    observation_1 = {
+        "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+        "test_joint_1": np.array([0.0]),
+        "test_instruction_key": np.array("instruction_1", dtype=np.object_),
+    }
+    observation_2 = {
+        "test_camera_1": np.zeros((100, 100, 3), dtype=np.uint8),
+        "test_joint_1": np.array([0.0]),
+        "test_instruction_key": np.array("instruction_2", dtype=np.object_),
+    }
+
+    # Step 1: Initial step with instruction_1 queries model without redundant
+    # reset.
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation_1),
+        policy_state,
+    )
+    np.testing.assert_equal(action, [1.0])
+    model_interface.query_model.assert_called_once()
+    mock_provider.reset.assert_not_called()
+    self.assertTrue(mock_provider.get_additional_observations.call_args[0][1])
+
+    # Step 2: Same instruction_1 consumes buffered action [2.0] without replan.
+    (action, _), policy_state = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation_1),
+        policy_state,
+    )
+    np.testing.assert_equal(action, [2.0])
+    model_interface.query_model.assert_called_once()
+    mock_provider.reset.assert_not_called()
+    self.assertFalse(mock_provider.get_additional_observations.call_args[0][1])
+
+    # Step 3: Instruction changes mid-chunk to instruction_2.
+    (action, _), _ = policy.step(
+        dm_env.transition(reward=0.0, discount=1.0, observation=observation_2),
+        policy_state,
+    )
+    if reset_on_instruction_change:
+      mock_provider.reset.assert_called_once()
+      self.assertTrue(mock_provider.get_additional_observations.call_args[0][1])
+      self.assertEqual(model_interface.query_model.call_count, 2)
+      np.testing.assert_equal(action, [10.0])
+    else:
+      mock_provider.reset.assert_not_called()
+      self.assertFalse(
+          mock_provider.get_additional_observations.call_args[0][1]
+      )
+      self.assertEqual(model_interface.query_model.call_count, 1)
+      np.testing.assert_equal(action, [3.0])
+
 
 if __name__ == "__main__":
   absltest.main()

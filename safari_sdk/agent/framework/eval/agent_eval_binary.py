@@ -52,12 +52,7 @@ _SUBPROCESS_LOG_DIR = flags.DEFINE_string(
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError("Too many command-line arguments.")
-  robot_id = utils.get_robot_id_from_system_env()
-  if not robot_id:
-    raise ValueError(
-        f"`{utils.DEFAULT_ROBOT_ID_IN_SYSTEM_ENV}` environment variable must be"
-        " set."
-    )
+  robot_id = utils.get_required_robot_id()
   orchestrator_client = orchestrator_helper.OrchestratorHelper(
       robot_id=robot_id,
       job_type=orchestrator_helper.JOB_TYPE.EVALUATION,

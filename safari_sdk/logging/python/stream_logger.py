@@ -38,6 +38,7 @@ class StreamLogger(
       optional_topics: Collection[str] | None = None,
       file_shard_size_limit_bytes: int = constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES,
       message_queue_size_limit: int = 0,
+      mcap_chunk_size_bytes: int = constants.DEFAULT_MCAP_CHUNK_SIZE_BYTES,
       session_metadata_config: (
           session_metadata_lib.SessionMetadataConfig | None
       ) = None,
@@ -53,6 +54,7 @@ class StreamLogger(
         internal_topics=set([constants.SYNC_TOPIC_NAME]),
         file_shard_size_limit_bytes=file_shard_size_limit_bytes,
         message_queue_size_limit=message_queue_size_limit,
+        mcap_chunk_size_bytes=mcap_chunk_size_bytes,
     )
 
     # Tracks the time of the most recent message on each topic.

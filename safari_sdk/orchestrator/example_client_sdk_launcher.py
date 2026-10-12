@@ -53,6 +53,12 @@ _POLL_INTERVAL_SEC = flags.DEFINE_float(
     1.0,
     "Interval in seconds between process health monitoring polls.",
 )
+_ONLY_DOWNLOAD_WITH_NO_LAUNCH = flags.DEFINE_bool(
+    "only_download_with_no_launch",
+    False,
+    "If True, only download artifacts and print the artifact launch commands"
+    " without launching processes or printing other logs.",
+)
 
 flags.register_multi_flags_validator(
     ["robot_id", "hostname"],
@@ -64,20 +70,24 @@ flags.register_multi_flags_validator(
 def main(argv: Sequence[str]) -> None:
   del argv  # Unused.
 
-  logging.basicConfig(
-      level=logging.INFO,
-      format="%(asctime)s [%(levelname)s] %(message)s",
-  )
+  if _ONLY_DOWNLOAD_WITH_NO_LAUNCH.value:
+    logging.disable(logging.CRITICAL)
+  else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
 
   launcher = orchestrator_launch_helper.OrchestratorLaunchHelper(
       job_type_codes=[_JOB_TYPE_CODE.value],
       robot_id=_ROBOT_ID.value,
       hostname=_HOSTNAME.value,
       download_dir=_DOWNLOAD_DIR.value,
+      only_download_with_no_launch=_ONLY_DOWNLOAD_WITH_NO_LAUNCH.value,
   )
 
-  exit_code = launcher.run(poll_interval=_POLL_INTERVAL_SEC.value)
-  sys.exit(exit_code)
+  result = launcher.run(poll_interval=_POLL_INTERVAL_SEC.value)
+  sys.exit(result if isinstance(result, int) else 0)
 
 
 if __name__ == "__main__":

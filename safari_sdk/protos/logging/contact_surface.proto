@@ -51,4 +51,18 @@ message ContactSurface {
   // each site is approximated. The approximation quality depends on
   // calibration. Hence, prefers to also log the raw digits whenever available.
   repeated double tactile_digits = 4 [packed = true];
+
+  // A binary mask matching tactile_digits in length, where true (1) indicates a
+  // broken (dead or permanently stuck) taxel and false (0) indicates a
+  // functioning taxel. In single-zone messages, the mask directly corresponds
+  // to the site's row-major taxel array.
+  repeated bool broken_taxel_mask = 5 [packed = true];
+
+  // Raw / unnormalized tactile readings directly from sensor ADC / hardware
+  // before calibration, tare baseline subtraction, or [0, 1] normalization.
+  // Optional; when present, must have 1:1 length parity with tactile_digits.
+  // Note: Hardware dynamic range parameters (range_min, range_max) refer to the
+  // theoretical electrical/hardware limits of the device itself (e.g. 0 to 4095
+  // for a 12-bit ADC), NOT empirical min/max values observed per session.
+  repeated double raw_tactile_digits = 6 [packed = true];
 }

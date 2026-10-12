@@ -64,6 +64,7 @@ class BaseLogger:
       internal_topics: Collection[str] | None = None,
       file_shard_size_limit_bytes: int = constants.DEFAULT_FILE_SHARD_SIZE_LIMIT_BYTES,
       message_queue_size_limit: int = 0,
+      mcap_chunk_size_bytes: int = constants.DEFAULT_MCAP_CHUNK_SIZE_BYTES,
   ):
 
     self._agent_id: str = agent_id
@@ -112,6 +113,7 @@ class BaseLogger:
         topics=self._all_topics,
         output_directory=output_directory,
         file_shard_size_limit_bytes=file_shard_size_limit_bytes,
+        mcap_chunk_size_bytes=mcap_chunk_size_bytes,
     )
 
   def is_session_started(self) -> bool:
@@ -242,9 +244,11 @@ class BaseLogger:
             publish_time_nsec=stop_nsec,
         )
     )
-    self._flush_queue_and_stop_worker()
-    self._session_started = False
-    self._file_handler.finalize_and_close_file(stop_nsec=stop_nsec)
+    try:
+      self._flush_queue_and_stop_worker()
+    finally:
+      self._session_started = False
+      self._file_handler.finalize_and_close_file(stop_nsec=stop_nsec)
 
   def write_proto_message(
       self,
@@ -361,8 +365,10 @@ class BaseLogger:
     if self._log_outside_session:
       self._log_outside_session = False
       self._is_recording = False
-      self._flush_queue_and_stop_worker()
-      self._file_handler.finalize_and_close_file(stop_nsec=stop_nsec)
+      try:
+        self._flush_queue_and_stop_worker()
+      finally:
+        self._file_handler.finalize_and_close_file(stop_nsec=stop_nsec)
 
   def _ensure_worker_started(self) -> None:
     """Starts the log writer thread if not already running and recording."""
