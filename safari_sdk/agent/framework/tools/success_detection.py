@@ -259,6 +259,7 @@ class SubtaskSuccessDetectorV4(VisionSuccessDetectionTool):
     self._success_signal = False
     self._success_signal_images_time = None
     self._external_success_signal = None
+    self._last_queried_image_timestamp = None
     self._image_buffer.reset_start_images_map()
     self._image_buffer.reset_latest_images_map()
     await asyncio.sleep(0.5)  # wait for the image buffer to be ready.
@@ -323,6 +324,10 @@ class SubtaskSuccessDetectorV4(VisionSuccessDetectionTool):
     if not current_images_timestamp:
       logging.warning("[SD]: No images available.")
       return
+    if (self._last_queried_image_timestamp and 
+        current_images_timestamp <= self._last_queried_image_timestamp):
+      return
+    self._last_queried_image_timestamp = current_images_timestamp
     # Step 1: Build the prompt and query the model.
     query_success_signal_start_time = time.time()
     prompt = self._build_prompt(subtask=subtask)
