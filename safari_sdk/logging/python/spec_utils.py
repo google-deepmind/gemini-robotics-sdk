@@ -91,12 +91,17 @@ def spec_from_proto(spec_proto: spec_pb2.Spec) -> specs.Array:
     minimum = minimum_64.astype(dtype)
     maximum = maximum_64.astype(dtype)
 
-    if shape and minimum.size > 1:
-      minimum = minimum.reshape(shape)
-      maximum = maximum.reshape(shape)
-    elif not shape and minimum.size == 1:
-      minimum = minimum.squeeze()
-      maximum = maximum.squeeze()
+    # Bounds are serialized independently and may each be scalar or per-element.
+    if shape:
+      if minimum.size > 1:
+        minimum = minimum.reshape(shape)
+      if maximum.size > 1:
+        maximum = maximum.reshape(shape)
+    else:
+      if minimum.size == 1:
+        minimum = minimum.squeeze()
+      if maximum.size == 1:
+        maximum = maximum.squeeze()
 
     return specs.BoundedArray(
         shape=shape,
