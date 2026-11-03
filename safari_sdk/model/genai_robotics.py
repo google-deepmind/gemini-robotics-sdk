@@ -124,7 +124,7 @@ class Models:
 class Client:
   """Forward compatibility layer for Gemini API.
 
-  For general gemini use cases, see https://ai.google.dev/gemini-api/docs.
+  For general gemini use cases, see https://aistudio.google.com/docs.
 
   For robotics use cases, contents are images followed by a JSON string
   representing the observations. Image observations in the JSON is index of the
