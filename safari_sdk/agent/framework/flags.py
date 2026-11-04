@@ -233,7 +233,7 @@ AGENTIC_ENABLE_CONTEXT_WINDOW_COMPRESSION = flags.DEFINE_bool(
     " session (and therefore, the connection), but you can use context window"
     " compression to extend sessions to an unlimited amount of time. See"
     " details here:"
-    " https://ai.google.dev/api/live#contextwindowcompressionconfig.",
+    " https://aistudio.google.com/api-reference/live#ContextWindowCompressionConfig.",
 )
 
 AGENTIC_GEMINI_LIVE_IMAGE_STREAMING_INTERVAL_SECONDS = flags.DEFINE_float(

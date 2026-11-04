@@ -109,7 +109,7 @@ class AgentFrameworkConfig:
   # limited to 2 minutes. Exceeding these limits will terminate the session
   # (and therefore, the connection), but you can use context window compression
   # to extend sessions to an unlimited amount of time. See details here:
-  # https://ai.google.dev/api/live#contextwindowcompressionconfig.
+  # https://aistudio.google.com/api-reference/live#ContextWindowCompressionConfig.
   enable_context_window_compression: bool = False
   # The interval in seconds for streaming images to the Gemini Live model.
   gemini_live_image_streaming_interval_seconds: float = 1.0

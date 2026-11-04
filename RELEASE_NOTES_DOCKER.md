@@ -2,8 +2,10 @@
 
 Release notes for the docker inference server.
 
-See https://ai.google.dev/gemini-api/docs/eap/robotics/robotics-ondevice#setup-model-server
-for how to download and use the docker inference server.
+See
+https://aistudio.google.com/docs/eap/robotics/robotics-ondevice#setup-model-server
+and other relevant documentation for how to download and use the docker
+inference server.
 
 ## 2.0.0
 

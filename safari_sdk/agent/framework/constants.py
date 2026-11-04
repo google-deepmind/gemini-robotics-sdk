@@ -16,7 +16,7 @@
 
 # Default audio input sample rate. Gemini Live API input audio is natively 16kHz
 # according to the following link:
-# https://ai.google.dev/gemini-api/docs/live-guide#audio-formats
+# https://aistudio.google.com/docs/live-api/capabilities#audio-formats
 DEFAULT_AUDIO_INPUT_RATE = 16000
 
 # Reserved key for the camera name in event metadata. Camera streams should
