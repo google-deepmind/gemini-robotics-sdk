@@ -422,7 +422,7 @@ class BidiGeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
             f' require more than {required_buffer_size} actions.'
             ' (Action conditioning chunk length:'
             f' {self._action_conditioning_chunk_length},'
-            ' min replan interval: {self._min_replan_interval})'
+            f' min replan interval: {self._min_replan_interval})'
         )
 
     self._action_spec = gdmr_types.UnboundedArraySpec(
@@ -504,7 +504,9 @@ class BidiGeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     inference_sent = False
     if self._should_replan():
-      self._pending_query = self._issue_query(observation)
+      self._pending_query = self._issue_query(
+          self._prepare_model_input_for_async(observation)
+      )
       inference_sent = True
 
     self._promote_pending_query_if_ready()
@@ -543,6 +545,38 @@ class BidiGeminiRoboticsPolicy(gdmr_policy.Policy[np.ndarray]):
 
     self._last_extra = extra
     return action
+
+  def _prepare_model_input_for_async(
+      self, observation: dict[str, np.ndarray]
+  ) -> dict[str, np.ndarray]:
+    """Returns a copy of `observation` with the action conditioning chunk.
+
+    The chunk is built from the actions of the active query that have arrived
+    but not been executed yet, resampled by the action conditioning resample
+    factor and trimmed to the action conditioning chunk length. Without an
+    active query or remaining actions, the observation is returned unchanged.
+
+    Args:
+      observation: The observation to send to the model.
+    """
+    model_input = dict(observation)
+    if self._active_query is None:
+      return model_input
+    horizon = self._active_query.horizon
+    remaining_actions = horizon.snapshot()[horizon.actions_consumed() :]
+    if remaining_actions.size > 0:
+      if self._action_conditioning_resample_factor > 1:
+        remaining_actions = action_chunk_resampling.apply_linear_resampling(
+            action_chunk=remaining_actions,
+            resample_factor=self._action_conditioning_resample_factor,
+        )
+      conditioning_chunk = remaining_actions[
+          : self._action_conditioning_chunk_length
+      ]
+      model_input[constants.CONDITIONING_ENCODED_OBS_KEY] = (
+          conditioning_chunk.tolist()
+      )
+    return model_input
 
   def _issue_query(self, observation: dict[str, np.ndarray]) -> _InFlightQuery:
     """Puts a query on the wire and returns its `_InFlightQuery` bundle."""

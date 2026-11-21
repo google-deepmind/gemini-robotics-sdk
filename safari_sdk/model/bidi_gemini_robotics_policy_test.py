@@ -710,6 +710,62 @@ class BidiPolicyStreamingTest(absltest.TestCase):
     self.assertEqual(policy.episode_statistics.action_stall_count, 0)
     policy.close()
 
+  def test_async_replan_sends_action_conditioning_chunk(self):
+    """An async replan must condition the model on the unexecuted actions."""
+    mock_model = mock.create_autospec(
+        bidi_remote_model_interface.BidiRemoteModelInterface,
+        instance=True,
+        spec_set=True,
+    )
+    mock_model.get_telemetry.return_value = None
+
+    mock_model.query_model.side_effect = [
+        _chunk_stream(np.zeros((6, 1))),
+        _chunk_stream(np.array([[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]])),
+        _FakeStream(),
+    ]
+
+    with mock.patch.object(
+        bidi_remote_model_interface,
+        "BidiRemoteModelInterface",
+        return_value=mock_model,
+    ):
+      policy = bidi_gemini_robotics_policy.BidiGeminiRoboticsPolicy(
+          serve_id="test_serve_id",
+          task_instruction_key="test_instruction_key",
+          image_observation_keys=("test_camera_1",),
+          proprioceptive_observation_keys=("test_joint_1",),
+          min_replan_interval=2,
+          inference_mode=constants.InferenceMode.ASYNCHRONOUS,
+          action_conditioning_chunk_length=2,
+      )
+
+    policy.step_spec(self._make_timestep_spec())
+    policy_state = policy.initial_state()
+    observation = self._make_observation()
+
+    # Steps 1 and 2 execute [1.0] and [2.0]; step 3 replans.
+    _, policy_state = policy.step(dm_env.restart(observation), policy_state)
+    _, policy_state = policy.step(
+        dm_env.transition(0.0, observation), policy_state
+    )
+    _, policy_state = policy.step(
+        dm_env.transition(0.0, observation), policy_state
+    )
+    self.assertEqual(mock_model.query_model.call_count, 3)
+
+    # The first query of the episode has nothing to condition on.
+    first_query_input = mock_model.query_model.call_args_list[1].args[0]
+    self.assertNotIn(constants.CONDITIONING_ENCODED_OBS_KEY, first_query_input)
+
+    # The replan is conditioned on the next 2 unexecuted actions.
+    replan_input = mock_model.query_model.call_args_list[2].args[0]
+    self.assertEqual(
+        replan_input[constants.CONDITIONING_ENCODED_OBS_KEY], [[3.0], [4.0]]
+    )
+    self.assertNotIn(constants.CONDITIONING_ENCODED_OBS_KEY, observation)
+    policy.close()
+
   def test_a_completed_response_lets_the_next_query_go_out_in_time(self):
     """Draining a response must not leave the policy with nothing to execute.
 
